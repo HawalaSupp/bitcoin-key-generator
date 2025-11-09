@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:888}/swift-app",
+            "name": "Debug swift-app (swift-app)",
+            "target": "swift-app",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug swift-app (swift-app)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:888}/swift-app",
+            "name": "Release swift-app (swift-app)",
+            "target": "swift-app",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release swift-app (swift-app)"
+        }
+    ]
+}
