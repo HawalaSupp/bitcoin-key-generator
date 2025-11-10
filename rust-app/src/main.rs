@@ -1,42 +1,81 @@
-use bitcoin::key::{CompressedPublicKey, PublicKey as BitcoinPublicKey};
-use bitcoin::secp256k1::{Secp256k1, SecretKey, PublicKey as SecpPublicKey};
-use bitcoin::{Address, Network, PrivateKey};
-use rand::rngs::OsRng;
-use rand::RngCore;
+use rust_app::{AllKeys, generate_all_keys};
+use std::env;
 use std::error::Error;
-use std::convert::TryFrom;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // Use the operating system RNG for cryptographic strength randomness
-    let secp = Secp256k1::new();
-    let mut rng = OsRng;
+    let args: Vec<String> = env::args().collect();
+    let keys = generate_all_keys()?;
 
-    // Generate a fresh random 32-byte secret key
-    let mut secret_bytes = [0u8; 32];
-    rng.fill_bytes(&mut secret_bytes);
-    let secret_key = SecretKey::from_slice(&secret_bytes)?;
-
-    // Capture a hex representation before the key is moved
-    let secret_hex = hex::encode(secret_key.secret_bytes());
-
-    // Derive the corresponding compressed public key
-    let secp_public_key = SecpPublicKey::from_secret_key(&secp, &secret_key);
-    let public_key = BitcoinPublicKey::from(secp_public_key);
-    let compressed = CompressedPublicKey::try_from(public_key.clone())?;
-
-    // Wrap the secret key as a Bitcoin private key for WIF export
-    let private_key = PrivateKey::new(secret_key, Network::Bitcoin);
-
-    // Generate a Bech32 SegWit address from the compressed key
-    let address = Address::p2wpkh(&compressed, Network::Bitcoin);
-
-    println!("Private key (hex): {}", secret_hex);
-    println!("Private key (WIF): {}", private_key.to_wif());
-    println!(
-        "Public key (compressed hex): {}",
-        hex::encode(compressed.to_bytes())
-    );
-    println!("Bech32 address (P2WPKH): {}", address);
+    if args.iter().any(|arg| arg == "--json") {
+        println!("{}", serde_json::to_string_pretty(&keys)?);
+    } else {
+        print_human_readable(&keys);
+    }
 
     Ok(())
+}
+
+fn print_human_readable(keys: &AllKeys) {
+    println!("=== Bitcoin (P2WPKH) ===");
+    println!("Private key (hex): {}", keys.bitcoin.private_hex);
+    println!("Private key (WIF): {}", keys.bitcoin.private_wif);
+    println!(
+        "Public key (compressed hex): {}",
+        keys.bitcoin.public_compressed_hex
+    );
+    println!("Bech32 address (P2WPKH): {}", keys.bitcoin.address);
+    println!();
+
+    println!("=== Litecoin (P2WPKH) ===");
+    println!("Private key (hex): {}", keys.litecoin.private_hex);
+    println!("Private key (WIF): {}", keys.litecoin.private_wif);
+    println!(
+        "Public key (compressed hex): {}",
+        keys.litecoin.public_compressed_hex
+    );
+    println!("Bech32 address (P2WPKH): {}", keys.litecoin.address);
+    println!();
+
+    println!("=== Monero ===");
+    println!("Private spend key (hex): {}", keys.monero.private_spend_hex);
+    println!("Private view key (hex): {}", keys.monero.private_view_hex);
+    println!("Public spend key (hex): {}", keys.monero.public_spend_hex);
+    println!("Public view key (hex): {}", keys.monero.public_view_hex);
+    println!("Primary address: {}", keys.monero.address);
+    println!();
+
+    println!("=== Solana ===");
+    println!("Private seed (hex): {}", keys.solana.private_seed_hex);
+    println!("Private key (base58): {}", keys.solana.private_key_base58);
+    println!(
+        "Public key / address (base58): {}",
+        keys.solana.public_key_base58
+    );
+    println!();
+
+    println!("=== Ethereum ===");
+    println!("Private key (hex): {}", keys.ethereum.private_hex);
+    println!(
+        "Public key (uncompressed hex): {}",
+        keys.ethereum.public_uncompressed_hex
+    );
+    println!("Checksummed address: {}", keys.ethereum.address);
+    println!();
+
+    println!("=== BNB Smart Chain ===");
+    println!("Private key (hex): {}", keys.bnb.private_hex);
+    println!(
+        "Public key (uncompressed hex): {}",
+        keys.bnb.public_uncompressed_hex
+    );
+    println!("Checksummed address: {}", keys.bnb.address);
+    println!();
+
+    println!("=== XRP ===");
+    println!("Private key (hex): {}", keys.xrp.private_hex);
+    println!(
+        "Public key (compressed hex): {}",
+        keys.xrp.public_compressed_hex
+    );
+    println!("Classic address: {}", keys.xrp.classic_address);
 }

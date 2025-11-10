@@ -1,0 +1,47 @@
+name: Wallet Validation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  wallet-validator:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Cargo artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust-app/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-app/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build Rust workspace
+        run: cargo build --manifest-path rust-app/Cargo.toml
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path rust-app/Cargo.toml
+
+      - name: Generate JSON key material
+        run: cargo run --manifest-path rust-app/Cargo.toml --bin rust-app -- --json > key_material.json
+
+      - name: Validate derived wallets
+        run: cargo run --manifest-path rust-app/Cargo.toml --bin wallet_validator -- key_material.json
+
+      - name: Upload key material artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wallet-key-material
+          path: key_material.json

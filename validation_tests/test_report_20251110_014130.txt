@@ -1,0 +1,107 @@
+==========================================
+Multi-Chain Wallet Validation
+==========================================
+Timestamp: 20251110_014130
+Output directory: /Users/x/Desktop/888/validation_tests
+
+Step 1: Verifying builds...
+BUILD VERIFICATION
+==================
+Rust build: ✅ PASS
+Rust build output:
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+Swift build: ✅ PASS
+Swift build output:
+[0/1] Planning build
+Building for debugging...
+[0/3] Write swift-version--58304C5D6DBC2206.txt
+Build complete! (0.17s)
+Security audit: ✅ PASS (0 vulnerabilities)
+Security audit details: /Users/x/Desktop/888/validation_tests/cargo_audit_20251110_014130.json
+cargo audit output (JSON):
+{"database":{"advisory-count":862,"last-commit":"936180444fefa981e2475ddba9796d7d5b0b751d","last-updated":"2025-11-04T07:10:22+01:00"},"lockfile":{"dependency-count":65},"settings":{"target_arch":[],"target_os":[],"severity":null,"ignore":[],"informational_warnings":["unmaintained","unsound","notice"]},"vulnerabilities":{"found":false,"count":0,"list":[]},"warnings":{}}
+Step 2: Generating key material snapshots...
+JSON export created: /Users/x/Desktop/888/validation_tests/key_material_20251110_014130.json
+Human-readable snapshot: /Users/x/Desktop/888/validation_tests/human_readable_20251110_014130.txt
+KEY MATERIAL (Human Readable)
+------------------------------
+=== Bitcoin (P2WPKH) ===
+Private key (hex): ebbb326860a1b1746fbaf1886ae0987d0728727cb27a9d9d9a0beec9e3b73d5d
+Private key (WIF): L57wZorDgpCN5DtxFbEMgJEiGLZxGTtkQncx2fGnhWWrf4pjydNh
+Public key (compressed hex): 0239f79699f9a35814ddbe959f19659dec034993b363551682cefa5571914f4ff9
+Bech32 address (P2WPKH): bc1qrrrhmy07tds29vekxsmecgstdw4ulqwpup4hkr
+
+=== Litecoin (P2WPKH) ===
+Private key (hex): d4d003d431dc6f92ca57392b4a1de660587be46050c66e628d1a2d90776ab457
+Private key (WIF): TABf4GRc6aCQSWy7Q8dKJzg1GpMWSHzePh2ufxKkUxc4WN4MvNyt
+Public key (compressed hex): 03b972462e52c3b5ea31d7921cb9b354fea4966dae0c55b4826f01eee7149a1e91
+Bech32 address (P2WPKH): ltc1q4cl7sa2cxxse45ejrel44kktmxv037ca6qkfpk
+
+=== Monero ===
+Private spend key (hex): 4d5d49e3d05be50e4f2d22886e3bd39168d397b473368884c56ed80aafb41905
+Private view key (hex): dcaf5e04f693df401aa5fbec04d8e2d1389fb0a2f3bf46100aa9e327618d0a0b
+Public spend key (hex): a334a2f75f9c1713d45836586dab5098a6288375a08ad94fd03c19b73201f6ce
+Public view key (hex): 0a950305969bfcaeaaba18971d4c0eb297021d722dd0e80813db35c2d9a2d1d6
+Primary address: 4x4B56cMNauEVbbjXiXBUEdPRfEhf5GFHi9Z7ADjj7GajFcUhEawEXF3PhiT5gsAaqfwacotJMxgHc4jXC5QhErj18VaA4Cu
+
+=== Solana ===
+Private seed (hex): a6f355c01173d7baaa8702945759771eb17695d02764c2aed8ee476eb116a8c8
+Private key (base58): 4Lbccr35PaKYFsZz9N1SYT9HD8zTeXTbrhfHPHpfKtWKUc33PgwVz8qpJBwt2gGhEJa79FwuKRbx1ZF9AYM61Zym
+Public key / address (base58): Knjt9NjocuLq7HNmXHjPa3D2UkiacHLvsoKptbsLTmu
+
+=== Ethereum ===
+Private key (hex): ed42988fe5ef96cff97ac4b2af5b9eefe342c25b48d73d19818117e215b087b2
+Public key (uncompressed hex): 5226c6de23dcf2965a44ce16bcd40225e23e33ca682f6b897f0ee5bb9bf13f2bd79b07d943972d6ba7688f6db0d3bc61bf501f50aaa8435d6b34ed4096ada484
+Checksummed address: 0x121Bf629470941AbdAD4926E66bc8ABf680eB8b8
+
+Step 3: Running wallet validator...
+Wallet validation: ✅ PASS
+VALIDATOR OUTPUT
+----------------
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `rust-app/target/debug/wallet_validator /Users/x/Desktop/888/validation_tests/key_material_20251110_014130.json`
+================ Wallet Validation ================
+Bitcoin    ✅ PASS
+Litecoin   ✅ PASS
+Monero     ✅ PASS
+Solana     ✅ PASS
+Ethereum   ✅ PASS
+===================================================
+Overall status: ✅ All derived wallets verified
+
+NEXT STEPS - WALLET VALIDATION
+==============================
+1. Bitcoin (Electrum):
+   - Download: https://electrum.org/
+   - Run in testnet mode
+   - Import WIF private key
+   - Verify generated address matches
+
+2. Litecoin (Litecoin Core):
+   - Download: https://litecoin.org/en/download
+   - Run in testnet mode
+   - Import WIF private key
+   - Verify generated address matches
+
+3. Monero (monero-wallet-cli):
+   - Download: https://www.getmonero.org/downloads/
+   - Restore from spend key
+   - Run: address
+   - Verify primary address and view key match
+
+4. Solana (CLI):
+   - Install: https://docs.solana.com/cli/install-solana-cli-tools
+   - Import keypair
+   - Run: solana address --keypair <file>
+   - Verify address matches
+
+5. Ethereum (web3.py):
+   - Install: pip3 install web3
+   - Run test script (see VALIDATION_TESTING.md)
+   - Verify address and checksum match
+
+==========================================
+Validation complete. Consolidated report: /Users/x/Desktop/888/validation_tests/test_report_20251110_014130.txt
+JSON key material: /Users/x/Desktop/888/validation_tests/key_material_20251110_014130.json
+Validator log: /Users/x/Desktop/888/validation_tests/validator_output_20251110_014130.txt
+==========================================

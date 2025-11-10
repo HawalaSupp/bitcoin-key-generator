@@ -1,0 +1,105 @@
+==========================================
+Multi-Chain Wallet Validation
+==========================================
+Timestamp: 20251110_013157
+Output directory: /Users/x/Desktop/888/validation_tests
+
+Step 1: Verifying builds...
+BUILD VERIFICATION
+==================
+Rust build: ✅ PASS
+Rust build output:
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+Swift build: ✅ PASS
+Swift build output:
+[0/1] Planning build
+Building for debugging...
+[0/3] Write swift-version--58304C5D6DBC2206.txt
+Build complete! (0.26s)
+Security audit: ⚠️ SKIPPED (cargo-audit not installed)
+
+Step 2: Generating key material snapshots...
+JSON export created: /Users/x/Desktop/888/validation_tests/key_material_20251110_013157.json
+Human-readable snapshot: /Users/x/Desktop/888/validation_tests/human_readable_20251110_013157.txt
+KEY MATERIAL (Human Readable)
+------------------------------
+=== Bitcoin (P2WPKH) ===
+Private key (hex): 11998be175d99db6422ac7de06a901ab0a0426135888ebaf0f0ecaa8b86148f9
+Private key (WIF): KwovTo1Ryo8ErRxTxTXtDT9BDLFPEK2VTekTdqksK6ivhRcZ3Tsi
+Public key (compressed hex): 0386a8f35393b479a8b51ee9432eadda1a865902cf16383c2b77d5b9421cf8e88d
+Bech32 address (P2WPKH): bc1qg5xs0zzttlcmz2qcevh2mx3ch5hf4kfvwqe5rz
+
+=== Litecoin (P2WPKH) ===
+Private key (hex): 3a29faca0d06874fb746f76005ae2257540cdc770ee88de46b030a2ccccaf5b5
+Private key (WIF): T513Hx4esxmmXL8AfV4m3NNAucjnupoDH9PynAoZopGez9tHuvsf
+Public key (compressed hex): 03ac799d9942cfcf9f922cfc766a36c93985a1be1192162d356269bfcaa6dd874a
+Bech32 address (P2WPKH): ltc1qxvdp0yuwsstm6jglwx6ca7l5txfyyap22xen4x
+
+=== Monero ===
+Private spend key (hex): d34446dde071ae55cb1ccbb21e2805a1ded7adb81dc5020dfea80777969d7a0e
+Private view key (hex): cf7c49e6458da329e86f9d86451b264fd1d1bbe40e3f06be77b67a8503c5bf03
+Public spend key (hex): 0e5590216200f48839796e0ec2ca8e6432b4dda6421001b8960b2e7170811078
+Public view key (hex): 469ebf12523ce553480baf8310358c040c1b6188766e23f06cfa534bb3117fa8
+Primary address: hp7yGDTTkK3QtGAgELAs3M1BKQtnskK3q3m8GCn4UA3yfLsctYEXJc7QTBoe7YDvqp6vjLNVMXuC7NFjLDkAvBrw1GnCYRyq
+
+=== Solana ===
+Private seed (hex): e8b8f9b29431defb809d38a61bc7a939b19d7580c804b37a1950cc60600b6602
+Private key (base58): 5esFegsNQ5WH5HziFKSZAi2KyJ8KZoRtJXC3LXTAQVDhkqqar9jnKCGAYR5CaSpp1CkVhanG1JPgzz28M7gNTotK
+Public key / address (base58): n3jZnQUuW1W2q7yGJ3Mke8D8ZzncFNs6xTPUY2bTpHD
+
+=== Ethereum ===
+Private key (hex): d181659309516608bf3d85ece9ef6ebe7ca2053fe7ecae9e1497d5c4852a0db7
+Public key (uncompressed hex): 4c22c3d62f4f876dc0e2f17ca4c4f110e95463a2312f6f92137c9a89e9a57071db1a80bd6f0e6d90364218bca3361bb5a122eccf75fc771ba87d7c78393f315c
+Checksummed address: 0x9D263e8e1D0773c5936f03aFdbB83dEa200eb422
+
+Step 3: Running wallet validator...
+Wallet validation: ✅ PASS
+VALIDATOR OUTPUT
+----------------
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `rust-app/target/debug/wallet_validator /Users/x/Desktop/888/validation_tests/key_material_20251110_013157.json`
+================ Wallet Validation ================
+Bitcoin    ✅ PASS
+Litecoin   ✅ PASS
+Monero     ✅ PASS
+Solana     ✅ PASS
+Ethereum   ✅ PASS
+===================================================
+Overall status: ✅ All derived wallets verified
+
+NEXT STEPS - WALLET VALIDATION
+==============================
+1. Bitcoin (Electrum):
+   - Download: https://electrum.org/
+   - Run in testnet mode
+   - Import WIF private key
+   - Verify generated address matches
+
+2. Litecoin (Litecoin Core):
+   - Download: https://litecoin.org/en/download
+   - Run in testnet mode
+   - Import WIF private key
+   - Verify generated address matches
+
+3. Monero (monero-wallet-cli):
+   - Download: https://www.getmonero.org/downloads/
+   - Restore from spend key
+   - Run: address
+   - Verify primary address and view key match
+
+4. Solana (CLI):
+   - Install: https://docs.solana.com/cli/install-solana-cli-tools
+   - Import keypair
+   - Run: solana address --keypair <file>
+   - Verify address matches
+
+5. Ethereum (web3.py):
+   - Install: pip3 install web3
+   - Run test script (see VALIDATION_TESTING.md)
+   - Verify address and checksum match
+
+==========================================
+Validation complete. Consolidated report: /Users/x/Desktop/888/validation_tests/test_report_20251110_013157.txt
+JSON key material: /Users/x/Desktop/888/validation_tests/key_material_20251110_013157.json
+Validator log: /Users/x/Desktop/888/validation_tests/validator_output_20251110_013157.txt
+==========================================

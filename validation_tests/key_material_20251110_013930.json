@@ -1,0 +1,31 @@
+{
+  "bitcoin": {
+    "private_hex": "a8049907f82ff8be081d2e85b04156e78cdcef85ea983578b8ab3325715bff79",
+    "private_wif": "L2rKGjqP59QzSfiRRm5tewKhsWhwZAujVsbBEoRnDk7XLziugCx8",
+    "public_compressed_hex": "03b33a58f9d6a503fedd508c15aac1b16a401be504f5aaec8b59e80c6800d1e463",
+    "address": "bc1qu2d7ec7tj8ptj5vfhyr80af6sxtyq3ns49lyam"
+  },
+  "litecoin": {
+    "private_hex": "8b046b8775ee2fb7b42afc3673a33a4744835d173e5f25b0ae9d3beaddba7d07",
+    "private_wif": "T7iD3q5N6PwfTD6WHHzuf4EErjvjZpXQRKG9XoaGGEmhBtGeJv18",
+    "public_compressed_hex": "03844a9bf40c34ec743258eaf8211924a3933919955a5a5aa0fae72868341f9444",
+    "address": "ltc1qdesa469upfk0jsutmgs8awsnapracl8z8ntrzk"
+  },
+  "monero": {
+    "private_spend_hex": "eac44e1818a5b55492ec02ebc272009f9301b1398d3470562e0f6c440420c309",
+    "private_view_hex": "f195dac86ccd6f7f7820fc6d9e94967789e7e38c4247840f20faf308828e1501",
+    "public_spend_hex": "50595a27037fe816cc591b40b296a594c33d0f710e8d43223a4e88f7f25a85e7",
+    "public_view_hex": "e08c3e9fbe7a6911941007a26accdc5a40d776d6922fedeaf85ceabedea3178a",
+    "address": "ftWDptwGC1oUhRD92VfJFwCJL6sumHCZ9PJiN68u4zhwJeHR1YZYdotdw2HBwgqpB2gfzz1EMyTvH4xLeZqtebfF1SJes9ny"
+  },
+  "solana": {
+    "private_seed_hex": "f241abe45511bc6c9694dd31399af50dd5dd55079c2d62e17c5310483fc5c57f",
+    "private_key_base58": "5qvUqo6EmQBMgRfXtkZjKQXxQBCy4UzfzAtf44AbvauZPnBjhN4ESAAZfMP8wL2PyBhzPTAMCGdqVrCHNBQ1pAuq",
+    "public_key_base58": "5PXiHW5DKhHsqDKHcf18vkb7tpGsZmq4vXPycNzrSQno"
+  },
+  "ethereum": {
+    "private_hex": "18a3af542da8c623449866275e3bd9da4d99ff9a516d8103ff50de4fab4b51be",
+    "public_uncompressed_hex": "558630b2601da7078adee8dea24cb6245796fe7aee5fdc200d6d5ed8f150ce0f45b71e05e43914836b98a6e937cdf1ea38cece8c92936c954f3aaaee964467ec",
+    "address": "0x1aB5C0D04aD6CF88BD82AaAa2b91E1d244aEa52b"
+  }
+}
