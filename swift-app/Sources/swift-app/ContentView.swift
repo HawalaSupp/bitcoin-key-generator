@@ -283,8 +283,6 @@ struct ContentView: View {
                         showStatus("Transaction broadcast: \(txid.prefix(16))...", tone: .success)
                     }
                 )
-            } else {
-                NoKeysPlaceholderView()
             }
         }
         .sheet(isPresented: $showSettingsPanel) {
@@ -815,17 +813,19 @@ struct ContentView: View {
                 systemImage: "paperplane.fill",
                 color: .orange
             ) {
-                guard let keys else {
-                    showStatus("Generate keys before sending.", tone: .info)
-                    return
-                }
-                // Show Bitcoin mainnet by default, but allow selection
-                let bitcoinChains = keys.chainInfos.filter { $0.id.starts(with: "bitcoin") }
-                if let btcChain = bitcoinChains.first {
-                    sendChainContext = btcChain
-                    showSendSheet = true
+                // Auto-generate keys if they don't exist (instant, no UI blocking)
+                if keys == nil {
+                    Task {
+                        // Generate keys silently in background
+                        await runGenerator()
+                        // Once keys are ready, open send sheet immediately
+                        await MainActor.run {
+                            openSendSheet()
+                        }
+                    }
                 } else {
-                    showStatus("Bitcoin wallet not found.", tone: .error)
+                    // Keys already exist, open immediately
+                    openSendSheet()
                 }
             }
 
@@ -1068,6 +1068,21 @@ struct ContentView: View {
                 statusMessage = nil
                 statusTask = nil
             }
+        }
+    }
+    
+    private func openSendSheet() {
+        guard let keys else {
+            showStatus("Keys are being generated...", tone: .info)
+            return
+        }
+        // Show Bitcoin mainnet by default
+        let bitcoinChains = keys.chainInfos.filter { $0.id.starts(with: "bitcoin") }
+        if let btcChain = bitcoinChains.first {
+            sendChainContext = btcChain
+            showSendSheet = true
+        } else {
+            showStatus("Bitcoin wallet not found.", tone: .error)
         }
     }
 

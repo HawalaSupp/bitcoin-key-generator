@@ -12,7 +12,7 @@
 - [x] Create and Run Task
   - Defined VS Code tasks in `.vscode/tasks.json` and executed the "Build Rust" task successfully.
 - [ ] Launch the Project
-  - Awaiting user confirmation before launching any binaries.
+  - After every change, launch the Hawala app so it appears in the Dock (e.g. `open swift-app/.build/arm64-apple-macosx/debug/swift-app.app`).
 - [x] Ensure Documentation is Complete
   - README.md and docs/ placeholders created; this file now reflects the latest project status without HTML comments.
 - Work through each checklist item systematically.
