@@ -26,6 +26,19 @@ fn print_human_readable(keys: &AllKeys) {
     println!("Bech32 address (P2WPKH): {}", keys.bitcoin.address);
     println!();
 
+    println!("=== Bitcoin Testnet (P2WPKH) ===");
+    println!("Private key (hex): {}", keys.bitcoin_testnet.private_hex);
+    println!("Private key (WIF): {}", keys.bitcoin_testnet.private_wif);
+    println!(
+        "Public key (compressed hex): {}",
+        keys.bitcoin_testnet.public_compressed_hex
+    );
+    println!(
+        "Bech32 address (P2WPKH): {}",
+        keys.bitcoin_testnet.address
+    );
+    println!();
+
     println!("=== Litecoin (P2WPKH) ===");
     println!("Private key (hex): {}", keys.litecoin.private_hex);
     println!("Private key (WIF): {}", keys.litecoin.private_wif);
@@ -60,6 +73,15 @@ fn print_human_readable(keys: &AllKeys) {
         keys.ethereum.public_uncompressed_hex
     );
     println!("Checksummed address: {}", keys.ethereum.address);
+    println!();
+
+    println!("=== Ethereum Sepolia ===");
+    println!("Private key (hex): {}", keys.ethereum_sepolia.private_hex);
+    println!(
+        "Public key (uncompressed hex): {}",
+        keys.ethereum_sepolia.public_uncompressed_hex
+    );
+    println!("Checksummed address: {}", keys.ethereum_sepolia.address);
     println!();
 
     println!("=== BNB Smart Chain ===");

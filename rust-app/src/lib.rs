@@ -17,10 +17,12 @@ use tiny_keccak::{Hasher, Keccak};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AllKeys {
     pub bitcoin: BitcoinKeys,
+    pub bitcoin_testnet: BitcoinKeys,
     pub litecoin: LitecoinKeys,
     pub monero: MoneroKeys,
     pub solana: SolanaKeys,
     pub ethereum: EthereumKeys,
+    pub ethereum_sepolia: EthereumKeys,
     pub bnb: BnbKeys,
     pub xrp: XrpKeys,
 }
@@ -83,19 +85,23 @@ pub fn generate_all_keys() -> Result<AllKeys, Box<dyn Error>> {
     let mut rng = OsRng;
 
     let bitcoin_keys = generate_bitcoin_keys(&secp, &mut rng)?;
+    let bitcoin_testnet_keys = generate_bitcoin_testnet_keys(&secp, &mut rng)?;
     let litecoin_keys = generate_litecoin_keys(&secp, &mut rng)?;
     let monero_keys = generate_monero_keys(&mut rng)?;
     let solana_keys = generate_solana_keys(&mut rng)?;
     let ethereum_keys = generate_ethereum_keys(&secp, &mut rng)?;
+    let ethereum_sepolia_keys = generate_ethereum_keys(&secp, &mut rng)?;
     let bnb_keys = generate_bnb_keys(&secp, &mut rng)?;
     let xrp_keys = generate_xrp_keys(&secp, &mut rng)?;
 
     Ok(AllKeys {
         bitcoin: bitcoin_keys,
+        bitcoin_testnet: bitcoin_testnet_keys,
         litecoin: litecoin_keys,
         monero: monero_keys,
         solana: solana_keys,
         ethereum: ethereum_keys,
+        ethereum_sepolia: ethereum_sepolia_keys,
         bnb: bnb_keys,
         xrp: xrp_keys,
     })
@@ -115,6 +121,29 @@ pub fn generate_bitcoin_keys(
     let compressed = CompressedPublicKey::try_from(public_key.clone())?;
     let private_key = PrivateKey::new(secret_key, Network::Bitcoin);
     let address = Address::p2wpkh(&compressed, Network::Bitcoin);
+
+    Ok(BitcoinKeys {
+        private_hex,
+        private_wif: private_key.to_wif(),
+        public_compressed_hex: hex::encode(compressed.to_bytes()),
+        address: address.to_string(),
+    })
+}
+
+pub fn generate_bitcoin_testnet_keys(
+    secp: &Secp256k1<secp256k1::All>,
+    rng: &mut OsRng,
+) -> Result<BitcoinKeys, Box<dyn Error>> {
+    let mut secret_bytes = [0u8; 32];
+    rng.fill_bytes(&mut secret_bytes);
+    let secret_key = SecretKey::from_slice(&secret_bytes)?;
+
+    let private_hex = hex::encode(secret_key.secret_bytes());
+    let secp_public_key = SecpPublicKey::from_secret_key(secp, &secret_key);
+    let public_key = BitcoinPublicKey::from(secp_public_key);
+    let compressed = CompressedPublicKey::try_from(public_key.clone())?;
+    let private_key = PrivateKey::new(secret_key, Network::Testnet);
+    let address = Address::p2wpkh(&compressed, Network::Testnet);
 
     Ok(BitcoinKeys {
         private_hex,

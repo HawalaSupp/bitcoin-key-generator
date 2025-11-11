@@ -1245,12 +1245,19 @@ struct ContentView: View {
         }
 
         print("🔄 Starting encrypted import...")
+        print("📦 Archive size: \(archiveData.count) bytes")
         
         do {
             let plaintext = try decryptArchive(archiveData, password: password)
-            print("✅ Decryption successful")
+            print("✅ Decryption successful, plaintext size: \(plaintext.count) bytes")
+            
+            // Debug: print first 200 characters of JSON
+            if let jsonString = String(data: plaintext, encoding: .utf8) {
+                print("📄 JSON preview: \(String(jsonString.prefix(200)))...")
+            }
             
             let decoder = JSONDecoder()
+            // Don't use convertFromSnakeCase because AllKeys already has custom CodingKeys
             let importedKeys = try decoder.decode(AllKeys.self, from: plaintext)
             print("✅ Keys decoded successfully")
             
@@ -1275,6 +1282,16 @@ struct ContentView: View {
             pendingImportData = nil
             showStatus("Encrypted backup imported successfully. Keys loaded.", tone: .success)
             print("✅ Import complete - UI should now show keys")
+        } catch let DecodingError.keyNotFound(key, context) {
+            print("❌ Missing key: \(key.stringValue)")
+            print("❌ Context: \(context.debugDescription)")
+            print("❌ Coding path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
+            showStatus("Import failed: Missing required field '\(key.stringValue)'", tone: .error, autoClear: false)
+        } catch let DecodingError.typeMismatch(type, context) {
+            print("❌ Type mismatch for type: \(type)")
+            print("❌ Context: \(context.debugDescription)")
+            print("❌ Coding path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
+            showStatus("Import failed: Invalid data format", tone: .error, autoClear: false)
         } catch {
             print("❌ Import failed: \(error)")
             showStatus("Import failed: \(error.localizedDescription)", tone: .error, autoClear: false)
@@ -1283,7 +1300,7 @@ struct ContentView: View {
 
     private func buildEncryptedArchive(from keys: AllKeys, password: String) throws -> Data {
         let encoder = JSONEncoder()
-        encoder.keyEncodingStrategy = .convertToSnakeCase
+        // Don't use convertToSnakeCase because AllKeys already has custom CodingKeys
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let plaintext = try encoder.encode(keys)
         let envelope = try encryptPayload(plaintext, password: password)
@@ -2778,55 +2795,36 @@ private struct BitcoinSendSheet: View {
                 throw BitcoinSendError.insufficientFunds
             }
             
-            // Select UTXOs (simple strategy: use enough to cover amount + fee)
-            var selectedUTXOs: [BitcoinUTXO] = []
-            var selectedValue: Int64 = 0
-            let neededValue = satoshis + estimatedFee
+            // Convert UTXOs to the format expected by BitcoinTransaction
+            let utxoList = confirmedUTXOs.map { utxo in
+                (txid: utxo.txid, vout: UInt32(utxo.vout), value: UInt64(utxo.value), scriptPubKey: utxo.scriptpubkey)
+            }
             
-            for utxo in confirmedUTXOs.sorted(by: { $0.value > $1.value }) {
-                selectedUTXOs.append(utxo)
-                selectedValue += Int64(utxo.value)
-                if selectedValue >= neededValue {
-                    break
+            // Get fee rate from estimates
+            let feeRateValue: UInt64
+            if let estimates = feeEstimates {
+                switch selectedFeeRate {
+                case .fast:
+                    feeRateValue = UInt64(estimates.fastestFee)
+                case .medium:
+                    feeRateValue = UInt64(estimates.halfHourFee)
+                case .slow:
+                    feeRateValue = UInt64(estimates.hourFee)
+                case .economy:
+                    feeRateValue = UInt64(estimates.economyFee)
                 }
-            }
-            
-            guard selectedValue >= neededValue else {
-                throw BitcoinSendError.insufficientFunds
-            }
-            
-            // Calculate change
-            let change = selectedValue - satoshis - estimatedFee
-            
-            // Build inputs
-            let inputs = try selectedUTXOs.map { utxo -> BitcoinTransactionBuilder.Input in
-                guard let scriptPubKeyData = Data(hex: utxo.scriptpubkey) else {
-                    throw BitcoinSendError.invalidAddress
-                }
-                return BitcoinTransactionBuilder.Input(
-                    txid: utxo.txid,
-                    vout: UInt32(utxo.vout),
-                    value: Int64(utxo.value),
-                    scriptPubKey: scriptPubKeyData
-                )
-            }
-            
-            // Build outputs
-            var outputs = [
-                BitcoinTransactionBuilder.Output(address: recipient, value: satoshis)
-            ]
-            
-            // Add change output if significant (> dust limit)
-            if change > 546 {
-                outputs.append(BitcoinTransactionBuilder.Output(address: address, value: change))
+            } else {
+                feeRateValue = 10 // Default fallback
             }
             
             // Build and sign transaction
-            let signedTx = try BitcoinTransactionBuilder.buildAndSign(
-                inputs: inputs,
-                outputs: outputs,
-                privateKeyWIF: privateWIF,
-                isTestnet: isTestnet
+            let rawTxHex = try BitcoinTransaction.buildAndSign(
+                from: utxoList,
+                to: recipient,
+                amount: UInt64(satoshis),
+                feeRate: feeRateValue,
+                changeAddress: address,
+                privateKeyWIF: privateWIF
             )
             
             // Broadcast transaction
@@ -2837,7 +2835,7 @@ private struct BitcoinSendSheet: View {
             
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
-            request.httpBody = signedTx.rawHex.data(using: String.Encoding.utf8)
+            request.httpBody = rawTxHex.data(using: String.Encoding.utf8)
             request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
             
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -2848,7 +2846,7 @@ private struct BitcoinSendSheet: View {
             
             if httpResponse.statusCode == 200 {
                 // Success! Get txid from response
-                let txid = String(data: data, encoding: .utf8) ?? signedTx.txid
+                let txid = String(data: data, encoding: .utf8) ?? "Unknown"
                 
                 await MainActor.run {
                     errorMessage = """

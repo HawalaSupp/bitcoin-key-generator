@@ -8,9 +8,19 @@ let package = Package(
     platforms: [
         .macOS(.v13)
     ],
+    dependencies: [
+        .package(url: "https://github.com/21-DOT-DEV/swift-secp256k1.git", from: "0.21.1")
+    ],
     targets: [
         .executableTarget(
-            name: "swift-app"
+            name: "swift-app",
+            dependencies: [
+                .product(name: "P256K", package: "swift-secp256k1")
+            ]
+        ),
+        .testTarget(
+            name: "swift-appTests",
+            dependencies: ["swift-app"]
         )
     ]
 )
