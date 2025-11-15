@@ -270,19 +270,40 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showSendSheet) {
             if let chain = sendChainContext, let keys {
-                BitcoinSendSheet(
-                    chain: chain,
-                    keys: keys,
-                    onDismiss: {
-                        showSendSheet = false
-                        sendChainContext = nil
-                    },
-                    onSuccess: { txid in
-                        showSendSheet = false
-                        sendChainContext = nil
-                        showStatus("Transaction broadcast: \(txid.prefix(16))...", tone: .success)
-                    }
-                )
+                // Show appropriate send sheet based on chain type
+                if chain.id.starts(with: "bitcoin") || chain.id.starts(with: "litecoin") {
+                    BitcoinSendSheet(
+                        chain: chain,
+                        keys: keys,
+                        onDismiss: {
+                            showSendSheet = false
+                            sendChainContext = nil
+                        },
+                        onSuccess: { txid in
+                            showSendSheet = false
+                            sendChainContext = nil
+                            showStatus("Transaction broadcast: \(txid.prefix(16))...", tone: .success)
+                        }
+                    )
+                } else if chain.id.starts(with: "ethereum") || chain.id.contains("erc20") {
+                    EthereumSendSheet(
+                        chain: chain,
+                        keys: keys,
+                        onDismiss: {
+                            showSendSheet = false
+                            sendChainContext = nil
+                        },
+                        onSuccess: { txid in
+                            showSendSheet = false
+                            sendChainContext = nil
+                            showStatus("Transaction broadcast: \(txid.prefix(16))...", tone: .success)
+                        }
+                    )
+                } else {
+                    // Placeholder for other chains
+                    Text("Send functionality coming soon for \(chain.title)")
+                        .padding()
+                }
             }
         }
         .sheet(isPresented: $showSettingsPanel) {
@@ -1076,14 +1097,19 @@ struct ContentView: View {
             showStatus("Keys are being generated...", tone: .info)
             return
         }
-        // Show Bitcoin mainnet by default
-        let bitcoinChains = keys.chainInfos.filter { $0.id.starts(with: "bitcoin") }
+        // Show Bitcoin mainnet by default, but could be made configurable
+        let bitcoinChains = keys.chainInfos.filter { $0.id.starts(with: "bitcoin") && !$0.id.contains("testnet") }
         if let btcChain = bitcoinChains.first {
             sendChainContext = btcChain
             showSendSheet = true
         } else {
             showStatus("Bitcoin wallet not found.", tone: .error)
         }
+    }
+    
+    private func openSendSheet(for chain: ChainInfo) {
+        sendChainContext = chain
+        showSendSheet = true
     }
 
     private func loadKeysFromKeychain() {
@@ -2917,6 +2943,469 @@ private struct BitcoinSendSheet: View {
                 isLoading = false
             }
         }
+    }
+}
+
+// MARK: - Ethereum Send Sheet
+
+private struct EthereumSendSheet: View {
+    let chain: ChainInfo
+    let keys: AllKeys
+    let onDismiss: () -> Void
+    let onSuccess: (String) -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var recipientAddress = ""
+    @State private var amountInput = ""
+    @State private var selectedToken: TokenType = .eth
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var gasPrice: String = ""
+    @State private var nonce: Int = 0
+    @State private var balance: String = "0"
+    @State private var estimatedGasFee: String = ""
+    @State private var showConfirmation = false
+    
+    private var isTestnet: Bool {
+        chain.id == "ethereum-sepolia"
+    }
+    
+    private var rpcURL: String {
+        isTestnet ? "https://sepolia.infura.io/v3/YOUR_KEY" : "https://ethereum.publicnode.com"
+    }
+    
+    private var chainId: Int {
+        isTestnet ? 11155111 : 1
+    }
+    
+    enum TokenType: String, CaseIterable {
+        case eth = "ETH"
+        case usdt = "USDT"
+        case usdc = "USDC"
+        case dai = "DAI"
+        
+        var contractAddress: String? {
+            switch self {
+            case .eth: return nil
+            case .usdt: return "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+            case .usdc: return "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+            case .dai: return "0x6B175474E89094C44Da98b954EedeAC495271d0F"
+            }
+        }
+        
+        var decimals: Int {
+            switch self {
+            case .eth: return 18
+            case .usdt: return 6
+            case .usdc: return 6
+            case .dai: return 18
+            }
+        }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Token selector
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Asset")
+                            .font(.headline)
+                        
+                        Picker("Token", selection: $selectedToken) {
+                            ForEach(TokenType.allCases, id: \.self) { token in
+                                Text(token.rawValue).tag(token)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: selectedToken) { _ in
+                            Task {
+                                await loadBalanceAndGas()
+                            }
+                        }
+                    }
+                    
+                    // Balance display
+                    HStack {
+                        Text("Available:")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(balance)
+                            .font(.headline)
+                            .foregroundStyle(.green)
+                    }
+                    .padding(12)
+                    .background(Color.green.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    
+                    // Recipient address
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Recipient Address")
+                            .font(.headline)
+                        TextField("0x...", text: $recipientAddress)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.body, design: .monospaced))
+                            .autocorrectionDisabled()
+                    }
+                    
+                    // Amount
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Amount")
+                                .font(.headline)
+                            Spacer()
+                            Button("Max") {
+                                sendMax()
+                            }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.blue)
+                        }
+                        
+                        TextField("0.0", text: $amountInput)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.title3, design: .monospaced))
+                            .onChange(of: amountInput) { _ in
+                                updateGasEstimate()
+                            }
+                    }
+                    
+                    // Gas info
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Network Fee")
+                            .font(.headline)
+                        
+                        HStack {
+                            Text("Gas Price:")
+                            Spacer()
+                            if isLoading {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Text(gasPrice.isEmpty ? "—" : gasPrice + " Gwei")
+                                    .font(.system(.body, design: .monospaced))
+                            }
+                        }
+                        
+                        HStack {
+                            Text("Estimated Fee:")
+                            Spacer()
+                            Text(estimatedGasFee.isEmpty ? "—" : estimatedGasFee + " ETH")
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    .padding(12)
+                    .background(Color.orange.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    
+                    // Error message
+                    if let error = errorMessage {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.red.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    
+                    // Send button
+                    Button(action: {
+                        Task {
+                            await sendTransaction()
+                        }
+                    }) {
+                        HStack {
+                            if isLoading {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .tint(.white)
+                            }
+                            Text(isLoading ? "Sending..." : "Send \(selectedToken.rawValue)")
+                                .font(.headline)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(isValidForm ? Color.orange : Color.gray)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .disabled(!isValidForm || isLoading)
+                }
+                .padding(20)
+            }
+            .navigationTitle("Send \(selectedToken.rawValue)")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                        onDismiss()
+                    }
+                }
+            }
+            .task {
+                await loadBalanceAndGas()
+            }
+        }
+        .frame(minWidth: 480, minHeight: 560)
+    }
+    
+    private var isValidForm: Bool {
+        !recipientAddress.isEmpty &&
+        !amountInput.isEmpty &&
+        (Double(amountInput) ?? 0) > 0 &&
+        !gasPrice.isEmpty &&
+        recipientAddress.hasPrefix("0x") &&
+        recipientAddress.count == 42
+    }
+    
+    private func sendMax() {
+        // For ETH, subtract gas fee. For tokens, use full balance
+        let balanceValue = Double(balance.replacingOccurrences(of: " \(selectedToken.rawValue)", with: "")) ?? 0
+        
+        if selectedToken == .eth {
+            let gasFeeETH = Double(estimatedGasFee.replacingOccurrences(of: " ETH", with: "")) ?? 0
+            let maxSendable = max(0, balanceValue - gasFeeETH)
+            amountInput = String(format: "%.8f", maxSendable)
+        } else {
+            amountInput = String(format: "%.8f", balanceValue)
+        }
+    }
+    
+    private func updateGasEstimate() {
+        guard !gasPrice.isEmpty else { return }
+        let gasPriceGwei = Double(gasPrice) ?? 0
+        let gasLimit = selectedToken == .eth ? 21000.0 : 65000.0
+        let gasFeeETH = (gasPriceGwei * gasLimit) / 1_000_000_000.0
+        estimatedGasFee = String(format: "%.6f", gasFeeETH)
+    }
+    
+    private func loadBalanceAndGas() async {
+        isLoading = true
+        errorMessage = nil
+        
+        do {
+            let address = isTestnet ? keys.ethereumSepolia.address : keys.ethereum.address
+            
+            // Fetch nonce
+            nonce = try await fetchNonce(address: address)
+            
+            // Fetch gas price
+            let gasPriceWei = try await fetchGasPrice()
+            let gasPriceGwei = Double(gasPriceWei) / 1_000_000_000.0
+            await MainActor.run {
+                gasPrice = String(format: "%.2f", gasPriceGwei)
+                updateGasEstimate()
+            }
+            
+            // Fetch balance
+            let bal = try await fetchBalance(address: address)
+            await MainActor.run {
+                balance = bal
+                isLoading = false
+            }
+            
+        } catch {
+            await MainActor.run {
+                errorMessage = "Failed to load: \(error.localizedDescription)"
+                isLoading = false
+            }
+        }
+    }
+    
+    private func fetchNonce(address: String) async throws -> Int {
+        guard let url = URL(string: rpcURL) else {
+            throw EthereumError.invalidAddress
+        }
+        
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getTransactionCount",
+            "params": [address, "latest"],
+            "id": 1
+        ]
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        
+        guard let resultHex = json?["result"] as? String else {
+            throw EthereumError.gasEstimationFailed
+        }
+        
+        let cleaned = resultHex.hasPrefix("0x") ? String(resultHex.dropFirst(2)) : resultHex
+        return Int(cleaned, radix: 16) ?? 0
+    }
+    
+    private func fetchGasPrice() async throws -> UInt64 {
+        guard let url = URL(string: rpcURL) else {
+            throw EthereumError.invalidAddress
+        }
+        
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_gasPrice",
+            "params": [],
+            "id": 1
+        ]
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        
+        guard let resultHex = json?["result"] as? String else {
+            throw EthereumError.gasEstimationFailed
+        }
+        
+        let cleaned = resultHex.hasPrefix("0x") ? String(resultHex.dropFirst(2)) : resultHex
+        return UInt64(cleaned, radix: 16) ?? 20_000_000_000 // 20 Gwei default
+    }
+    
+    private func fetchBalance(address: String) async throws -> String {
+        if selectedToken == .eth {
+            // Fetch ETH balance via RPC
+            guard let url = URL(string: rpcURL) else {
+                throw EthereumError.invalidAddress
+            }
+            
+            let payload: [String: Any] = [
+                "jsonrpc": "2.0",
+                "method": "eth_getBalance",
+                "params": [address, "latest"],
+                "id": 1
+            ]
+            
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+            
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            
+            guard let resultHex = json?["result"] as? String else {
+                return "0 ETH"
+            }
+            
+            let cleaned = resultHex.hasPrefix("0x") ? String(resultHex.dropFirst(2)) : resultHex
+            let weiValue = Decimal(string: cleaned, locale: nil) ?? 0
+            let ethValue = weiValue / Decimal(string: "1000000000000000000")!
+            
+            return String(format: "%.6f ETH", NSDecimalNumber(decimal: ethValue).doubleValue)
+        } else {
+            // TODO: Fetch ERC-20 token balance
+            return "0 \(selectedToken.rawValue)"
+        }
+    }
+    
+    private func sendTransaction() async {
+        isLoading = true
+        errorMessage = nil
+        
+        do {
+            let privateKey = isTestnet ? keys.ethereumSepolia.privateHex : keys.ethereum.privateHex
+            
+            // Convert amount to Wei
+            let amountValue = Double(amountInput) ?? 0
+            let multiplier = pow(10.0, Double(selectedToken.decimals))
+            let smallestUnit = UInt64(amountValue * multiplier)
+            
+            // Convert gas price to Wei
+            let gasPriceGwei = Double(gasPrice) ?? 0
+            let gasPriceWei = UInt64(gasPriceGwei * 1_000_000_000)
+            
+            let signedTx: String
+            
+            if selectedToken == .eth {
+                // Send ETH
+                signedTx = try EthereumTransaction.buildAndSign(
+                    to: recipientAddress,
+                    value: String(smallestUnit),
+                    gasLimit: 21000,
+                    gasPrice: String(gasPriceWei),
+                    nonce: nonce,
+                    chainId: chainId,
+                    privateKeyHex: privateKey
+                )
+            } else {
+                // Send ERC-20 token
+                guard let contract = selectedToken.contractAddress else {
+                    throw EthereumError.invalidAddress
+                }
+                
+                signedTx = try EthereumTransaction.buildAndSignERC20Transfer(
+                    tokenContract: contract,
+                    to: recipientAddress,
+                    amount: String(smallestUnit),
+                    gasLimit: 65000,
+                    gasPrice: String(gasPriceWei),
+                    nonce: nonce,
+                    chainId: chainId,
+                    privateKeyHex: privateKey
+                )
+            }
+            
+            // Broadcast transaction
+            let txid = try await broadcastTransaction(signedTx)
+            
+            await MainActor.run {
+                isLoading = false
+                onSuccess(txid)
+                dismiss()
+            }
+            
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+                isLoading = false
+            }
+        }
+    }
+    
+    private func broadcastTransaction(_ rawTx: String) async throws -> String {
+        guard let url = URL(string: rpcURL) else {
+            throw EthereumError.invalidAddress
+        }
+        
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_sendRawTransaction",
+            "params": [rawTx],
+            "id": 1
+        ]
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw EthereumError.broadcastFailed("Network error")
+        }
+        
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        
+        if let error = json?["error"] as? [String: Any],
+           let message = error["message"] as? String {
+            throw EthereumError.broadcastFailed(message)
+        }
+        
+        guard let txid = json?["result"] as? String else {
+            throw EthereumError.broadcastFailed("No transaction ID returned")
+        }
+        
+        return txid
     }
 }
 
