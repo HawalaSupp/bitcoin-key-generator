@@ -1100,6 +1100,13 @@ struct ContentView: View {
                 primeStateCaches(for: loadedKeys)
                 print("✅ Loaded keys from Keychain")
                 print("🔑 Bitcoin Testnet Address: \(loadedKeys.bitcoinTestnet.address)")
+                
+                // Mark onboarding as completed since user has existing keys
+                if !onboardingCompleted {
+                    onboardingCompleted = true
+                    print("✅ Marking onboarding as completed (keys found in Keychain)")
+                }
+                
                 startBalanceFetch(for: loadedKeys)
                 startPriceUpdatesIfNeeded()
             } else {
@@ -1609,7 +1616,13 @@ struct ContentView: View {
 
     @MainActor
     private func startPriceUpdatesIfNeeded() {
-        guard onboardingCompleted else { return }
+        print("🎯🎯🎯 START PRICE UPDATES CALLED - onboardingCompleted: \(onboardingCompleted)")
+        print("🎯🎯🎯 Price update task exists: \(priceUpdateTask != nil)")
+        guard onboardingCompleted else { 
+            print("⚠️⚠️⚠️ SKIPPING PRICE UPDATES - onboarding NOT completed")
+            return 
+        }
+        print("✅✅✅ PRICE UPDATES WILL START - onboarding IS completed")
         if let keys {
             primeStateCaches(for: keys)
         }
@@ -1722,6 +1735,8 @@ struct ContentView: View {
             }
         } catch {
             let message = error.localizedDescription
+            print("❌ PRICE FETCH ERROR: \(message)")
+            print("❌ Error details: \(error)")
             await MainActor.run {
                 priceStates["bitcoin"] = .failed(message)
                 priceStates["ethereum"] = .failed(message)
@@ -1740,7 +1755,9 @@ struct ContentView: View {
     }
 
     private func fetchPriceSnapshot() async throws -> [String: Double] {
+        print("🔍 Fetching price snapshot from CoinGecko...")
         guard let url = URL(string: "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,litecoin,monero,solana,ripple,binancecoin,tether,usd-coin,dai&vs_currencies=usd") else {
+            print("❌ Failed to create URL")
             throw BalanceFetchError.invalidRequest
         }
 
@@ -1748,20 +1765,29 @@ struct ContentView: View {
         request.httpMethod = "GET"
         request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
 
+        print("📡 Making request to: \(url.absoluteString)")
+        print("📡 Making request to: \(url.absoluteString)")
         let (data, response) = try await URLSession.shared.data(for: request)
+        print("📦 Received response, data size: \(data.count) bytes")
+        
         guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ Invalid HTTP response")
             throw BalanceFetchError.invalidResponse
         }
 
+        print("📊 HTTP Status Code: \(httpResponse.statusCode)")
         guard httpResponse.statusCode == 200 else {
+            print("❌ Invalid status code: \(httpResponse.statusCode)")
             throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
         }
 
         let object = try JSONSerialization.jsonObject(with: data, options: [])
         guard let dict = object as? [String: Any] else {
+            print("❌ Failed to parse JSON as dictionary")
             throw BalanceFetchError.invalidPayload
         }
 
+        print("✅ Successfully parsed JSON, keys: \(dict.keys.joined(separator: ", "))")
         var prices: [String: Double] = [:]
         if let btc = dict["bitcoin"] as? [String: Any], let usd = btc["usd"] as? NSNumber {
             prices["bitcoin"] = usd.doubleValue
