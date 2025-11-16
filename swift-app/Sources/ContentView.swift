@@ -3878,7 +3878,7 @@ struct ChainInfo: Identifiable, Hashable {
     let receiveAddress: String?
 }
 
-private enum BalanceFetchError: LocalizedError {
+enum BalanceFetchError: LocalizedError {
     case invalidRequest
     case invalidResponse
     case invalidStatus(Int)

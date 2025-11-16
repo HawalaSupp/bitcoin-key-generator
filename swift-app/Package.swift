@@ -16,7 +16,8 @@ let package = Package(
             name: "swift-app",
             dependencies: [
                 .product(name: "P256K", package: "swift-secp256k1")
-            ]
+            ],
+            exclude: ["APIKeys.swift.template"]
         ),
         .testTarget(
             name: "swift-appTests",

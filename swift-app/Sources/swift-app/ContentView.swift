@@ -14,18 +14,36 @@ private enum OnboardingStep: Int {
     case ready
 }
 
-fileprivate enum ChainBalanceState: Equatable {
-    case idle
-    case loading
-    case loaded(String)
-    case failed(String)
-}
+private enum AppearanceMode: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
 
-fileprivate enum ChainPriceState: Equatable {
-    case idle
-    case loading
-    case loaded(String)
-    case failed(String)
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .system: return "System Default"
+        case .light: return "Light Mode"
+        case .dark: return "Dark Mode"
+        }
+    }
+
+    var menuIconName: String {
+        switch self {
+        case .system: return "circle.lefthalf.filled"
+        case .light: return "sun.max.fill"
+        case .dark: return "moon.fill"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
 }
 
 struct ContentView: View {
@@ -40,6 +58,7 @@ struct ContentView: View {
     @AppStorage("hawala.securityAcknowledged") private var hasAcknowledgedSecurityNotice = false
     @AppStorage("hawala.passcodeHash") private var storedPasscodeHash: String?
     @AppStorage("hawala.onboardingCompleted") private var onboardingCompleted = false
+    @AppStorage("hawala.appearanceMode") private var storedAppearanceMode = AppearanceMode.system.rawValue
     @State private var isUnlocked = false
     @State private var showSecurityNotice = false
     @State private var showSecuritySettings = false
@@ -54,6 +73,11 @@ struct ContentView: View {
     @State private var hasResetOnboardingState = false
     @State private var balanceStates: [String: ChainBalanceState] = [:]
     @State private var priceStates: [String: ChainPriceState] = [:]
+    @State private var cachedBalances: [String: CachedBalance] = [:]
+    @State private var balanceBackoff: [String: BackoffTracker] = [:]
+    @State private var balanceFetchTasks: [String: Task<Void, Never>] = [:]
+    @State private var cachedPrices: [String: CachedPrice] = [:]
+    @State private var priceBackoffTracker = BackoffTracker()
     @State private var priceUpdateTask: Task<Void, Never>?
     @State private var showAllPrivateKeysSheet = false
     @State private var showSettingsPanel = false
@@ -61,6 +85,12 @@ struct ContentView: View {
     @State private var showSendSheet = false
     @State private var sendChainContext: ChainInfo?
     private let moneroBalancePlaceholder = "Balance protected – open your Monero wallet"
+    private let trackedPriceChainIDs = [
+        "bitcoin", "bitcoin-testnet", "ethereum", "ethereum-sepolia", "litecoin", "monero",
+        "solana", "xrp", "bnb", "usdt-erc20", "usdc-erc20", "dai-erc20"
+    ]
+    private let pricePollingInterval: TimeInterval = 30
+    private let minimumBalanceRetryDelay: TimeInterval = 0.5
     private static var cachedWorkspaceRoot: URL?
 
     @Environment(\.scenePhase) private var scenePhase
@@ -73,16 +103,35 @@ struct ContentView: View {
         storedPasscodeHash == nil || isUnlocked
     }
 
+    private var appearanceMode: AppearanceMode {
+        AppearanceMode(rawValue: storedAppearanceMode) ?? .system
+    }
+
+    private var appearanceSelectionBinding: Binding<AppearanceMode> {
+        Binding(
+            get: { appearanceMode },
+            set: { newValue in updateAppearanceMode(newValue) }
+        )
+    }
+
     var body: some View {
-        Group {
-            if onboardingCompleted {
-                mainAppStage
-            } else {
-                onboardingFlow
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if onboardingCompleted {
+                    mainAppStage
+                } else {
+                    onboardingFlow
+                }
             }
+
+            newestBuildBadge
+                .padding(.top, 12)
+                .padding(.trailing, 12)
+                .allowsHitTesting(false)
         }
         .animation(.easeInOut(duration: 0.3), value: onboardingCompleted)
         .animation(.easeInOut(duration: 0.3), value: onboardingStep)
+        .preferredColorScheme(appearanceMode.colorScheme)
         .onAppear {
             guard !hasResetOnboardingState else { return }
             onboardingCompleted = false
@@ -90,6 +139,10 @@ struct ContentView: View {
             shouldAutoGenerateAfterOnboarding = false
             balanceStates.removeAll()
             priceStates.removeAll()
+            cachedBalances.removeAll()
+            cachedPrices.removeAll()
+            balanceBackoff.removeAll()
+            priceBackoffTracker = BackoffTracker()
             hasResetOnboardingState = true
             
             // Try to load existing keys from Keychain
@@ -115,6 +168,7 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                appearanceMenu
                 Button {
                     guard hasAcknowledgedSecurityNotice else {
                         showSecurityNotice = true
@@ -748,6 +802,30 @@ struct ContentView: View {
         #endif
     }
 
+    private var appearanceMenu: some View {
+        Menu {
+            Picker("Appearance", selection: appearanceSelectionBinding) {
+                ForEach(AppearanceMode.allCases) { mode in
+                    Label(mode.displayName, systemImage: mode.menuIconName)
+                        .tag(mode)
+                }
+            }
+        } label: {
+            Image(systemName: appearanceMode.menuIconName)
+                .font(.title2)
+                .padding(6)
+        }
+        .menuStyle(.borderlessButton)
+        .accessibilityLabel("Appearance")
+        .help("Switch between system, light, or dark appearance")
+    }
+
+    private func updateAppearanceMode(_ mode: AppearanceMode) {
+        guard appearanceMode != mode else { return }
+        storedAppearanceMode = mode.rawValue
+        showStatus("\(mode.displayName) enabled", tone: .info)
+    }
+
     private var portfolioHeader: some View {
         VStack(spacing: 12) {
             Text("Total Portfolio Value")
@@ -766,9 +844,19 @@ struct ContentView: View {
                     )
                 )
             
-            Text("Live estimate • Updates every 60s")
+            Text(priceStatusLine)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+
+            Button {
+                refreshAllBalances()
+            } label: {
+                Label("Refresh Balances", systemImage: "arrow.clockwise")
+                    .font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(.blue)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 20)
@@ -789,6 +877,57 @@ struct ContentView: View {
             return "—"
         }
         return formatFiatAmount(total, currencyCode: "USD")
+    }
+
+    private var priceStatusLine: String {
+        if priceStates.isEmpty {
+            return "Fetching live prices…"
+        }
+
+        if priceStates.values.contains(where: { state in
+            if case .loading = state { return true }
+            return false
+        }) {
+            return "Fetching live prices…"
+        }
+
+        if priceStates.values.contains(where: { state in
+            if case .refreshing = state { return true }
+            return false
+        }) {
+            return "Refreshing live prices…"
+        }
+
+        if priceStates.values.contains(where: { state in
+            if case .stale = state { return true }
+            return false
+        }) {
+            if let latest = latestPriceUpdate, let relative = relativeTimeDescription(from: latest) {
+                return "Showing cached prices • updated \(relative)"
+            }
+            return "Showing cached prices"
+        }
+
+        if let latest = latestPriceUpdate, let relative = relativeTimeDescription(from: latest) {
+            return "Live estimate • updated \(relative)"
+        }
+
+        return "Live estimate"
+    }
+
+    private var latestPriceUpdate: Date? {
+        priceStates.values.compactMap { state in
+            switch state {
+            case .loaded(_, let timestamp):
+                return timestamp
+            case .refreshing(_, let timestamp):
+                return timestamp
+            case .stale(_, let timestamp, _):
+                return timestamp
+            default:
+                return nil
+            }
+        }.max()
     }
 
     private func calculatePortfolioTotal() -> (total: Double?, hasData: Bool) {
@@ -812,15 +951,40 @@ struct ContentView: View {
         return hasValue ? (accumulator, true) : (nil, false)
     }
 
+    @MainActor
+    private func refreshAllBalances() {
+        guard let keys else {
+            showStatus("Generate keys to refresh balances.", tone: .info)
+            return
+        }
+
+        startBalanceFetch(for: keys)
+        showStatus("Refreshing balances…", tone: .info)
+    }
+
     private func extractNumericAmount(from state: ChainBalanceState) -> Double? {
-        guard case .loaded(let value) = state else { return nil }
+        let value: String
+        switch state {
+        case .loaded(let loadedValue, _), .refreshing(let loadedValue, _), .stale(let loadedValue, _, _):
+            value = loadedValue
+        default:
+            return nil
+        }
+
         let raw = value.split(separator: " ").first.map(String.init) ?? value
         let cleaned = raw.replacingOccurrences(of: ",", with: "")
         return Double(cleaned)
     }
 
     private func extractFiatPrice(from state: ChainPriceState) -> Double? {
-        guard case .loaded(let value) = state else { return nil }
+        let value: String
+        switch state {
+        case .loaded(let string, _), .refreshing(let string, _), .stale(let string, _, _):
+            value = string
+        default:
+            return nil
+        }
+
         let filtered = value.filter { "0123456789.,-".contains($0) }
         guard !filtered.isEmpty else { return nil }
         let normalized = filtered.replacingOccurrences(of: ",", with: "")
@@ -903,6 +1067,28 @@ struct ContentView: View {
         .buttonStyle(.bordered)
         .tint(prominent ? color : .secondary)
         .controlSize(.large)
+    }
+
+    private var newestBuildBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "sparkles")
+                .font(.caption)
+            Text("Newest Build")
+                .font(.caption)
+                .fontWeight(.semibold)
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.green.opacity(0.18))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.green.opacity(0.45), lineWidth: 1)
+        )
+        .foregroundStyle(Color.green)
+        .accessibilityLabel("Newest build indicator")
     }
 
     private var transactionHistorySection: some View {
@@ -1589,6 +1775,7 @@ struct ContentView: View {
 
     @MainActor
     private func clearSensitiveData() {
+        cancelBalanceFetchTasks()
         keys = nil
         rawJSON = ""
         selectedChain = nil
@@ -1673,110 +1860,101 @@ struct ContentView: View {
 
     @MainActor
     private func markPriceStatesLoading() {
-        let stableDisplay = formatFiatAmount(1.0, currencyCode: "USD")
-        let ids = [
-            "bitcoin", "bitcoin-testnet", "ethereum", "ethereum-sepolia", "litecoin", "monero",
-            "solana", "xrp", "bnb",
-            "usdt-erc20", "usdc-erc20", "dai-erc20"
-        ]
-
-        let fixedDisplays: [String: String] = [
-            "usdt-erc20": stableDisplay,
-            "usdc-erc20": stableDisplay,
-            "dai-erc20": stableDisplay,
-            "bitcoin-testnet": "Testnet asset",
-            "ethereum-sepolia": "Testnet asset"
-        ]
-
-        for id in ids {
-            if let value = fixedDisplays[id] {
-                priceStates[id] = .loaded(value)
-            } else {
-                priceStates[id] = .loading
-            }
+        for id in trackedPriceChainIDs {
+            applyPriceLoadingState(for: id)
         }
     }
 
     private func priceUpdateLoop() async {
-        await fetchAndStorePrices()
         while !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 23_000_000_000)
-            if Task.isCancelled { break }
+            var waitDuration: TimeInterval = 0
+            await MainActor.run {
+                waitDuration = priceBackoffTracker.remainingBackoff
+            }
+
+            if waitDuration > 0 {
+                let nanos = UInt64(waitDuration * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: nanos)
+                continue
+            }
+
             await fetchAndStorePrices()
         }
     }
 
     private func fetchAndStorePrices() async {
+        await MainActor.run {
+            markPriceStatesLoading()
+        }
+
         do {
             let snapshot = try await fetchPriceSnapshot()
             await MainActor.run {
-                if let btc = snapshot["bitcoin"] {
-                    priceStates["bitcoin"] = .loaded(formatFiatAmount(btc, currencyCode: "USD"))
-                } else {
-                    priceStates["bitcoin"] = .failed("Missing BTC price data.")
-                }
-
-                if let eth = snapshot["ethereum"] {
-                    priceStates["ethereum"] = .loaded(formatFiatAmount(eth, currencyCode: "USD"))
-                } else {
-                    priceStates["ethereum"] = .failed("Missing ETH price data.")
-                }
-
-                if let ltc = snapshot["litecoin"] {
-                    priceStates["litecoin"] = .loaded(formatFiatAmount(ltc, currencyCode: "USD"))
-                } else {
-                    priceStates["litecoin"] = .failed("Missing LTC price data.")
-                }
-
-                if let xmr = snapshot["monero"] {
-                    priceStates["monero"] = .loaded(formatFiatAmount(xmr, currencyCode: "USD"))
-                } else {
-                    priceStates["monero"] = .failed("Missing XMR price data.")
-                }
-
-                if let sol = snapshot["solana"] {
-                    priceStates["solana"] = .loaded(formatFiatAmount(sol, currencyCode: "USD"))
-                } else {
-                    priceStates["solana"] = .failed("Missing SOL price data.")
-                }
-
-                if let xrp = snapshot["ripple"] ?? snapshot["xrp"] {
-                    priceStates["xrp"] = .loaded(formatFiatAmount(xrp, currencyCode: "USD"))
-                } else {
-                    priceStates["xrp"] = .failed("Missing XRP price data.")
-                }
-
-                if let bnb = snapshot["binancecoin"] ?? snapshot["bnb"] {
-                    priceStates["bnb"] = .loaded(formatFiatAmount(bnb, currencyCode: "USD"))
-                } else {
-                    priceStates["bnb"] = .failed("Missing BNB price data.")
-                }
-
-                let stableDisplay = formatFiatAmount(1.0, currencyCode: "USD")
-                priceStates["usdt-erc20"] = .loaded(stableDisplay)
-                priceStates["usdc-erc20"] = .loaded(stableDisplay)
-                priceStates["dai-erc20"] = .loaded(stableDisplay)
-                priceStates["bitcoin-testnet"] = .loaded("Testnet asset")
-                priceStates["ethereum-sepolia"] = .loaded("Testnet asset")
+                let now = Date()
+                updatePriceStates(with: snapshot, timestamp: now)
+                priceBackoffTracker.registerSuccess()
+                priceBackoffTracker.schedule(after: pricePollingInterval)
             }
         } catch {
-            let message = error.localizedDescription
-            print("❌ PRICE FETCH ERROR: \(message)")
-            print("❌ Error details: \(error)")
+            print("❌ PRICE FETCH ERROR: \(error.localizedDescription)")
             await MainActor.run {
-                priceStates["bitcoin"] = .failed(message)
-                priceStates["ethereum"] = .failed(message)
-                priceStates["litecoin"] = .failed(message)
-                priceStates["monero"] = .failed(message)
-                priceStates["solana"] = .failed(message)
-                priceStates["xrp"] = .failed(message)
-                priceStates["bnb"] = .failed(message)
-                priceStates["usdt-erc20"] = .failed(message)
-                priceStates["usdc-erc20"] = .failed(message)
-                priceStates["dai-erc20"] = .failed(message)
-                priceStates["bitcoin-testnet"] = .loaded("Testnet asset")
-                priceStates["ethereum-sepolia"] = .loaded("Testnet asset")
+                let retryDelay = priceBackoffTracker.registerFailure()
+                let message = friendlyBackoffMessage(for: error, retryDelay: retryDelay)
+                applyPriceFailureState(message: message)
             }
+        }
+    }
+
+    @MainActor
+    private func updatePriceStates(with snapshot: [String: Double], timestamp: Date) {
+        func record(_ chainId: String, price: Double?, missingMessage: String) {
+            guard let price else {
+                if let cache = cachedPrices[chainId] {
+                    priceStates[chainId] = .stale(value: cache.value, lastUpdated: cache.lastUpdated, message: missingMessage)
+                } else {
+                    priceStates[chainId] = .failed(missingMessage)
+                }
+                return
+            }
+
+            let formatted = formatFiatAmount(price, currencyCode: "USD")
+            let entry = CachedPrice(value: formatted, lastUpdated: timestamp)
+            cachedPrices[chainId] = entry
+            priceStates[chainId] = .loaded(value: formatted, lastUpdated: timestamp)
+        }
+
+        record("bitcoin", price: snapshot["bitcoin"], missingMessage: "Missing BTC price data.")
+        record("ethereum", price: snapshot["ethereum"], missingMessage: "Missing ETH price data.")
+        record("litecoin", price: snapshot["litecoin"], missingMessage: "Missing LTC price data.")
+        record("monero", price: snapshot["monero"], missingMessage: "Missing XMR price data.")
+        record("solana", price: snapshot["solana"], missingMessage: "Missing SOL price data.")
+        record("xrp", price: snapshot["ripple"] ?? snapshot["xrp"], missingMessage: "Missing XRP price data.")
+        record("bnb", price: snapshot["binancecoin"] ?? snapshot["bnb"], missingMessage: "Missing BNB price data.")
+
+        if let stableDisplay = staticPriceDisplay(for: "usdt-erc20") {
+            let usdtEntry = CachedPrice(value: stableDisplay, lastUpdated: timestamp)
+            let usdcEntry = CachedPrice(value: stableDisplay, lastUpdated: timestamp)
+            let daiEntry = CachedPrice(value: stableDisplay, lastUpdated: timestamp)
+
+            cachedPrices["usdt-erc20"] = usdtEntry
+            cachedPrices["usdc-erc20"] = usdcEntry
+            cachedPrices["dai-erc20"] = daiEntry
+
+            priceStates["usdt-erc20"] = .loaded(value: stableDisplay, lastUpdated: timestamp)
+            priceStates["usdc-erc20"] = .loaded(value: stableDisplay, lastUpdated: timestamp)
+            priceStates["dai-erc20"] = .loaded(value: stableDisplay, lastUpdated: timestamp)
+        }
+
+        if let testnetDisplay = staticPriceDisplay(for: "bitcoin-testnet") {
+            let entry = CachedPrice(value: testnetDisplay, lastUpdated: timestamp)
+            cachedPrices["bitcoin-testnet"] = entry
+            priceStates["bitcoin-testnet"] = .loaded(value: testnetDisplay, lastUpdated: timestamp)
+        }
+
+        if let testnetDisplay = staticPriceDisplay(for: "ethereum-sepolia") {
+            let entry = CachedPrice(value: testnetDisplay, lastUpdated: timestamp)
+            cachedPrices["ethereum-sepolia"] = entry
+            priceStates["ethereum-sepolia"] = .loaded(value: testnetDisplay, lastUpdated: timestamp)
         }
     }
 
@@ -1851,155 +2029,73 @@ struct ContentView: View {
 
     @MainActor
     private func startBalanceFetch(for keys: AllKeys) {
-        // Stagger balance fetches to avoid rate limiting (429 errors)
-        Task {
-            enqueueBalanceFetch(for: "bitcoin") {
-                try await fetchBitcoinBalance(address: keys.bitcoin.address)
-            }
-            
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s delay
-            
-            enqueueBalanceFetch(for: "bitcoin-testnet") {
-                try await fetchBitcoinBalance(address: keys.bitcoinTestnet.address, isTestnet: true)
-            }
-            
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            
-            enqueueBalanceFetch(for: "litecoin") {
-                try await fetchLitecoinBalance(address: keys.litecoin.address)
-            }
-            
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            
-            enqueueBalanceFetch(for: "solana") {
-                try await fetchSolanaBalance(address: keys.solana.publicKeyBase58)
-            }
-            
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            
-            enqueueBalanceFetch(for: "xrp") {
-                try await fetchXrpBalance(address: keys.xrp.classicAddress)
-            }
-            
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            
-            enqueueBalanceFetch(for: "bnb") {
-                try await fetchBnbBalance(address: keys.bnb.address)
-            }
-            
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            
-            startEthereumAndTokenBalanceFetch(address: keys.ethereum.address)
+        cancelBalanceFetchTasks()
+        balanceBackoff.removeAll()
+        scheduleBalanceFetch(for: "bitcoin") {
+            try await fetchBitcoinBalance(address: keys.bitcoin.address)
         }
-    }
 
-    @MainActor
-    private func enqueueBalanceFetch(for chainId: String, fetcher: @escaping () async throws -> String) {
-        balanceStates[chainId] = .loading
-
-        Task {
-            do {
-                let displayValue = try await fetcher()
-                await MainActor.run {
-                    balanceStates[chainId] = .loaded(displayValue)
-                }
-            } catch {
-                await MainActor.run {
-                    balanceStates[chainId] = .failed(error.localizedDescription)
-                }
-            }
+        scheduleBalanceFetch(for: "bitcoin-testnet", delay: 0.5) {
+            try await fetchBitcoinBalance(address: keys.bitcoinTestnet.address, isTestnet: true)
         }
+
+        scheduleBalanceFetch(for: "litecoin", delay: 1.0) {
+            try await fetchLitecoinBalance(address: keys.litecoin.address)
+        }
+
+        scheduleBalanceFetch(for: "solana", delay: 1.5) {
+            try await fetchSolanaBalance(address: keys.solana.publicKeyBase58)
+        }
+
+        scheduleBalanceFetch(for: "xrp", delay: 2.0) {
+            try await fetchXrpBalance(address: keys.xrp.classicAddress)
+        }
+
+        scheduleBalanceFetch(for: "bnb", delay: 2.5) {
+            try await fetchBnbBalance(address: keys.bnb.address)
+        }
+
+        startEthereumAndTokenBalanceFetch(address: keys.ethereum.address)
     }
 
     @MainActor
     private func startEthereumAndTokenBalanceFetch(address: String) {
-        balanceStates["ethereum"] = .loading
-        balanceStates["usdt-erc20"] = .loading
-        balanceStates["usdc-erc20"] = .loading
-        balanceStates["dai-erc20"] = .loading
+        scheduleBalanceFetch(for: "ethereum") {
+            try await fetchEthereumBalanceViaInfura(address: address)
+        }
 
-        // Stagger Ethereum balance fetches to avoid rate limiting
-        Task {
-            // Fetch ETH balance
-            do {
-                let ethBalance = try await fetchEthereumBalanceViaInfura(address: address)
-                await MainActor.run {
-                    balanceStates["ethereum"] = .loaded(ethBalance)
-                }
-            } catch {
-                await MainActor.run {
-                    balanceStates["ethereum"] = .failed(error.localizedDescription)
-                }
-            }
-            
-            try? await Task.sleep(nanoseconds: 700_000_000) // 0.7s delay
+        scheduleBalanceFetch(for: "usdt-erc20", delay: 0.7) {
+            try await fetchERC20Balance(
+                address: address,
+                contractAddress: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+                decimals: 6,
+                symbol: "USDT"
+            )
+        }
 
-            // Fetch USDT balance
-            do {
-                let usdtBalance = try await fetchERC20Balance(
-                    address: address,
-                    contractAddress: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-                    decimals: 6,
-                    symbol: "USDT"
-                )
-                await MainActor.run {
-                    balanceStates["usdt-erc20"] = .loaded(usdtBalance)
-                }
-            } catch {
-                await MainActor.run {
-                    balanceStates["usdt-erc20"] = .loaded("0 USDT")
-                }
-            }
-            
-            try? await Task.sleep(nanoseconds: 700_000_000)
+        scheduleBalanceFetch(for: "usdc-erc20", delay: 1.4) {
+            try await fetchERC20Balance(
+                address: address,
+                contractAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+                decimals: 6,
+                symbol: "USDC"
+            )
+        }
 
-            // Fetch USDC balance
-            do {
-                let usdcBalance = try await fetchERC20Balance(
-                    address: address,
-                    contractAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-                    decimals: 6,
-                    symbol: "USDC"
-                )
-                await MainActor.run {
-                    balanceStates["usdc-erc20"] = .loaded(usdcBalance)
-                }
-            } catch {
-                await MainActor.run {
-                    balanceStates["usdc-erc20"] = .loaded("0 USDC")
-                }
-            }
-            
-            try? await Task.sleep(nanoseconds: 700_000_000)
-
-            // Fetch DAI balance
-            do {
-                let daiBalance = try await fetchERC20Balance(
-                    address: address,
-                    contractAddress: "0x6B175474E89094C44Da98b954EedeAC495271d0F",
-                    decimals: 18,
-                    symbol: "DAI"
-                )
-                await MainActor.run {
-                    balanceStates["dai-erc20"] = .loaded(daiBalance)
-                }
-            } catch {
-                await MainActor.run {
-                    balanceStates["dai-erc20"] = .loaded("0 DAI")
-                }
-            }
+        scheduleBalanceFetch(for: "dai-erc20", delay: 2.1) {
+            try await fetchERC20Balance(
+                address: address,
+                contractAddress: "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+                decimals: 18,
+                symbol: "DAI"
+            )
         }
     }
 
     @MainActor
     private func ensurePriceStateEntries() {
-        let ids = [
-            "bitcoin", "bitcoin-testnet", "ethereum", "ethereum-sepolia", "litecoin", "monero",
-            "solana", "xrp", "bnb",
-            "usdt-erc20", "usdc-erc20", "dai-erc20"
-        ]
-        for id in ids {
-            priceStates[id] = defaultPriceState(for: id)
+        for id in trackedPriceChainIDs where priceStates[id] == nil {
+            applyPriceLoadingState(for: id)
         }
     }
 
@@ -2020,9 +2116,9 @@ struct ContentView: View {
         case "bitcoin-testnet":
             return .loading
         case "ethereum-sepolia":
-            return .loaded("Use Sepolia faucet for funds")
+            return .loaded(value: "Use Sepolia faucet for funds", lastUpdated: Date())
         case "monero":
-            return .loaded(moneroBalancePlaceholder)
+            return .loaded(value: moneroBalancePlaceholder, lastUpdated: Date())
         default:
             return .loading
         }
@@ -2030,26 +2126,225 @@ struct ContentView: View {
 
     @MainActor
     private func defaultPriceState(for chainID: String) -> ChainPriceState {
-        let stableDisplay = formatFiatAmount(1.0, currencyCode: "USD")
+        if let staticDisplay = staticPriceDisplay(for: chainID) {
+            return .loaded(value: staticDisplay, lastUpdated: Date())
+        }
+        return .loading
+    }
+
+    private func staticPriceDisplay(for chainID: String) -> String? {
         switch chainID {
         case "usdt-erc20", "usdc-erc20", "dai-erc20":
-            return .loaded(stableDisplay)
+            return formatFiatAmount(1.0, currencyCode: "USD")
         case "bitcoin-testnet", "ethereum-sepolia":
-            return .loaded("Testnet asset")
+            return "Testnet asset"
         default:
-            return .loading
+            return nil
+        }
+    }
+
+    @MainActor
+    private func applyPriceLoadingState(for chainId: String) {
+        let now = Date()
+        let state = PriceStateReducer.loadingState(
+            cache: cachedPrices[chainId],
+            staticDisplay: staticPriceDisplay(for: chainId),
+            now: now
+        )
+        if case .loaded(let value, let timestamp) = state {
+            cachedPrices[chainId] = CachedPrice(value: value, lastUpdated: timestamp)
+        }
+        priceStates[chainId] = state
+    }
+
+    @MainActor
+    private func applyPriceFailureState(message: String) {
+        let now = Date()
+        for id in trackedPriceChainIDs {
+            let state = PriceStateReducer.failureState(
+                cache: cachedPrices[id],
+                staticDisplay: staticPriceDisplay(for: id),
+                message: message,
+                now: now
+            )
+            if case .loaded(let value, let timestamp) = state {
+                cachedPrices[id] = CachedPrice(value: value, lastUpdated: timestamp)
+            }
+            priceStates[id] = state
+        }
+    }
+
+    @MainActor
+    private func scheduleBalanceFetch(for chainId: String, delay: TimeInterval = 0, fetcher: @escaping () async throws -> String) {
+        applyLoadingState(for: chainId)
+        launchBalanceFetchTask(for: chainId, after: delay, fetcher: fetcher)
+    }
+
+    @MainActor
+    private func cancelBalanceFetchTasks() {
+        for task in balanceFetchTasks.values {
+            task.cancel()
+        }
+        balanceFetchTasks.removeAll()
+    }
+
+    @MainActor
+    private func launchBalanceFetchTask(for chainId: String, after delay: TimeInterval, fetcher: @escaping () async throws -> String) {
+        balanceFetchTasks[chainId]?.cancel()
+        let task = Task {
+            if delay > 0 {
+                let nanos = UInt64(delay * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: nanos)
+            }
+            await runBalanceFetchLoop(chainId: chainId, fetcher: fetcher)
+        }
+        balanceFetchTasks[chainId] = task
+    }
+
+    private func runBalanceFetchLoop(chainId: String, fetcher: @escaping () async throws -> String) async {
+        while !Task.isCancelled {
+            let succeeded = await performBalanceFetch(chainId: chainId, fetcher: fetcher)
+            if succeeded || Task.isCancelled {
+                return
+            }
+
+            let pendingDelay = await MainActor.run {
+                balanceBackoff[chainId]?.remainingBackoff ?? minimumBalanceRetryDelay
+            }
+            let clampedDelay = max(pendingDelay, minimumBalanceRetryDelay)
+            let nanos = UInt64(clampedDelay * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanos)
+        }
+    }
+
+    @MainActor
+    private func applyLoadingState(for chainId: String) {
+        if let cache = cachedBalances[chainId] {
+            balanceStates[chainId] = .refreshing(previous: cache.value, lastUpdated: cache.lastUpdated)
+        } else {
+            balanceStates[chainId] = .loading
+        }
+    }
+
+    private func performBalanceFetch(chainId: String, fetcher: @escaping () async throws -> String) async -> Bool {
+        if Task.isCancelled { return false }
+
+        var pendingDelay: TimeInterval = 0
+        await MainActor.run {
+            if let tracker = balanceBackoff[chainId], tracker.isInBackoff {
+                pendingDelay = tracker.remainingBackoff
+            }
+        }
+
+        if pendingDelay > 0 {
+            let nanos = UInt64(pendingDelay * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanos)
+            if Task.isCancelled { return false }
+        }
+
+        do {
+            let displayValue = try await fetcher()
+            await MainActor.run {
+                let now = Date()
+                cachedBalances[chainId] = CachedBalance(value: displayValue, lastUpdated: now)
+                balanceStates[chainId] = .loaded(value: displayValue, lastUpdated: now)
+                balanceBackoff[chainId] = nil
+            }
+            return true
+        } catch {
+            let friendlyMessage: String = await MainActor.run {
+                var tracker = balanceBackoff[chainId] ?? BackoffTracker()
+                let retryDelay = tracker.registerFailure()
+                balanceBackoff[chainId] = tracker
+                let message = friendlyBackoffMessage(for: error, retryDelay: retryDelay)
+                if let cache = cachedBalances[chainId] {
+                    balanceStates[chainId] = .stale(value: cache.value, lastUpdated: cache.lastUpdated, message: message)
+                } else {
+                    balanceStates[chainId] = .failed(message)
+                }
+                return message
+            }
+            let nextDelay = await MainActor.run {
+                balanceBackoff[chainId]?.remainingBackoff ?? minimumBalanceRetryDelay
+            }
+            let addressHint = chainId == "xrp" ? " (XRP address retry pending)" : ""
+            let formattedDelay = String(format: "%.1fs", max(nextDelay, minimumBalanceRetryDelay))
+            print("⚠️ Balance fetch error for \(chainId): \(friendlyMessage) – \(error.localizedDescription). Next retry in \(formattedDelay)\(addressHint)")
+            return false
+        }
+    }
+
+    private func friendlyBackoffMessage(for error: Error, retryDelay: TimeInterval) -> String {
+        var base: String
+        if let balanceError = error as? BalanceFetchError {
+            switch balanceError {
+            case .invalidStatus(let code) where code == 429:
+                base = "Temporarily rate limited"
+            case .invalidStatus(let code):
+                base = "Service returned status \(code)"
+            case .invalidRequest:
+                base = "Invalid request"
+            case .invalidResponse:
+                base = "Unexpected response"
+            case .invalidPayload:
+                base = "Unreadable data"
+            }
+        } else {
+            base = error.localizedDescription
+        }
+
+        if retryDelay > 0.1 {
+            return "\(base). Retrying in \(formatRetryDuration(retryDelay))…"
+        }
+        return base
+    }
+
+    private func formatRetryDuration(_ delay: TimeInterval) -> String {
+        if delay >= 10 {
+            return "\(Int(delay))s"
+        } else {
+            return String(format: "%.1fs", delay)
         }
     }
 
     private func fetchBitcoinBalance(address: String, isTestnet: Bool = false) async throws -> String {
+        let symbol = isTestnet ? "tBTC" : "BTC"
+        
+        // Try BlockCypher first - more generous rate limits
+        do {
+            let baseURL = isTestnet ? "https://api.blockcypher.com/v1/btc/test3" : "https://api.blockcypher.com/v1/btc/main"
+            guard let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+                let url = URL(string: "\(baseURL)/addrs/\(encodedAddress)/balance") else {
+                throw BalanceFetchError.invalidRequest
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw BalanceFetchError.invalidResponse
+            }
+
+            if httpResponse.statusCode == 200 {
+                let jsonObject = try JSONSerialization.jsonObject(with: data, options: [])
+                if let dictionary = jsonObject as? [String: Any],
+                   let balance = dictionary["balance"] as? NSNumber {
+                    let btc = balance.doubleValue / 100_000_000.0
+                    return formatCryptoAmount(btc, symbol: symbol, maxFractionDigits: 8)
+                }
+            }
+        } catch {
+            print("⚠️ BlockCypher failed, falling back to mempool.space: \(error)")
+        }
+        
+        // Fallback to mempool.space
         let baseURL = isTestnet ? "https://mempool.space/testnet/api" : "https://mempool.space/api"
         guard let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
             let url = URL(string: "\(baseURL)/address/\(encodedAddress)") else {
             throw BalanceFetchError.invalidRequest
         }
-
-        print("🔍 Fetching balance for \(isTestnet ? "TESTNET" : "MAINNET") address: \(address)")
-        print("🔍 URL: \(url)")
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -2059,13 +2354,8 @@ struct ContentView: View {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw BalanceFetchError.invalidResponse
         }
-
-        print("🔍 HTTP Status: \(httpResponse.statusCode)")
-
-        let symbol = isTestnet ? "tBTC" : "BTC"
         
         if httpResponse.statusCode == 404 {
-            print("⚠️ Address not found (404), returning 0")
             return formatCryptoAmount(0.0, symbol: symbol, maxFractionDigits: 8)
         }
 
@@ -2076,7 +2366,6 @@ struct ContentView: View {
         let jsonObject = try JSONSerialization.jsonObject(with: data, options: [])
         guard let dictionary = jsonObject as? [String: Any],
               let chainStats = dictionary["chain_stats"] as? [String: Any] else {
-            print("❌ Failed to parse chain_stats")
             throw BalanceFetchError.invalidPayload
         }
 
@@ -2084,9 +2373,6 @@ struct ContentView: View {
         let spent = (chainStats["spent_txo_sum"] as? NSNumber)?.doubleValue ?? 0
         let balanceInSats = max(0, funded - spent)
         let btc = balanceInSats / 100_000_000.0
-        
-        print("✅ Funded: \(funded) sats, Spent: \(spent) sats")
-        print("✅ Balance: \(balanceInSats) sats = \(btc) \(symbol)")
         
         return formatCryptoAmount(btc, symbol: symbol, maxFractionDigits: 8)
     }
@@ -2163,9 +2449,120 @@ struct ContentView: View {
         return formatCryptoAmount(sol, symbol: "SOL", maxFractionDigits: 6)
     }
 
-    private func fetchXrpBalance(address: String) async throws -> String {
+    private func fetchXrpBalanceViaRippleDataAPI(address: String) async throws -> String {
         guard let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "https://data.ripple.com/v2/accounts/\(encodedAddress)/balances?currency=XRP") else {
+              let url = URL(string: "https://data.ripple.com/v2/accounts/\(encodedAddress)/balances") else {
+            throw BalanceFetchError.invalidRequest
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BalanceFetchError.invalidResponse
+        }
+
+        if httpResponse.statusCode == 404 {
+            return formatCryptoAmount(0, symbol: "XRP", maxFractionDigits: 6)
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
+        }
+
+        let decoder = JSONDecoder()
+        let payload = try decoder.decode(RippleDataAccountBalanceResponse.self, from: data)
+
+        if payload.isAccountMissing {
+            return formatCryptoAmount(0, symbol: "XRP", maxFractionDigits: 6)
+        }
+
+        if let balanceDecimal = payload.xrpBalanceValue {
+            let xrp = NSDecimalNumber(decimal: balanceDecimal).doubleValue
+            return formatCryptoAmount(xrp, symbol: "XRP", maxFractionDigits: 6)
+        }
+
+        return formatCryptoAmount(0, symbol: "XRP", maxFractionDigits: 6)
+    }
+
+    private func fetchXrpBalance(address: String) async throws -> String {
+        let shortened = address.prefix(8)
+
+        do {
+            return try await fetchXrpBalanceViaRippleDataAPI(address: address)
+        } catch {
+            print("⚠️ Ripple Data API lookup failed for \(shortened)…: \(error.localizedDescription). Trying XRPSCAN next.")
+        }
+
+        do {
+            return try await fetchXrpBalanceViaXrpScan(address: address)
+        } catch {
+            print("⚠️ XRPSCAN lookup failed for \(shortened)…: \(error.localizedDescription). Falling back to XRPL RPC endpoints.")
+        }
+
+        return try await fetchXrpBalanceViaRippleRPC(address: address)
+    }
+
+    private func fetchXrpBalanceViaRippleRPC(address: String) async throws -> String {
+        var lastError: Error?
+        let shortened = address.prefix(8)
+
+        for endpoint in APIConfig.xrplEndpoints {
+            do {
+                return try await requestXrpBalance(address: address, endpoint: endpoint)
+            } catch {
+                print("⚠️ XRPL RPC \(endpoint) failed for \(shortened)…: \(error.localizedDescription)")
+                lastError = error
+                continue
+            }
+        }
+
+        print("❌ All XRPL RPC endpoints exhausted for \(shortened)…")
+        throw lastError ?? BalanceFetchError.invalidResponse
+    }
+
+    private func requestXrpBalance(address: String, endpoint: String) async throws -> String {
+        guard let url = URL(string: endpoint) else {
+            throw BalanceFetchError.invalidRequest
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
+        request.httpBody = try xrplAccountInfoPayload(address: address)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BalanceFetchError.invalidResponse
+        }
+
+        if httpResponse.statusCode == 404 {
+            return formatCryptoAmount(0, symbol: "XRP", maxFractionDigits: 6)
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
+        }
+
+        do {
+            let xrpDecimal = try BalanceResponseParser.parseXRPLBalance(from: data)
+            let xrp = NSDecimalNumber(decimal: xrpDecimal).doubleValue
+            return formatCryptoAmount(xrp, symbol: "XRP", maxFractionDigits: 6)
+        } catch {
+            if xrplResponseIndicatesUnfundedAccount(data) {
+                return formatCryptoAmount(0, symbol: "XRP", maxFractionDigits: 6)
+            }
+            throw error
+        }
+    }
+
+    private func fetchXrpBalanceViaXrpScan(address: String) async throws -> String {
+        guard let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "https://api.xrpscan.com/api/v1/account/\(encodedAddress)") else {
             throw BalanceFetchError.invalidRequest
         }
 
@@ -2178,23 +2575,60 @@ struct ContentView: View {
             throw BalanceFetchError.invalidResponse
         }
 
+        if httpResponse.statusCode == 404 {
+            return formatCryptoAmount(0, symbol: "XRP", maxFractionDigits: 6)
+        }
+
         guard httpResponse.statusCode == 200 else {
-            if httpResponse.statusCode == 404 {
-                return formatCryptoAmount(0, symbol: "XRP", maxFractionDigits: 6)
-            }
             throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
         }
 
-        let jsonObject = try JSONSerialization.jsonObject(with: data, options: [])
-        guard let dictionary = jsonObject as? [String: Any],
-              let balances = dictionary["balances"] as? [[String: Any]] else {
-            throw BalanceFetchError.invalidPayload
+        let decoder = JSONDecoder()
+        let payload = try decoder.decode(XrpScanAccountResponse.self, from: data)
+
+        if let balanceString = payload.xrpBalance ?? payload.balance,
+           let balanceDecimal = Decimal(string: balanceString) {
+            let xrp = NSDecimalNumber(decimal: balanceDecimal).doubleValue
+            return formatCryptoAmount(xrp, symbol: "XRP", maxFractionDigits: 6)
         }
 
-        let xrpBalance = balances.first { ($0["currency"] as? String)?.uppercased() == "XRP" }
-        let valueString = xrpBalance?["value"] as? String ?? "0"
-        let value = Double(valueString) ?? 0
-        return formatCryptoAmount(value, symbol: "XRP", maxFractionDigits: 6)
+        return formatCryptoAmount(0, symbol: "XRP", maxFractionDigits: 6)
+    }
+
+    private func xrplAccountInfoPayload(address: String) throws -> Data {
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "account_info",
+            "id": 1,
+            "params": [
+                [
+                    "account": address,
+                    "ledger_index": "validated",
+                    "queue": true
+                ]
+            ]
+        ]
+
+        return try JSONSerialization.data(withJSONObject: payload, options: [])
+    }
+
+    private func xrplResponseIndicatesUnfundedAccount(_ data: Data) -> Bool {
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data, options: []),
+            let dictionary = json as? [String: Any],
+            let result = dictionary["result"] as? [String: Any]
+        else { return false }
+
+        if let errorCode = result["error"] as? String {
+            return errorCode == "actNotFound"
+        }
+
+        if let status = result["status"] as? String, status == "error",
+           let errorMessage = result["error_message"] as? String {
+            return errorMessage.lowercased().contains("not found")
+        }
+
+        return false
     }
 
     private func fetchBnbBalance(address: String) async throws -> String {
@@ -2239,60 +2673,98 @@ struct ContentView: View {
     }
 
     private func fetchEthereumBalanceViaInfura(address: String) async throws -> String {
-        guard let url = URL(string: "https://ethereum.publicnode.com") else {
+        // Use Alchemy if configured, otherwise fallback to Blockchair
+        if APIConfig.isAlchemyConfigured() {
+            return try await fetchEthereumBalanceViaAlchemy(address: address)
+        } else {
+            return try await fetchEthereumBalanceViaBlockchair(address: address)
+        }
+    }
+    
+    private func fetchEthereumBalanceViaAlchemy(address: String) async throws -> String {
+        guard let url = URL(string: APIConfig.alchemyMainnetURL) else {
+            throw BalanceFetchError.invalidRequest
+        }
+        
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getBalance",
+            "params": [address, "latest"],
+            "id": 1
+        ]
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BalanceFetchError.invalidResponse
+        }
+        
+        guard httpResponse.statusCode == 200 else {
+            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
+        }
+        
+                let ethDecimal = try BalanceResponseParser.parseAlchemyETHBalance(from: data)
+                let eth = NSDecimalNumber(decimal: ethDecimal).doubleValue
+        return formatCryptoAmount(eth, symbol: "ETH", maxFractionDigits: 6)
+    }
+    
+    private func fetchEthereumBalanceViaBlockchair(address: String) async throws -> String {
+        guard let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "https://api.blockchair.com/ethereum/dashboards/address/\(encodedAddress)") else {
             throw BalanceFetchError.invalidRequest
         }
 
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpMethod = "GET"
         request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
 
-        let payload: [String: Any] = [
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "eth_getBalance",
-            "params": [address, "latest"]
-        ]
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+        guard let httpResponse = response as? HTTPURLResponse else {
             throw BalanceFetchError.invalidResponse
         }
-
-        let jsonObject = try JSONSerialization.jsonObject(with: data, options: [])
-        guard let dictionary = jsonObject as? [String: Any],
-              let result = dictionary["result"] as? String else {
-            throw BalanceFetchError.invalidPayload
+        
+        if httpResponse.statusCode == 404 {
+            return "0.00 ETH"
+        }
+        
+        guard httpResponse.statusCode == 200 else {
+            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
         }
 
-        let weiDecimal = decimalFromHex(result)
-        let divisor = Decimal(string: "1000000000000000000") ?? Decimal(1_000_000_000_000_000_000)
-        let ethDecimal = weiDecimal / divisor
-        let eth = NSDecimalNumber(decimal: ethDecimal).doubleValue
-        let formatted = formatCryptoAmount(eth, symbol: "ETH", maxFractionDigits: 6)
-        return formatted
+        do {
+            let ethDecimal = try BalanceResponseParser.parseBlockchairETHBalance(from: data, address: address)
+            let eth = NSDecimalNumber(decimal: ethDecimal).doubleValue
+            return formatCryptoAmount(eth, symbol: "ETH", maxFractionDigits: 6)
+        } catch {
+            return "0.00 ETH"
+        }
     }
 
     private func fetchERC20Balance(address: String, contractAddress: String, decimals: Int, symbol: String) async throws -> String {
-        guard let url = URL(string: "https://ethereum.publicnode.com") else {
+        // Use Alchemy if configured, otherwise fallback to Blockchair
+        if APIConfig.isAlchemyConfigured() {
+            return try await fetchERC20BalanceViaAlchemy(address: address, contractAddress: contractAddress, decimals: decimals, symbol: symbol)
+        } else {
+            return try await fetchERC20BalanceViaBlockchair(address: address, contractAddress: contractAddress, decimals: decimals, symbol: symbol)
+        }
+    }
+    
+    private func fetchERC20BalanceViaAlchemy(address: String, contractAddress: String, decimals: Int, symbol: String) async throws -> String {
+        guard let url = URL(string: APIConfig.alchemyMainnetURL) else {
             throw BalanceFetchError.invalidRequest
         }
-
-        // ERC-20 balanceOf function signature: 0x70a08231 + 32-byte address parameter
-        let normalizedAddress = normalizeAddressForCall(address)
-        let data = "0x70a08231" + normalizedAddress
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
-
+        
+        // balanceOf(address) function signature
+        let functionSelector = "0x70a08231"
+        let paddedAddress = String(address.dropFirst(2)).padding(toLength: 64, withPad: "0", startingAt: 0)
+        let data = functionSelector + paddedAddress
+        
         let payload: [String: Any] = [
             "jsonrpc": "2.0",
-            "id": 1,
             "method": "eth_call",
             "params": [
                 [
@@ -2300,28 +2772,56 @@ struct ContentView: View {
                     "data": data
                 ],
                 "latest"
-            ]
+            ],
+            "id": 1
         ]
-
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-
+        
         let (responseData, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+        guard let httpResponse = response as? HTTPURLResponse else {
             throw BalanceFetchError.invalidResponse
         }
+        
+        guard httpResponse.statusCode == 200 else {
+            return "0 \(symbol)"
+        }
+        
+        do {
+            let tokenAmountDecimal = try BalanceResponseParser.parseAlchemyERC20Balance(from: responseData, decimals: decimals)
+            let amount = NSDecimalNumber(decimal: tokenAmountDecimal).doubleValue
+            return formatCryptoAmount(amount, symbol: symbol, maxFractionDigits: decimals >= 6 ? 6 : decimals)
+        } catch {
+            return "0 \(symbol)"
+        }
+    }
+    
+    private func fetchERC20BalanceViaBlockchair(address: String, contractAddress: String, decimals: Int, symbol: String) async throws -> String {
+        // Use Blockchair API for ERC-20 tokens - better rate limits
+        guard let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "https://api.blockchair.com/ethereum/dashboards/address/\(encodedAddress)?erc_20=true") else {
+            throw BalanceFetchError.invalidRequest
+        }
 
-                        let jsonObject = try JSONSerialization.jsonObject(with: responseData, options: [])
-                        guard let dictionary = jsonObject as? [String: Any],
-                                    let result = dictionary["result"] as? String else {
-                                throw BalanceFetchError.invalidPayload
-                        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
 
-                        let rawBalance = decimalFromHex(result)
-                        let divisor = Decimal(sign: .plus, exponent: decimals, significand: 1)
-                        let tokenDecimal = rawBalance / divisor
-                        let tokenAmount = NSDecimalNumber(decimal: tokenDecimal).doubleValue
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BalanceFetchError.invalidResponse
+        }
+        
+        guard httpResponse.statusCode == 200 else {
+            return "0 \(symbol)"
+        }
 
-                        return formatCryptoAmount(tokenAmount, symbol: symbol, maxFractionDigits: min(6, decimals))
+        let amountDecimal = try BalanceResponseParser.parseBlockchairERC20Balance(from: data, address: address, contractAddress: contractAddress, decimals: decimals)
+        let amount = NSDecimalNumber(decimal: amountDecimal).doubleValue
+        return formatCryptoAmount(amount, symbol: symbol, maxFractionDigits: decimals >= 6 ? 6 : decimals)
     }
 
     private func fetchEthplorerAccount(address: String) async throws -> EthplorerAddressResponse {
@@ -3551,29 +4051,89 @@ private struct ChainCard: View {
     let balanceState: ChainBalanceState
     let priceState: ChainPriceState
 
-    private var balanceLabel: String {
-        switch balanceState {
+    @State private var skeletonPhase: CGFloat = -0.8
+
+    private var pricePrimary: String {
+        switch priceState {
         case .idle:
             return "—"
         case .loading:
             return "Loading…"
-        case .loaded(let value):
+        case .refreshing(let value, _), .loaded(let value, _), .stale(let value, _, _):
             return value
         case .failed:
             return "Unavailable"
         }
     }
 
-    private var priceLabel: String {
+    private var isBalanceLoading: Bool {
+        if case .loading = balanceState { return true }
+        return false
+    }
+
+    private var isPriceLoading: Bool {
+        if case .loading = priceState { return true }
+        return false
+    }
+
+    private var priceDetail: (text: String, color: Color)? {
         switch priceState {
+        case .refreshing(_, let timestamp):
+            let detail = relativeTimeDescription(from: timestamp).map { "Refreshing… • updated \($0)" } ?? "Refreshing…"
+            return (detail, .secondary)
+        case .loaded(_, let timestamp):
+            if let relative = relativeTimeDescription(from: timestamp) {
+                return ("Updated \(relative)", .secondary)
+            }
+            return nil
+        case .stale(_, let timestamp, let message):
+            var detail = message
+            if let relative = relativeTimeDescription(from: timestamp) {
+                detail += " • updated \(relative)"
+            }
+            return (detail, .orange)
+        case .failed(let message):
+            return (message, .red)
+        default:
+            return nil
+        }
+    }
+
+    private var balancePrimary: String {
+        switch balanceState {
         case .idle:
             return "—"
         case .loading:
             return "Loading…"
-        case .loaded(let value):
+        case .refreshing(let value, _), .loaded(let value, _), .stale(let value, _, _):
             return value
         case .failed:
             return "Unavailable"
+        }
+    }
+
+    private var balanceDetail: (text: String, color: Color)? {
+        switch balanceState {
+        case .refreshing(_, let timestamp):
+            if let relative = relativeTimeDescription(from: timestamp) {
+                return ("Refreshing… • updated \(relative)", .secondary)
+            }
+            return ("Refreshing…", .secondary)
+        case .loaded(_, let timestamp):
+            if let relative = relativeTimeDescription(from: timestamp) {
+                return ("Updated \(relative)", .secondary)
+            }
+            return nil
+        case .stale(_, let timestamp, let message):
+            var detail = message
+            if let relative = relativeTimeDescription(from: timestamp) {
+                detail += " • updated \(relative)"
+            }
+            return (detail, .orange)
+        case .failed(let message):
+            return (message, .red)
+        default:
+            return nil
         }
     }
 
@@ -3612,9 +4172,21 @@ private struct ChainCard: View {
                             .foregroundStyle(.secondary)
                             .textCase(.uppercase)
                         Spacer()
-                        Text(balanceLabel)
-                            .font(.caption)
-                            .fontWeight(.medium)
+                        if isBalanceLoading {
+                            SkeletonLine()
+                        } else {
+                            Text(balancePrimary)
+                                .font(.caption)
+                                .fontWeight(.medium)
+                        }
+                    }
+                    if isBalanceLoading {
+                        SkeletonLine(width: 110, height: 8)
+                            .padding(.top, 2)
+                    } else if let detail = balanceDetail {
+                        Text(detail.text)
+                            .font(.caption2)
+                            .foregroundStyle(detail.color)
                     }
                     
                     HStack {
@@ -3623,9 +4195,21 @@ private struct ChainCard: View {
                             .foregroundStyle(.secondary)
                             .textCase(.uppercase)
                         Spacer()
-                        Text(priceLabel)
-                            .font(.caption)
-                            .fontWeight(.medium)
+                        if isPriceLoading {
+                            SkeletonLine(width: 70)
+                        } else {
+                            Text(pricePrimary)
+                                .font(.caption)
+                                .fontWeight(.medium)
+                        }
+                    }
+                    if isPriceLoading {
+                        SkeletonLine(width: 90, height: 8)
+                            .padding(.top, 2)
+                    } else if let detail = priceDetail {
+                        Text(detail.text)
+                            .font(.caption2)
+                            .foregroundStyle(detail.color)
                     }
                 }
             }
@@ -3640,6 +4224,61 @@ private struct ChainCard: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(chain.accentColor.opacity(0.15), lineWidth: 1)
         )
+    }
+}
+
+private struct SkeletonLine: View {
+    var width: CGFloat? = 80
+    var height: CGFloat = 10
+    var cornerRadius: CGFloat = 6
+
+    @State private var phase: CGFloat = -0.8
+
+    var body: some View {
+        GeometryReader { geometry in
+            let gradient = LinearGradient(
+                colors: [
+                    Color.primary.opacity(0.08),
+                    Color.primary.opacity(0.18),
+                    Color.primary.opacity(0.08)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.primary.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(gradient)
+                        .scaleEffect(x: 1.6, y: 1, anchor: .leading)
+                        .offset(x: geometry.size.width * phase)
+                )
+                .animation(.linear(duration: 1.1).repeatForever(autoreverses: false), value: phase)
+                .onAppear {
+                    phase = 0.9
+                }
+        }
+        .frame(width: width, height: height)
+    }
+}
+
+private struct CopyFeedbackBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+            Text(message)
+                .font(.caption)
+                .fontWeight(.semibold)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 14)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+        .shadow(color: .black.opacity(0.15), radius: 6, y: 4)
     }
 }
 
@@ -3766,6 +4405,8 @@ private struct ChainDetailSheet: View {
     let onSendRequested: (ChainInfo) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var showReceiveInfo = false
+    @State private var copyFeedbackMessage: String?
+    @State private var copyFeedbackTask: Task<Void, Never>?
     
     private var isBitcoinChain: Bool {
         chain.id.starts(with: "bitcoin")
@@ -3795,6 +4436,13 @@ private struct ChainDetailSheet: View {
             }
         }
         .frame(minWidth: 420, minHeight: 520)
+        .overlay(alignment: .bottom) {
+            if let message = copyFeedbackMessage {
+                CopyFeedbackBanner(message: message)
+                    .padding(.bottom, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
     }
     
     @ViewBuilder
@@ -3851,7 +4499,7 @@ private struct ChainDetailSheet: View {
                             .textSelection(.enabled)
                         Spacer(minLength: 0)
                         Button {
-                            onCopy(address)
+                            copyWithFeedback(value: address, label: "Receive address")
                         } label: {
                             Image(systemName: "doc.on.doc")
                                 .padding(8)
@@ -3881,10 +4529,41 @@ private struct ChainDetailSheet: View {
             case .loading:
                 ProgressView()
                     .controlSize(.small)
-            case .loaded(let value):
-                Text(value)
-                    .font(.headline)
-                    .foregroundStyle(chain.accentColor)
+            case .refreshing(let value, let timestamp):
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(value)
+                        .font(.headline)
+                        .foregroundStyle(chain.accentColor)
+                    Text(relativeTimeDescription(from: timestamp).map { "Refreshing… • updated \($0)" } ?? "Refreshing…")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            case .loaded(let value, let timestamp):
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(value)
+                        .font(.headline)
+                        .foregroundStyle(chain.accentColor)
+                    if let relative = relativeTimeDescription(from: timestamp) {
+                        Text("Updated \(relative)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            case .stale(let value, let timestamp, let message):
+                let detail: String = {
+                    if let relative = relativeTimeDescription(from: timestamp) {
+                        return "\(message) • updated \(relative)"
+                    }
+                    return message
+                }()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(value)
+                        .font(.headline)
+                        .foregroundStyle(chain.accentColor)
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
             case .failed(let message):
                 VStack(alignment: .trailing, spacing: 4) {
                     Text("Unavailable")
@@ -3900,6 +4579,15 @@ private struct ChainDetailSheet: View {
         .padding(12)
         .background(Color.gray.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .contextMenu {
+            if let copyValue = balanceCopyValue {
+                Button {
+                    copyWithFeedback(value: copyValue, label: "\(chain.title) balance")
+                } label: {
+                    Label("Copy Balance", systemImage: "doc.on.doc")
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -3916,10 +4604,41 @@ private struct ChainDetailSheet: View {
             case .loading:
                 ProgressView()
                     .controlSize(.small)
-            case .loaded(let value):
-                Text(value)
-                    .font(.headline)
-                    .foregroundStyle(chain.accentColor)
+            case .refreshing(let value, let timestamp):
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(value)
+                        .font(.headline)
+                        .foregroundStyle(chain.accentColor)
+                    Text(relativeTimeDescription(from: timestamp).map { "Refreshing… • updated \($0)" } ?? "Refreshing…")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            case .loaded(let value, let timestamp):
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(value)
+                        .font(.headline)
+                        .foregroundStyle(chain.accentColor)
+                    if let relative = relativeTimeDescription(from: timestamp) {
+                        Text("Updated \(relative)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            case .stale(let value, let timestamp, let message):
+                let detail: String = {
+                    if let relative = relativeTimeDescription(from: timestamp) {
+                        return "\(message) • updated \(relative)"
+                    }
+                    return message
+                }()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(value)
+                        .font(.headline)
+                        .foregroundStyle(chain.accentColor)
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
             case .failed(let message):
                 VStack(alignment: .trailing, spacing: 4) {
                     Text("Unavailable")
@@ -3935,6 +4654,47 @@ private struct ChainDetailSheet: View {
         .padding(12)
         .background(Color.gray.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .contextMenu {
+            if let copyValue = priceCopyValue {
+                Button {
+                    copyWithFeedback(value: copyValue, label: "\(chain.title) price")
+                } label: {
+                    Label("Copy Price", systemImage: "dollarsign.circle")
+                }
+            }
+        }
+    }
+
+    private var balanceCopyValue: String? {
+        switch balanceState {
+        case .refreshing(let value, _), .loaded(let value, _), .stale(let value, _, _):
+            return value
+        default:
+            return nil
+        }
+    }
+
+    private var priceCopyValue: String? {
+        switch priceState {
+        case .refreshing(let value, _), .loaded(let value, _), .stale(let value, _, _):
+            return value
+        default:
+            return nil
+        }
+    }
+
+    private func copyWithFeedback(value: String, label: String) {
+        onCopy(value)
+        copyFeedbackTask?.cancel()
+        copyFeedbackTask = Task { @MainActor in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+                copyFeedbackMessage = "\(label) copied"
+            }
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            withAnimation(.easeInOut(duration: 0.25)) {
+                copyFeedbackMessage = nil
+            }
+        }
     }
 }
 
@@ -4428,7 +5188,7 @@ struct ChainInfo: Identifiable, Hashable {
     let receiveAddress: String?
 }
 
-private enum BalanceFetchError: LocalizedError {
+enum BalanceFetchError: LocalizedError {
     case invalidRequest
     case invalidResponse
     case invalidStatus(Int)
@@ -4475,6 +5235,43 @@ private struct EthplorerAddressResponse: Decodable {
     enum CodingKeys: String, CodingKey {
         case eth = "ETH"
         case tokens
+    }
+}
+
+private struct XrpScanAccountResponse: Decodable {
+    let xrpBalance: String?
+    let balance: String?
+
+    enum CodingKeys: String, CodingKey {
+        case xrpBalance
+        case balance = "Balance"
+    }
+}
+
+private struct RippleDataAccountBalanceResponse: Decodable {
+    struct BalanceEntry: Decodable {
+        let currency: String
+        let value: String
+    }
+
+    let result: String?
+    let balances: [BalanceEntry]?
+    let message: String?
+
+    var xrpBalanceValue: Decimal? {
+        guard let entry = balances?.first(where: { $0.currency.uppercased() == "XRP" }) else {
+            return nil
+        }
+        return Decimal(string: entry.value)
+    }
+
+    var isAccountMissing: Bool {
+        guard let result else { return false }
+        if result.lowercased() == "success" { return false }
+        if let message = message?.lowercased(), message.contains("not found") {
+            return true
+        }
+        return false
     }
 }
 

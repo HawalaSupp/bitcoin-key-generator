@@ -3,3 +3,6 @@
 /target/
 .swiftpm/
 *.resolved
+
+# API Keys (sensitive - do not commit)
+**/APIKeys.swift

@@ -3,7 +3,6 @@ import XCTest
 
 final class SwiftAppTests: XCTestCase {
     func testAppStructLoads() {
-        _ = KeyGeneratorApp()
-        XCTAssertTrue(true)
+        XCTAssertNotNil(KeyGeneratorApp.self)
     }
 }

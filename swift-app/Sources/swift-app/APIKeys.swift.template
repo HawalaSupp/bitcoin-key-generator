@@ -1,0 +1,12 @@
+import Foundation
+
+// TEMPLATE FILE - Copy this to APIKeys.swift and add your actual API keys
+// This file is tracked in Git, but APIKeys.swift is not
+
+struct APIKeys {
+    // Get your API key from: https://dashboard.alchemy.com/
+    // 1. Sign up or log in
+    // 2. Create a new app (Ethereum → Mainnet)
+    // 3. Copy your API key here
+    static let alchemyAPIKey = "YOUR_ALCHEMY_API_KEY_HERE"
+}
