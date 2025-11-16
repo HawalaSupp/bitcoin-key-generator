@@ -1851,25 +1851,46 @@ struct ContentView: View {
 
     @MainActor
     private func startBalanceFetch(for keys: AllKeys) {
-        enqueueBalanceFetch(for: "bitcoin") {
-            try await fetchBitcoinBalance(address: keys.bitcoin.address)
+        // Stagger balance fetches to avoid rate limiting (429 errors)
+        Task {
+            enqueueBalanceFetch(for: "bitcoin") {
+                try await fetchBitcoinBalance(address: keys.bitcoin.address)
+            }
+            
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s delay
+            
+            enqueueBalanceFetch(for: "bitcoin-testnet") {
+                try await fetchBitcoinBalance(address: keys.bitcoinTestnet.address, isTestnet: true)
+            }
+            
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            
+            enqueueBalanceFetch(for: "litecoin") {
+                try await fetchLitecoinBalance(address: keys.litecoin.address)
+            }
+            
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            
+            enqueueBalanceFetch(for: "solana") {
+                try await fetchSolanaBalance(address: keys.solana.publicKeyBase58)
+            }
+            
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            
+            enqueueBalanceFetch(for: "xrp") {
+                try await fetchXrpBalance(address: keys.xrp.classicAddress)
+            }
+            
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            
+            enqueueBalanceFetch(for: "bnb") {
+                try await fetchBnbBalance(address: keys.bnb.address)
+            }
+            
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            
+            startEthereumAndTokenBalanceFetch(address: keys.ethereum.address)
         }
-        enqueueBalanceFetch(for: "bitcoin-testnet") {
-            try await fetchBitcoinBalance(address: keys.bitcoinTestnet.address, isTestnet: true)
-        }
-        enqueueBalanceFetch(for: "litecoin") {
-            try await fetchLitecoinBalance(address: keys.litecoin.address)
-        }
-        enqueueBalanceFetch(for: "solana") {
-            try await fetchSolanaBalance(address: keys.solana.publicKeyBase58)
-        }
-        enqueueBalanceFetch(for: "xrp") {
-            try await fetchXrpBalance(address: keys.xrp.classicAddress)
-        }
-        enqueueBalanceFetch(for: "bnb") {
-            try await fetchBnbBalance(address: keys.bnb.address)
-        }
-    startEthereumAndTokenBalanceFetch(address: keys.ethereum.address)
     }
 
     @MainActor
@@ -1897,8 +1918,9 @@ struct ContentView: View {
         balanceStates["usdc-erc20"] = .loading
         balanceStates["dai-erc20"] = .loading
 
-        // Fetch ETH balance
+        // Stagger Ethereum balance fetches to avoid rate limiting
         Task {
+            // Fetch ETH balance
             do {
                 let ethBalance = try await fetchEthereumBalanceViaInfura(address: address)
                 await MainActor.run {
@@ -1909,10 +1931,10 @@ struct ContentView: View {
                     balanceStates["ethereum"] = .failed(error.localizedDescription)
                 }
             }
-        }
+            
+            try? await Task.sleep(nanoseconds: 700_000_000) // 0.7s delay
 
-        // Fetch USDT balance
-        Task {
+            // Fetch USDT balance
             do {
                 let usdtBalance = try await fetchERC20Balance(
                     address: address,
@@ -1928,10 +1950,10 @@ struct ContentView: View {
                     balanceStates["usdt-erc20"] = .loaded("0 USDT")
                 }
             }
-        }
+            
+            try? await Task.sleep(nanoseconds: 700_000_000)
 
-        // Fetch USDC balance
-        Task {
+            // Fetch USDC balance
             do {
                 let usdcBalance = try await fetchERC20Balance(
                     address: address,
@@ -1947,10 +1969,10 @@ struct ContentView: View {
                     balanceStates["usdc-erc20"] = .loaded("0 USDC")
                 }
             }
-        }
+            
+            try? await Task.sleep(nanoseconds: 700_000_000)
 
-        // Fetch DAI balance
-        Task {
+            // Fetch DAI balance
             do {
                 let daiBalance = try await fetchERC20Balance(
                     address: address,
