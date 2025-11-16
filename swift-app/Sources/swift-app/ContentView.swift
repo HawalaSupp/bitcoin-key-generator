@@ -46,6 +46,13 @@ private enum AppearanceMode: String, CaseIterable, Identifiable {
     }
 }
 
+private struct ViewWidthPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 900
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 struct ContentView: View {
     @State private var keys: AllKeys?
     @State private var rawJSON: String = ""
@@ -84,6 +91,7 @@ struct ContentView: View {
     @State private var showReceiveSheet = false
     @State private var showSendSheet = false
     @State private var sendChainContext: ChainInfo?
+    @State private var viewportWidth: CGFloat = 900
     private let moneroBalancePlaceholder = "Balance protected – open your Monero wallet"
     private let trackedPriceChainIDs = [
         "bitcoin", "bitcoin-testnet", "ethereum", "ethereum-sepolia", "litecoin", "monero",
@@ -94,10 +102,7 @@ struct ContentView: View {
     private static var cachedWorkspaceRoot: URL?
 
     @Environment(\.scenePhase) private var scenePhase
-
-    private let columns: [GridItem] = [
-        GridItem(.adaptive(minimum: 160), spacing: 16)
-    ]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var canAccessSensitiveData: Bool {
         storedPasscodeHash == nil || isUnlocked
@@ -750,7 +755,7 @@ struct ContentView: View {
                             Spacer()
                         }
                         
-                        LazyVGrid(columns: columns, spacing: 14) {
+                        LazyVGrid(columns: gridColumns(for: viewportWidth), spacing: 14) {
                             ForEach(keys.chainInfos) { chain in
                                 Button {
                                     guard canAccessSensitiveData else {
@@ -768,14 +773,27 @@ struct ContentView: View {
                                     )
                                 }
                                 .buttonStyle(.plain)
+                                .transition(cardTransition)
                             }
                         }
+                        .animation(cardAnimation, value: viewportWidth)
+                        .animation(cardAnimation, value: balanceAnimationToken)
+                        .animation(cardAnimation, value: priceAnimationToken)
                     }
 
                     transactionHistorySection
                 }
                 .padding(.top, 12)
                 .padding(.bottom, 20)
+            }
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .preference(key: ViewWidthPreferenceKey.self, value: proxy.size.width)
+                }
+            )
+            .onPreferenceChange(ViewWidthPreferenceKey.self) { width in
+                viewportWidth = width
             }
         } else {
             VStack(spacing: 12) {
@@ -800,6 +818,43 @@ struct ContentView: View {
         #else
         Color(UIColor.secondarySystemBackground)
         #endif
+    }
+
+    private func gridColumns(for width: CGFloat) -> [GridItem] {
+        let effectiveWidth = (width.isFinite && width > 0) ? width : 900
+        if effectiveWidth < 520 {
+            return [GridItem(.flexible(), spacing: 12, alignment: .top)]
+        } else if effectiveWidth < 900 {
+            return [GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 14, alignment: .top)]
+        } else {
+            return [GridItem(.adaptive(minimum: 260, maximum: 360), spacing: 16, alignment: .top)]
+        }
+    }
+
+    private var balanceAnimationToken: Int {
+        balanceStates.reduce(0) { partial, entry in
+            var hasher = Hasher()
+            hasher.combine(entry.key)
+            hasher.combine(String(describing: entry.value))
+            return partial ^ hasher.finalize()
+        }
+    }
+
+    private var priceAnimationToken: Int {
+        priceStates.reduce(0) { partial, entry in
+            var hasher = Hasher()
+            hasher.combine(entry.key)
+            hasher.combine(String(describing: entry.value))
+            return partial ^ hasher.finalize()
+        }
+    }
+
+    private var cardAnimation: Animation {
+        reduceMotion ? .easeInOut(duration: 0.18) : .spring(response: 0.45, dampingFraction: 0.82, blendDuration: 0.3)
+    }
+
+    private var cardTransition: AnyTransition {
+        reduceMotion ? .opacity : .scale(scale: 0.96).combined(with: .opacity)
     }
 
     private var appearanceMenu: some View {
@@ -858,7 +913,7 @@ struct ContentView: View {
             .controlSize(.small)
             .tint(.blue)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: headerMaxWidth(for: viewportWidth))
         .padding(.vertical, 20)
         .padding(.horizontal, 16)
         .background(
@@ -869,6 +924,14 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
+    }
+
+    private func headerMaxWidth(for width: CGFloat) -> CGFloat? {
+        guard width.isFinite else { return nil }
+        if width < 560 {
+            return width - 16
+        }
+        return min(width - 120, 780)
     }
 
     private var totalBalanceDisplay: String {
@@ -951,6 +1014,84 @@ struct ContentView: View {
         return hasValue ? (accumulator, true) : (nil, false)
     }
 
+    @ViewBuilder
+    private var actionButtonsRow: some View {
+        if viewportWidth < 620 {
+            VStack(spacing: 10) {
+                actionButtonsContent
+            }
+        } else {
+            HStack(spacing: 10) {
+                actionButtonsContent
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var actionButtonsContent: some View {
+        walletActionButton(
+            title: "Send",
+            systemImage: "paperplane.fill",
+            color: .orange
+        ) {
+            if keys == nil {
+                Task {
+                    await runGenerator()
+                    await MainActor.run {
+                        openSendSheet()
+                    }
+                }
+            } else {
+                openSendSheet()
+            }
+        }
+        .disabled(keys == nil && isGenerating)
+
+        walletActionButton(
+            title: "Receive",
+            systemImage: "arrow.down.left.and.arrow.up.right",
+            color: .green
+        ) {
+            guard keys != nil else {
+                showStatus("Generate keys before receiving.", tone: .info)
+                return
+            }
+            showReceiveSheet = true
+        }
+        .disabled(keys == nil)
+
+        walletActionButton(
+            title: "View Keys",
+            systemImage: "doc.richtext",
+            color: .blue
+        ) {
+            guard canAccessSensitiveData else {
+                showUnlockSheet = true
+                return
+            }
+            if keys != nil {
+                showAllPrivateKeysSheet = true
+            } else {
+                showStatus("Generate keys before viewing private material.", tone: .info)
+            }
+        }
+        .disabled(!canAccessSensitiveData)
+
+        walletActionButton(
+            title: "Export",
+            systemImage: "tray.and.arrow.up",
+            color: .purple
+        ) {
+            guard keys != nil else {
+                showStatus("Generate keys before exporting.", tone: .info)
+                return
+            }
+            showExportPasswordPrompt = true
+        }
+        .disabled(keys == nil)
+    }
+
+
     @MainActor
     private func refreshAllBalances() {
         guard let keys else {
@@ -989,60 +1130,6 @@ struct ContentView: View {
         guard !filtered.isEmpty else { return nil }
         let normalized = filtered.replacingOccurrences(of: ",", with: "")
         return Double(normalized)
-    }
-
-    private var actionButtonsRow: some View {
-        HStack(spacing: 10) {
-            walletActionButton(
-                title: "Send",
-                systemImage: "paperplane.fill",
-                color: .orange
-            ) {
-                // Auto-generate keys if they don't exist (instant, no UI blocking)
-                if keys == nil {
-                    Task {
-                        // Generate keys silently in background
-                        await runGenerator()
-                        // Once keys are ready, open send sheet immediately
-                        await MainActor.run {
-                            openSendSheet()
-                        }
-                    }
-                } else {
-                    // Keys already exist, open immediately
-                    openSendSheet()
-                }
-            }
-
-            walletActionButton(
-                title: "Receive",
-                systemImage: "arrow.down.circle.fill",
-                color: .green,
-                prominent: true
-            ) {
-                guard keys != nil else {
-                    showStatus("Generate keys to reveal receive addresses.", tone: .info)
-                    return
-                }
-                showReceiveSheet = true
-            }
-
-            walletActionButton(
-                title: "Swap",
-                systemImage: "arrow.left.arrow.right.circle.fill",
-                color: .blue
-            ) {
-                showStatus("Swap integrations are on the roadmap.", tone: .info)
-            }
-
-            walletActionButton(
-                title: "Stake",
-                systemImage: "chart.bar.fill",
-                color: .purple
-            ) {
-                showStatus("Staking will unlock in a future release.", tone: .info)
-            }
-        }
     }
 
     @ViewBuilder
