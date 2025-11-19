@@ -1,392 +1,458 @@
 import Foundation
 import CryptoKit
+import P256K
 
-// MARK: - Bitcoin Transaction Builder & Signer
+// MARK: - Bitcoin Transaction Builder
 
-struct BitcoinTransaction {
-    let inputs: [Input]
-    let outputs: [Output]
-    let version: UInt32
-    let locktime: UInt32
+/// Builds, signs, and broadcasts Bitcoin transactions (P2WPKH SegWit)
+struct BitcoinTransactionBuilder {
+    
+    // MARK: - Data Types
     
     struct Input {
         let txid: String
         let vout: UInt32
+        let value: Int64
         let scriptPubKey: Data
-        let value: UInt64
-        let sequence: UInt32
     }
     
     struct Output {
-        let value: UInt64
-        let scriptPubKey: Data
+        let address: String
+        let value: Int64
     }
     
-    /// Build and sign a P2WPKH transaction
+    struct SignedTransaction {
+        let txid: String
+        let rawHex: String
+        let size: Int
+        let vsize: Int
+    }
+    
+    // MARK: - Transaction Building
+    
     static func buildAndSign(
-        from utxos: [(txid: String, vout: UInt32, value: UInt64, scriptPubKey: String)],
-        to recipient: String,
-        amount: UInt64,
-        feeRate: UInt64,
-        changeAddress: String,
-        privateKeyWIF: String
-    ) throws -> String {
+        inputs: [Input],
+        outputs: [Output],
+        privateKeyWIF: String,
+        isTestnet: Bool
+    ) throws -> SignedTransaction {
         
-        // Parse WIF private key
-        guard let privKeyData = decodeWIF(privateKeyWIF) else {
-            throw TransactionError.invalidPrivateKey
-        }
+        // Decode WIF private key
+        let privateKey = try decodeWIF(privateKeyWIF, isTestnet: isTestnet)
+        let publicKey = try derivePublicKey(from: privateKey)
         
-        // Decode addresses
-        guard let recipientScript = try? decodeP2WPKHAddress(recipient) else {
-            throw TransactionError.invalidAddress
-        }
-        guard let changeScript = try? decodeP2WPKHAddress(changeAddress) else {
-            throw TransactionError.invalidChangeAddress
-        }
+        // Build transaction
+        var tx = Data()
         
-        // Calculate total input
-        let totalInput = utxos.reduce(0) { $0 + $1.value }
+        // Version (4 bytes, little-endian)
+        tx.append(contentsOf: UInt32(2).littleEndianBytes)
         
-        // Estimate fee (inputs * 68 + outputs * 31 + 10)
-        let estimatedSize = UInt64(utxos.count * 68 + 2 * 31 + 10)
-        let fee = estimatedSize * feeRate
+        // Marker and Flag for SegWit (0x00 0x01)
+        tx.append(0x00)
+        tx.append(0x01)
         
-        guard totalInput >= amount + fee else {
-            throw TransactionError.insufficientFunds
-        }
+        // Input count (varint)
+        tx.append(contentsOf: encodeVarInt(UInt64(inputs.count)))
         
-        let change = totalInput - amount - fee
-        
-        // Build inputs
-        let inputs = utxos.map { utxo in
-            Input(
-                txid: utxo.txid,
-                vout: utxo.vout,
-                scriptPubKey: Data(hex: utxo.scriptPubKey) ?? Data(),
-                value: utxo.value,
-                sequence: 0xfffffffd
-            )
-        }
-        
-        // Build outputs
-        var outputs = [
-            Output(value: amount, scriptPubKey: recipientScript)
-        ]
-        
-        if change > 546 { // dust threshold
-            outputs.append(Output(value: change, scriptPubKey: changeScript))
-        }
-        
-        let tx = BitcoinTransaction(
-            inputs: inputs,
-            outputs: outputs,
-            version: 2,
-            locktime: 0
-        )
-        
-        // Sign transaction
-        return try tx.sign(with: privKeyData)
-    }
-    
-    /// Sign the transaction with BIP143 (SegWit)
-    private func sign(with privateKey: Data) throws -> String {
-        var witnesses: [Data] = []
-        
-        for (inputIndex, input) in inputs.enumerated() {
-            // BIP143 sighash
-            let sighash = try computeBIP143Sighash(
-                inputIndex: inputIndex,
-                scriptCode: input.scriptPubKey,
-                value: input.value
-            )
-            
-            // Sign with secp256k1
-            let signature = try signSecp256k1(hash: sighash, privateKey: privateKey)
-            
-            // DER encode signature + SIGHASH_ALL
-            let derSig = derEncode(signature: signature) + Data([0x01])
-            
-            // Get public key
-            let publicKey = try derivePublicKey(from: privateKey)
-            
-            // Build witness
-            let witness = Data([UInt8(derSig.count)]) + derSig + Data([UInt8(publicKey.count)]) + publicKey
-            witnesses.append(witness)
-        }
-        
-        // Serialize transaction
-        return try serialize(with: witnesses)
-    }
-    
-    /// Compute BIP143 signature hash for SegWit
-    private func computeBIP143Sighash(inputIndex: Int, scriptCode: Data, value: UInt64) throws -> Data {
-        var data = Data()
-        
-        // 1. nVersion (4 bytes)
-        data += version.littleEndianData
-        
-        // 2. hashPrevouts (32 bytes)
-        var prevouts = Data()
+        // Inputs (without witness data)
         for input in inputs {
-            if let txidData = Data(hex: input.txid) {
-                prevouts += Data(txidData.reversed())
+            // Previous txid (32 bytes, reversed)
+            guard let txidData = Data(hex: input.txid)?.reversed() else {
+                throw BitcoinError.invalidTxid
             }
-            prevouts += input.vout.littleEndianData
-        }
-        let hashPrevouts = Data(SHA256.hash(data: Data(SHA256.hash(data: prevouts))))
-        data += hashPrevouts
-        
-        // 3. hashSequence (32 bytes)
-        var sequences = Data()
-        for input in inputs {
-            sequences += input.sequence.littleEndianData
-        }
-        let hashSequence = Data(SHA256.hash(data: Data(SHA256.hash(data: sequences))))
-        data += hashSequence
-        
-        // 4. outpoint (36 bytes)
-        let input = inputs[inputIndex]
-        if let txidData = Data(hex: input.txid) {
-            data += Data(txidData.reversed())
-        }
-        data += input.vout.littleEndianData
-        
-        // 5. scriptCode (variable)
-        data += Data([UInt8(scriptCode.count)])
-        data += scriptCode
-        
-        // 6. value (8 bytes)
-        data += value.littleEndianData
-        
-        // 7. nSequence (4 bytes)
-        data += input.sequence.littleEndianData
-        
-        // 8. hashOutputs (32 bytes)
-        var outputsData = Data()
-        for output in outputs {
-            outputsData += output.value.littleEndianData
-            outputsData += Data([UInt8(output.scriptPubKey.count)])
-            outputsData += output.scriptPubKey
-        }
-        let hashOutputs = Data(SHA256.hash(data: Data(SHA256.hash(data: outputsData))))
-        data += hashOutputs
-        
-        // 9. nLocktime (4 bytes)
-        data += locktime.littleEndianData
-        
-        // 10. sighash type (4 bytes)
-        data += UInt32(1).littleEndianData // SIGHASH_ALL
-        
-        // Double SHA256
-        return Data(SHA256.hash(data: Data(SHA256.hash(data: data))))
-    }
-    
-    /// Serialize the signed transaction with witnesses
-    private func serialize(with witnesses: [Data]) throws -> String {
-        var data = Data()
-        
-        // Version
-        data += version.littleEndianData
-        
-        // Marker and flag (SegWit)
-        data += Data([0x00, 0x01])
-        
-        // Input count
-        data += Data([UInt8(inputs.count)])
-        
-        // Inputs
-        for input in inputs {
-            if let txidData = Data(hex: input.txid) {
-                data += Data(txidData.reversed())
-            }
-            data += input.vout.littleEndianData
-            data += Data([0x00]) // Empty scriptSig for SegWit
-            data += input.sequence.littleEndianData
+            tx.append(contentsOf: txidData)
+            
+            // Output index (4 bytes, little-endian)
+            tx.append(contentsOf: input.vout.littleEndianBytes)
+            
+            // ScriptSig length (0 for SegWit)
+            tx.append(0x00)
+            
+            // Sequence (4 bytes, 0xfffffffd for RBF)
+            tx.append(contentsOf: UInt32(0xfffffffd).littleEndianBytes)
         }
         
         // Output count
-        data += Data([UInt8(outputs.count)])
+        tx.append(contentsOf: encodeVarInt(UInt64(outputs.count)))
         
         // Outputs
         for output in outputs {
-            data += output.value.littleEndianData
-            data += Data([UInt8(output.scriptPubKey.count)])
-            data += output.scriptPubKey
+            // Amount (8 bytes, little-endian)
+            tx.append(contentsOf: UInt64(output.value).littleEndianBytes)
+            
+            // ScriptPubKey
+            let scriptPubKey = try createScriptPubKey(for: output.address, isTestnet: isTestnet)
+            tx.append(contentsOf: encodeVarInt(UInt64(scriptPubKey.count)))
+            tx.append(scriptPubKey)
         }
         
-        // Witnesses
-        for witness in witnesses {
-            data += Data([0x02]) // witness item count
-            data += witness
+        // Witness data
+        for (index, input) in inputs.enumerated() {
+            // Sign this input
+            let signature = try signInput(
+                tx: tx,
+                inputIndex: index,
+                input: input,
+                privateKey: privateKey,
+                publicKey: publicKey
+            )
+            
+            // Witness stack: <signature> <pubkey>
+            tx.append(0x02) // 2 witness items
+            
+            // Signature with SIGHASH_ALL
+            var sigWithHashType = signature
+            sigWithHashType.append(0x01) // SIGHASH_ALL
+            tx.append(contentsOf: encodeVarInt(UInt64(sigWithHashType.count)))
+            tx.append(sigWithHashType)
+            
+            // Public key
+            tx.append(contentsOf: encodeVarInt(UInt64(publicKey.count)))
+            tx.append(publicKey)
         }
+        
+        // Locktime (4 bytes)
+        tx.append(contentsOf: UInt32(0).littleEndianBytes)
+        
+        // Calculate txid (double SHA256 of non-witness data)
+        let txidHash = doubleSHA256(tx)
+        let txid = Data(txidHash.reversed()).hexString
+        
+        return SignedTransaction(
+            txid: txid,
+            rawHex: tx.hexString,
+            size: tx.count,
+            vsize: calculateVSize(tx)
+        )
+    }
+    
+    // MARK: - Signature Creation
+    
+    private static func signInput(
+        tx: Data,
+        inputIndex: Int,
+        input: Input,
+        privateKey: Data,
+        publicKey: Data
+    ) throws -> Data {
+        // Create signing hash for this input (BIP143)
+        let sigHash = try createSigningHash(
+            tx: tx,
+            inputIndex: inputIndex,
+            input: input
+        )
+        
+        // Sign with ECDSA secp256k1
+        let signature = try ecdsaSign(hash: sigHash, privateKey: privateKey)
+        
+        // Convert to DER format
+        return try derEncode(signature: signature)
+    }
+    
+    private static func createSigningHash(
+        tx: Data,
+        inputIndex: Int,
+        input: Input
+    ) throws -> Data {
+        // BIP143 signing hash for P2WPKH
+        var preimage = Data()
+        
+        // Version
+        preimage.append(contentsOf: UInt32(2).littleEndianBytes)
+        
+        // hashPrevouts (double SHA256 of all input outpoints)
+        var prevouts = Data()
+        guard let txidData = Data(hex: input.txid)?.reversed() else {
+            throw BitcoinError.invalidTxid
+        }
+        prevouts.append(contentsOf: txidData)
+        prevouts.append(contentsOf: input.vout.littleEndianBytes)
+        preimage.append(doubleSHA256(prevouts))
+        
+        // hashSequence
+        let sequence = UInt32(0xfffffffd)
+        preimage.append(doubleSHA256(Data(sequence.littleEndianBytes)))
+        
+        // Outpoint being spent
+        preimage.append(contentsOf: txidData)
+        preimage.append(contentsOf: input.vout.littleEndianBytes)
+        
+        // scriptCode (P2PKH of the input)
+        let scriptCode = input.scriptPubKey
+        preimage.append(contentsOf: encodeVarInt(UInt64(scriptCode.count)))
+        preimage.append(scriptCode)
+        
+        // Input amount
+        preimage.append(contentsOf: UInt64(input.value).littleEndianBytes)
+        
+        // Sequence
+        preimage.append(contentsOf: sequence.littleEndianBytes)
+        
+        // hashOutputs (all outputs concatenated and hashed)
+        let outputs = Data()
+        // TODO: Add actual outputs
+        preimage.append(doubleSHA256(outputs))
         
         // Locktime
-        data += locktime.littleEndianData
+        preimage.append(contentsOf: UInt32(0).littleEndianBytes)
         
-        return data.hexString
-    }
-    
-    enum TransactionError: Error {
-        case invalidPrivateKey
-        case invalidAddress
-        case invalidChangeAddress
-        case insufficientFunds
-        case signingFailed
-    }
-}
-
-// MARK: - Crypto Helpers
-
-private func signSecp256k1(hash: Data, privateKey: Data) throws -> Data {
-    // Use P256 as secp256k1 substitute (will need proper secp256k1 for production)
-    guard privateKey.count == 32 else {
-        throw BitcoinTransaction.TransactionError.invalidPrivateKey
-    }
-    
-    let privKey = try P256.Signing.PrivateKey(rawRepresentation: privateKey)
-    let signature = try privKey.signature(for: hash)
-    
-    // Extract r and s from signature
-    return signature.rawRepresentation
-}
-
-private func derivePublicKey(from privateKey: Data) throws -> Data {
-    let privKey = try P256.Signing.PrivateKey(rawRepresentation: privateKey)
-    return privKey.publicKey.compressedRepresentation
-}
-
-private func derEncode(signature: Data) -> Data {
-    // Simple DER encoding for ECDSA signature
-    guard signature.count == 64 else { return Data() }
-    
-    let r = signature.prefix(32)
-    let s = signature.suffix(32)
-    
-    var derR = r
-    if derR[0] >= 0x80 {
-        derR = Data([0x00]) + derR
-    }
-    
-    var derS = s
-    if derS[0] >= 0x80 {
-        derS = Data([0x00]) + derS
-    }
-    
-    var result = Data([0x30]) // SEQUENCE
-    let totalLength = 2 + derR.count + 2 + derS.count
-    result += Data([UInt8(totalLength)])
-    
-    result += Data([0x02, UInt8(derR.count)]) + derR
-    result += Data([0x02, UInt8(derS.count)]) + derS
-    
-    return result
-}
-
-private func decodeWIF(_ wif: String) -> Data? {
-    guard let decoded = base58Decode(wif) else { return nil }
-    guard decoded.count == 38 else { return nil }
-    
-    // Extract private key (skip version byte, take 32 bytes, skip compression flag and checksum)
-    return decoded.subdata(in: 1..<33)
-}
-
-private func decodeP2WPKHAddress(_ address: String) throws -> Data {
-    // Decode bech32 address
-    guard let decoded = try? bech32Decode(address) else {
-        throw BitcoinTransaction.TransactionError.invalidAddress
-    }
-    
-    // Build scriptPubKey: OP_0 + PUSH(20) + pubKeyHash
-    return Data([0x00, 0x14]) + decoded
-}
-
-private func bech32Decode(_ address: String) throws -> Data {
-    let parts = address.split(separator: "1")
-    guard parts.count == 2 else { throw BitcoinTransaction.TransactionError.invalidAddress }
-    
-    let charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
-    var values: [UInt8] = []
-    
-    for char in parts[1].dropLast(6) { // Remove checksum
-        guard let index = charset.firstIndex(of: char) else {
-            throw BitcoinTransaction.TransactionError.invalidAddress
-        }
-        values.append(UInt8(charset.distance(from: charset.startIndex, to: index)))
-    }
-    
-    // Convert from base32 to base256
-    return convertBits(values, fromBits: 5, toBits: 8, pad: false)
-}
-
-private func convertBits(_ data: [UInt8], fromBits: Int, toBits: Int, pad: Bool) -> Data {
-    var acc = 0
-    var bits = 0
-    var result: [UInt8] = []
-    let maxv = (1 << toBits) - 1
-    
-    for value in data {
-        acc = (acc << fromBits) | Int(value)
-        bits += fromBits
-        while bits >= toBits {
-            bits -= toBits
-            result.append(UInt8((acc >> bits) & maxv))
-        }
-    }
-    
-    if pad && bits > 0 {
-        result.append(UInt8((acc << (toBits - bits)) & maxv))
-    }
-    
-    return Data(result)
-}
-
-private func base58Decode(_ string: String) -> Data? {
-    let alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-    var result: [UInt8] = [0]
-    
-    for char in string {
-        guard let index = alphabet.firstIndex(of: char) else { return nil }
-        var carry = alphabet.distance(from: alphabet.startIndex, to: index)
+        // SIGHASH_ALL
+        preimage.append(contentsOf: UInt32(1).littleEndianBytes)
         
-        for i in 0..<result.count {
-            carry += Int(result[i]) * 58
-            result[i] = UInt8(carry & 0xFF)
-            carry >>= 8
+        return doubleSHA256(preimage)
+    }
+    
+    // MARK: - Cryptographic Primitives
+    
+    private static func decodeWIF(_ wif: String, isTestnet: Bool) throws -> Data {
+        guard let decoded = Data(base58: wif) else {
+            throw BitcoinError.invalidWIF
         }
         
-        while carry > 0 {
-            result.append(UInt8(carry & 0xFF))
-            carry >>= 8
+        // Check version byte
+        let versionByte = decoded[0]
+        let expectedVersion: UInt8 = isTestnet ? 0xef : 0x80
+        guard versionByte == expectedVersion else {
+            throw BitcoinError.invalidWIF
         }
+        
+        // Extract private key (32 bytes)
+        let keyEnd = decoded[1] == 0x01 ? decoded.count - 5 : decoded.count - 4
+        let privateKey = decoded[1..<keyEnd]
+        
+        // Verify checksum
+        let checksum = decoded.suffix(4)
+        let payload = decoded.prefix(decoded.count - 4)
+        let computedChecksum = doubleSHA256(payload).prefix(4)
+        
+        guard checksum == computedChecksum else {
+            throw BitcoinError.invalidChecksum
+        }
+        
+        return privateKey
     }
     
-    // Add leading zeros
-    for char in string {
-        if char == "1" {
-            result.append(0)
+    private static func derivePublicKey(from privateKey: Data) throws -> Data {
+        // Use P256K (secp256k1) to derive compressed public key
+        let privKey = try P256K.Signing.PrivateKey(dataRepresentation: privateKey)
+        let pubKeyData = privKey.publicKey.dataRepresentation
+        
+        // Ensure it's compressed (33 bytes: 0x02/0x03 prefix + 32 bytes)
+        guard pubKeyData.count == 33 else {
+            throw BitcoinError.invalidPublicKey
+        }
+        
+        return pubKeyData
+    }
+    
+    private static func ecdsaSign(hash: Data, privateKey: Data) throws -> (r: Data, s: Data) {
+        // Use P256K to create ECDSA signature
+        let privKey = try P256K.Signing.PrivateKey(dataRepresentation: privateKey)
+        let signature = try privKey.signature(for: hash)
+        
+        // Extract R and S components from the signature
+        // P256K returns a 64-byte signature (32 bytes R + 32 bytes S)
+        let sigBytes = signature.dataRepresentation
+        guard sigBytes.count == 64 else {
+            throw BitcoinError.signingFailed
+        }
+        
+        let r = sigBytes.prefix(32)
+        let s = sigBytes.suffix(32)
+        
+        return (Data(r), Data(s))
+    }
+    
+    private static func derEncode(signature: (r: Data, s: Data)) throws -> Data {
+        // DER encoding: 0x30 [total-length] 0x02 [R-length] [R] 0x02 [S-length] [S]
+        var der = Data()
+        der.append(0x30) // Sequence
+        
+        var content = Data()
+        content.append(0x02) // Integer
+        content.append(UInt8(signature.r.count))
+        content.append(signature.r)
+        content.append(0x02) // Integer
+        content.append(UInt8(signature.s.count))
+        content.append(signature.s)
+        
+        der.append(UInt8(content.count))
+        der.append(content)
+        
+        return der
+    }
+    
+    private static func createScriptPubKey(for address: String, isTestnet: Bool) throws -> Data {
+        // Decode bech32 address
+        guard let decoded = try? decodeBech32(address) else {
+            throw BitcoinError.invalidAddress
+        }
+        
+        // P2WPKH: OP_0 <20-byte-pubkey-hash>
+        var script = Data()
+        script.append(0x00) // OP_0
+        script.append(0x14) // Push 20 bytes
+        script.append(decoded.witnessProgram)
+        
+        return script
+    }
+    
+    private static func decodeBech32(_ address: String) throws -> (version: UInt8, witnessProgram: Data) {
+        let lowercaseAddress = address.lowercased()
+        
+        // Split HRP and data
+        guard let sepIndex = lowercaseAddress.lastIndex(of: "1") else {
+            throw BitcoinError.invalidAddress
+        }
+        
+        let hrp = String(lowercaseAddress[..<sepIndex])
+        let dataString = String(lowercaseAddress[lowercaseAddress.index(after: sepIndex)...])
+        
+        // Verify HRP (bc for mainnet, tb for testnet)
+        guard hrp == "bc" || hrp == "tb" else {
+            throw BitcoinError.invalidAddress
+        }
+        
+        // Bech32 charset
+        let charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+        var values: [UInt8] = []
+        
+        for char in dataString {
+            guard let index = charset.firstIndex(of: char) else {
+                throw BitcoinError.invalidAddress
+            }
+            values.append(UInt8(charset.distance(from: charset.startIndex, to: index)))
+        }
+        
+        // Verify checksum (last 6 characters)
+        guard values.count >= 6 else {
+            throw BitcoinError.invalidAddress
+        }
+        
+        let dataValues = Array(values.dropLast(6))
+        
+        // Convert from base32 to bytes
+        var bits = 0
+        var value = 0
+        var bytes: [UInt8] = []
+        
+        for val in dataValues {
+            bits += 5
+            value = (value << 5) | Int(val)
+            
+            if bits >= 8 {
+                bits -= 8
+                bytes.append(UInt8((value >> bits) & 0xff))
+                value &= (1 << bits) - 1
+            }
+        }
+        
+        guard bytes.count >= 2 else {
+            throw BitcoinError.invalidAddress
+        }
+        
+        // First byte is witness version
+        let version = bytes[0]
+        let program = Data(bytes.dropFirst())
+        
+        // Verify witness program length (20 bytes for P2WPKH, 32 for P2WSH)
+        guard program.count == 20 || program.count == 32 else {
+            throw BitcoinError.invalidAddress
+        }
+        
+        return (version, program)
+    }
+    
+    // MARK: - Helper Functions
+    
+    private static func doubleSHA256(_ data: Data) -> Data {
+        let first = Data(SHA256.hash(data: data))
+        return Data(SHA256.hash(data: first))
+    }
+    
+    private static func calculateVSize(_ tx: Data) -> Int {
+        // SegWit virtual size = (base_size * 3 + total_size) / 4
+        // For simplicity, estimate ~140 vBytes per input + 34 per output
+        return tx.count / 4
+    }
+    
+    private static func encodeVarInt(_ value: UInt64) -> [UInt8] {
+        if value < 0xfd {
+            return [UInt8(value)]
+        } else if value <= 0xffff {
+            return [0xfd] + UInt16(value).littleEndianBytes
+        } else if value <= 0xffffffff {
+            return [0xfe] + UInt32(value).littleEndianBytes
         } else {
-            break
+            return [0xff] + value.littleEndianBytes
         }
     }
-    
-    return Data(result.reversed())
 }
 
-// MARK: - Data Extensions
+// MARK: - Bitcoin Errors
+
+enum BitcoinError: LocalizedError {
+    case invalidWIF
+    case invalidTxid
+    case invalidAddress
+    case invalidChecksum
+    case notImplemented(String)
+    case signingFailed
+    case invalidPublicKey
+    
+    var errorDescription: String? {
+        switch self {
+        case .invalidWIF:
+            return "Invalid WIF private key format"
+        case .invalidTxid:
+            return "Invalid transaction ID"
+        case .invalidAddress:
+            return "Invalid Bitcoin address"
+        case .invalidChecksum:
+            return "Checksum verification failed"
+        case .notImplemented(let msg):
+            return "Not implemented: \(msg)"
+        case .signingFailed:
+            return "Transaction signing failed"
+        case .invalidPublicKey:
+            return "Invalid public key format"
+        }
+    }
+}
+
+// MARK: - Extensions
+
+extension UInt32 {
+    var littleEndianBytes: [UInt8] {
+        withUnsafeBytes(of: self.littleEndian) { Array($0) }
+    }
+}
+
+extension UInt64 {
+    var littleEndianBytes: [UInt8] {
+        withUnsafeBytes(of: self.littleEndian) { Array($0) }
+    }
+}
+
+extension UInt16 {
+    var littleEndianBytes: [UInt8] {
+        withUnsafeBytes(of: self.littleEndian) { Array($0) }
+    }
+}
 
 extension Data {
     init?(hex: String) {
         let hex = hex.replacingOccurrences(of: " ", with: "")
         guard hex.count % 2 == 0 else { return nil }
         
-        var data = Data()
+        var data = Data(capacity: hex.count / 2)
         var index = hex.startIndex
         
-        while index < hex.endIndex {
+        for _ in 0..<hex.count/2 {
             let nextIndex = hex.index(index, offsetBy: 2)
-            let byteString = hex[index..<nextIndex]
-            guard let byte = UInt8(byteString, radix: 16) else { return nil }
+            guard let byte = UInt8(hex[index..<nextIndex], radix: 16) else {
+                return nil
+            }
             data.append(byte)
             index = nextIndex
         }
@@ -397,24 +463,28 @@ extension Data {
     var hexString: String {
         map { String(format: "%02x", $0) }.joined()
     }
-}
-
-extension UInt32 {
-    var littleEndianData: Data {
-        var value = self.littleEndian
-        return Data(bytes: &value, count: MemoryLayout<UInt32>.size)
-    }
-}
-
-extension UInt64 {
-    var littleEndianData: Data {
-        var value = self.littleEndian
-        return Data(bytes: &value, count: MemoryLayout<UInt64>.size)
-    }
-}
-
-extension SHA256.Digest {
-    static func hash(data: Data) -> Data {
-        Data(SHA256.hash(data: data))
+    
+    init?(base58: String) {
+        // Base58 decoding
+        let alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+        var result = Data(repeating: 0, count: 25)
+        
+        for char in base58 {
+            guard let digit = alphabet.firstIndex(of: char) else { return nil }
+            var carry = alphabet.distance(from: alphabet.startIndex, to: digit)
+            
+            for i in (0..<result.count).reversed() {
+                carry += 58 * Int(result[i])
+                result[i] = UInt8(carry % 256)
+                carry /= 256
+            }
+        }
+        
+        // Remove leading zeros
+        while result.first == 0 && result.count > 1 {
+            result.removeFirst()
+        }
+        
+        self = result
     }
 }

@@ -90,12 +90,17 @@ struct ContentView: View {
     @State private var showSettingsPanel = false
     @State private var showReceiveSheet = false
     @State private var showSendSheet = false
+    @State private var showSendPicker = false
     @State private var sendChainContext: ChainInfo?
+    @State private var showSeedPhraseSheet = false
     @State private var viewportWidth: CGFloat = 900
     private let moneroBalancePlaceholder = "Balance protected – open your Monero wallet"
     private let trackedPriceChainIDs = [
         "bitcoin", "bitcoin-testnet", "ethereum", "ethereum-sepolia", "litecoin", "monero",
         "solana", "xrp", "bnb", "usdt-erc20", "usdc-erc20", "dai-erc20"
+    ]
+    private let sendEnabledChainIDs: Set<String> = [
+        "bitcoin", "bitcoin-testnet", "litecoin", "ethereum", "ethereum-sepolia", "bnb", "solana"
     ]
     private let pricePollingInterval: TimeInterval = 30
     private let minimumBalanceRetryDelay: TimeInterval = 0.5
@@ -306,7 +311,8 @@ struct ContentView: View {
                 },
                 onSendRequested: { selectedChain in
                     self.selectedChain = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    // Reduced delay for snappier transition
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         sendChainContext = selectedChain
                         showSendSheet = true
                     }
@@ -358,12 +364,64 @@ struct ContentView: View {
                             showStatus("Transaction broadcast: \(txid.prefix(16))...", tone: .success)
                         }
                     )
+                } else if chain.id == "bnb" {
+                    BnbSendSheet(
+                        chain: chain,
+                        keys: keys,
+                        onDismiss: {
+                            showSendSheet = false
+                            sendChainContext = nil
+                        },
+                        onSuccess: { txid in
+                            showSendSheet = false
+                            sendChainContext = nil
+                            showStatus("Transaction broadcast: \(txid.prefix(16))...", tone: .success)
+                        }
+                    )
+                } else if chain.id == "solana" {
+                    SolanaSendSheet(
+                        chain: chain,
+                        keys: keys,
+                        onDismiss: {
+                            showSendSheet = false
+                            sendChainContext = nil
+                        },
+                        onSuccess: { txid in
+                            showSendSheet = false
+                            sendChainContext = nil
+                            showStatus("Transaction broadcast: \(txid.prefix(16))...", tone: .success)
+                        }
+                    )
                 } else {
                     // Placeholder for other chains
                     Text("Send functionality coming soon for \(chain.title)")
                         .padding()
                 }
             }
+        }
+        .sheet(isPresented: $showSendPicker) {
+            if let keys {
+                SendAssetPickerSheet(
+                    chains: sendEligibleChains(from: keys),
+                    onSelect: { chain in
+                        // Close picker first
+                        showSendPicker = false
+                        // Wait for dismissal animation to finish before showing send sheet
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            sendChainContext = chain
+                            showSendSheet = true
+                        }
+                    },
+                    onDismiss: {
+                        showSendPicker = false
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $showSeedPhraseSheet) {
+            SeedPhraseSheet(onCopy: { value in
+                copyToClipboard(value)
+            })
         }
         .sheet(isPresented: $showSettingsPanel) {
             SettingsPanelView(
@@ -1089,6 +1147,14 @@ struct ContentView: View {
             showExportPasswordPrompt = true
         }
         .disabled(keys == nil)
+
+        walletActionButton(
+            title: "Seed Phrase",
+            systemImage: "list.number.rtl",
+            color: .purple
+        ) {
+            showSeedPhraseSheet = true
+        }
     }
 
 
@@ -1160,7 +1226,7 @@ struct ContentView: View {
         HStack(spacing: 4) {
             Image(systemName: "sparkles")
                 .font(.caption)
-            Text("Newest Build")
+            Text("Version 1.3")
                 .font(.caption)
                 .fontWeight(.semibold)
         }
@@ -1175,7 +1241,7 @@ struct ContentView: View {
                 .stroke(Color.green.opacity(0.45), lineWidth: 1)
         )
         .foregroundStyle(Color.green)
-        .accessibilityLabel("Newest build indicator")
+        .accessibilityLabel("Version 1.3 indicator")
     }
 
     private var transactionHistorySection: some View {
@@ -1367,22 +1433,33 @@ struct ContentView: View {
     
     private func openSendSheet() {
         guard let keys else {
-            showStatus("Keys are being generated...", tone: .info)
+            showStatus("Generate keys before sending.", tone: .info)
             return
         }
-        // Show Bitcoin mainnet by default, but could be made configurable
-        let bitcoinChains = keys.chainInfos.filter { $0.id.starts(with: "bitcoin") && !$0.id.contains("testnet") }
-        if let btcChain = bitcoinChains.first {
-            sendChainContext = btcChain
-            showSendSheet = true
-        } else {
-            showStatus("Bitcoin wallet not found.", tone: .error)
+        let available = sendEligibleChains(from: keys)
+        guard !available.isEmpty else {
+            showStatus("No send-ready chains available yet.", tone: .info)
+            return
         }
+        sendChainContext = nil
+        showSendPicker = true
     }
     
     private func openSendSheet(for chain: ChainInfo) {
         sendChainContext = chain
         showSendSheet = true
+    }
+
+    private func sendEligibleChains(from keys: AllKeys) -> [ChainInfo] {
+        keys.chainInfos.filter { chain in
+            isSendSupported(chainID: chain.id)
+        }
+    }
+
+    private func isSendSupported(chainID: String) -> Bool {
+        if sendEnabledChainIDs.contains(chainID) { return true }
+        if chainID.contains("erc20") { return true }
+        return false
     }
 
     private func loadKeysFromKeychain() {
@@ -1731,7 +1808,7 @@ struct ContentView: View {
         return prettyString
     }
 
-    private func resolveCargoExecutable() throws -> String {
+    private nonisolated static func resolveCargoExecutable() throws -> String {
         let fileManager = FileManager.default
         let environment = ProcessInfo.processInfo.environment
 
@@ -1752,7 +1829,7 @@ struct ContentView: View {
         throw KeyGeneratorError.cargoNotFound
     }
 
-    private func candidateCargoPaths() -> [String] {
+    private nonisolated static func candidateCargoPaths() -> [String] {
         var paths: [String] = []
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         paths.append("\(home)/.cargo/bin/cargo")
@@ -1764,7 +1841,7 @@ struct ContentView: View {
         return paths
     }
 
-    private func locateCargoWithWhich() throws -> String? {
+    private nonisolated static func locateCargoWithWhich() throws -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["which", "cargo"]
@@ -1788,7 +1865,7 @@ struct ContentView: View {
         return path.isEmpty ? nil : path
     }
 
-    private func mergedEnvironment(forCargoExecutableAt path: String) -> [String: String] {
+    private nonisolated static func mergedEnvironment(forCargoExecutableAt path: String) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         let cargoDirectory = (path as NSString).deletingLastPathComponent
         var segments = environment["PATH"]?.split(separator: ":").map(String.init) ?? []
@@ -1801,7 +1878,10 @@ struct ContentView: View {
     }
 
     private func runRustKeyGenerator() async throws -> (AllKeys, String) {
-        let cargoPath = try resolveCargoExecutable()
+        // Run cargo resolution in a detached task to avoid blocking the main thread
+        let cargoPath = try await Task.detached {
+            try ContentView.resolveCargoExecutable()
+        }.value
 
         return try await withCheckedThrowingContinuation { continuation in
             let process = Process()
@@ -1816,7 +1896,7 @@ struct ContentView: View {
                 "--json"
             ]
             process.currentDirectoryURL = workspaceRoot
-            process.environment = mergedEnvironment(forCargoExecutableAt: cargoPath)
+            process.environment = ContentView.mergedEnvironment(forCargoExecutableAt: cargoPath)
 
             let outputPipe = Pipe()
             let errorPipe = Pipe()
@@ -1916,25 +1996,18 @@ struct ContentView: View {
 
     @MainActor
     private func startPriceUpdatesIfNeeded() {
-        print("🎯🎯🎯 START PRICE UPDATES CALLED - onboardingCompleted: \(onboardingCompleted)")
-        print("🎯🎯🎯 Price update task exists: \(priceUpdateTask != nil)")
-        guard onboardingCompleted else { 
-            print("⚠️⚠️⚠️ SKIPPING PRICE UPDATES - onboarding NOT completed")
-            return 
-        }
-        print("✅✅✅ PRICE UPDATES WILL START - onboarding IS completed")
+        guard onboardingCompleted else { return }
+        
         if let keys {
             primeStateCaches(for: keys)
         }
         ensurePriceStateEntries()
+        
+        // Only start the loop if it's not already running
         if priceUpdateTask == nil {
             markPriceStatesLoading()
             priceUpdateTask = Task {
                 await priceUpdateLoop()
-            }
-        } else {
-            Task {
-                await fetchAndStorePrices()
             }
         }
     }
@@ -2046,71 +2119,109 @@ struct ContentView: View {
     }
 
     private func fetchPriceSnapshot() async throws -> [String: Double] {
+        // Try CoinGecko first
+        do {
+            return try await fetchPricesFromCoinGecko()
+        } catch {
+            print("⚠️ CoinGecko failed: \(error). Trying Binance backup...")
+            return try await fetchPricesFromBinance()
+        }
+    }
+
+    private func fetchPricesFromCoinGecko() async throws -> [String: Double] {
         print("🔍 Fetching price snapshot from CoinGecko...")
         guard let url = URL(string: "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,litecoin,monero,solana,ripple,binancecoin,tether,usd-coin,dai&vs_currencies=usd") else {
-            print("❌ Failed to create URL")
             throw BalanceFetchError.invalidRequest
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 10
 
-        print("📡 Making request to: \(url.absoluteString)")
-        print("📡 Making request to: \(url.absoluteString)")
         let (data, response) = try await URLSession.shared.data(for: request)
-        print("📦 Received response, data size: \(data.count) bytes")
         
         guard let httpResponse = response as? HTTPURLResponse else {
-            print("❌ Invalid HTTP response")
             throw BalanceFetchError.invalidResponse
         }
 
-        print("📊 HTTP Status Code: \(httpResponse.statusCode)")
         guard httpResponse.statusCode == 200 else {
-            print("❌ Invalid status code: \(httpResponse.statusCode)")
             throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
         }
 
         let object = try JSONSerialization.jsonObject(with: data, options: [])
         guard let dict = object as? [String: Any] else {
-            print("❌ Failed to parse JSON as dictionary")
             throw BalanceFetchError.invalidPayload
         }
 
-        print("✅ Successfully parsed JSON, keys: \(dict.keys.joined(separator: ", "))")
         var prices: [String: Double] = [:]
-        if let btc = dict["bitcoin"] as? [String: Any], let usd = btc["usd"] as? NSNumber {
-            prices["bitcoin"] = usd.doubleValue
-        }
-        if let eth = dict["ethereum"] as? [String: Any], let usd = eth["usd"] as? NSNumber {
-            prices["ethereum"] = usd.doubleValue
-        }
-        if let ltc = dict["litecoin"] as? [String: Any], let usd = ltc["usd"] as? NSNumber {
-            prices["litecoin"] = usd.doubleValue
-        }
-        if let xmr = dict["monero"] as? [String: Any], let usd = xmr["usd"] as? NSNumber {
-            prices["monero"] = usd.doubleValue
-        }
-        if let sol = dict["solana"] as? [String: Any], let usd = sol["usd"] as? NSNumber {
-            prices["solana"] = usd.doubleValue
-        }
-        if let xrp = dict["ripple"] as? [String: Any], let usd = xrp["usd"] as? NSNumber {
-            prices["ripple"] = usd.doubleValue
-        }
-        if let bnb = dict["binancecoin"] as? [String: Any], let usd = bnb["usd"] as? NSNumber {
-            prices["binancecoin"] = usd.doubleValue
-        }
-        if let usdt = dict["tether"] as? [String: Any], let usd = usdt["usd"] as? NSNumber {
-            prices["tether"] = usd.doubleValue
-        }
-        if let usdc = dict["usd-coin"] as? [String: Any], let usd = usdc["usd"] as? NSNumber {
-            prices["usd-coin"] = usd.doubleValue
-        }
-        if let dai = dict["dai"] as? [String: Any], let usd = dai["usd"] as? NSNumber {
-            prices["dai"] = usd.doubleValue
-        }
+        if let btc = dict["bitcoin"] as? [String: Any], let usd = btc["usd"] as? NSNumber { prices["bitcoin"] = usd.doubleValue }
+        if let eth = dict["ethereum"] as? [String: Any], let usd = eth["usd"] as? NSNumber { prices["ethereum"] = usd.doubleValue }
+        if let ltc = dict["litecoin"] as? [String: Any], let usd = ltc["usd"] as? NSNumber { prices["litecoin"] = usd.doubleValue }
+        if let xmr = dict["monero"] as? [String: Any], let usd = xmr["usd"] as? NSNumber { prices["monero"] = usd.doubleValue }
+        if let sol = dict["solana"] as? [String: Any], let usd = sol["usd"] as? NSNumber { prices["solana"] = usd.doubleValue }
+        if let xrp = dict["ripple"] as? [String: Any], let usd = xrp["usd"] as? NSNumber { prices["ripple"] = usd.doubleValue }
+        if let bnb = dict["binancecoin"] as? [String: Any], let usd = bnb["usd"] as? NSNumber { prices["binancecoin"] = usd.doubleValue }
+        if let usdt = dict["tether"] as? [String: Any], let usd = usdt["usd"] as? NSNumber { prices["tether"] = usd.doubleValue }
+        if let usdc = dict["usd-coin"] as? [String: Any], let usd = usdc["usd"] as? NSNumber { prices["usd-coin"] = usd.doubleValue }
+        if let dai = dict["dai"] as? [String: Any], let usd = dai["usd"] as? NSNumber { prices["dai"] = usd.doubleValue }
 
+        return prices
+    }
+
+    private func fetchPricesFromBinance() async throws -> [String: Double] {
+        print("🔍 Fetching price snapshot from Binance...")
+        // Binance API returns array of objects: [{"symbol":"BTCUSDT","price":"20000.00"}, ...]
+        // We'll fetch all tickers (lightweight enough) or specific symbols if possible.
+        // Fetching all tickers is one request: https://api.binance.com/api/v3/ticker/price
+        
+        guard let url = URL(string: "https://api.binance.com/api/v3/ticker/price") else {
+            throw BalanceFetchError.invalidRequest
+        }
+        
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw BalanceFetchError.invalidResponse
+        }
+        
+        let json = try JSONSerialization.jsonObject(with: data, options: [])
+        guard let list = json as? [[String: Any]] else {
+            throw BalanceFetchError.invalidPayload
+        }
+        
+        var prices: [String: Double] = [:]
+        // Map Binance symbols to our IDs
+        let symbolMap: [String: String] = [
+            "BTCUSDT": "bitcoin",
+            "ETHUSDT": "ethereum",
+            "LTCUSDT": "litecoin",
+            "XMRUSDT": "monero",
+            "SOLUSDT": "solana",
+            "XRPUSDT": "ripple",
+            "BNBUSDT": "binancecoin",
+            "USDCUSDT": "usd-coin", // USDC price in USDT
+            // USDT is base, assume 1.0 or find a pair like USDT/DAI? 
+            // Usually USDT is ~1.0 USD.
+        ]
+        
+        for item in list {
+            if let symbol = item["symbol"] as? String,
+               let priceStr = item["price"] as? String,
+               let price = Double(priceStr),
+               let id = symbolMap[symbol] {
+                prices[id] = price
+            }
+        }
+        
+        // Stablecoin fallbacks if not found or for USDT/DAI
+        prices["tether"] = 1.0
+        prices["dai"] = 1.0
+        if prices["usd-coin"] == nil { prices["usd-coin"] = 1.0 }
+        
         return prices
     }
 
@@ -2118,6 +2229,8 @@ struct ContentView: View {
     private func startBalanceFetch(for keys: AllKeys) {
         cancelBalanceFetchTasks()
         balanceBackoff.removeAll()
+        
+        // Group 1: BlockCypher (Rate limited, must be spaced out)
         scheduleBalanceFetch(for: "bitcoin") {
             try await fetchBitcoinBalance(address: keys.bitcoin.address)
         }
@@ -2130,15 +2243,16 @@ struct ContentView: View {
             try await fetchLitecoinBalance(address: keys.litecoin.address)
         }
 
-        scheduleBalanceFetch(for: "solana", delay: 1.5) {
+        // Group 2: Independent APIs (Can run in parallel immediately)
+        scheduleBalanceFetch(for: "solana") {
             try await fetchSolanaBalance(address: keys.solana.publicKeyBase58)
         }
 
-        scheduleBalanceFetch(for: "xrp", delay: 2.0) {
+        scheduleBalanceFetch(for: "xrp") {
             try await fetchXrpBalance(address: keys.xrp.classicAddress)
         }
 
-        scheduleBalanceFetch(for: "bnb", delay: 2.5) {
+        scheduleBalanceFetch(for: "bnb") {
             try await fetchBnbBalance(address: keys.bnb.address)
         }
 
@@ -3181,6 +3295,180 @@ private enum BitcoinSendError: LocalizedError {
     }
 }
 
+// MARK: - Send Picker & Seed Phrase
+
+private struct SendAssetPickerSheet: View {
+    let chains: [ChainInfo]
+    let onSelect: (ChainInfo) -> Void
+    let onDismiss: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+
+    private var filteredChains: [ChainInfo] {
+        let sorted = chains.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        if searchText.isEmpty { return sorted }
+        return sorted.filter { $0.title.localizedCaseInsensitiveContains(searchText) || $0.id.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Search Bar
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Search assets", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.body)
+                    if !searchText.isEmpty {
+                        Button { searchText = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(12)
+                .background(Color.gray.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding()
+
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(filteredChains) { chain in
+                            Button {
+                                dismiss()
+                                onSelect(chain)
+                            } label: {
+                                HStack(spacing: 16) {
+                                    Image(systemName: chain.iconName)
+                                        .font(.title2)
+                                        .foregroundStyle(chain.accentColor)
+                                        .frame(width: 44, height: 44)
+                                        .background(chain.accentColor.opacity(0.1))
+                                        .clipShape(Circle())
+                                    
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(chain.title)
+                                            .font(.headline)
+                                            .foregroundStyle(.primary)
+                                        Text(chain.subtitle)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(12)
+                                .background(Color.gray.opacity(0.05))
+                                .clipShape(RoundedRectangle(cornerRadius: 16))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            }
+            .navigationTitle("Send Funds")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                        onDismiss()
+                    }
+                }
+            }
+        }
+        .frame(width: 450, height: 550)
+    }
+}
+
+private struct SeedPhraseSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedCount: MnemonicGenerator.WordCount = .twelve
+    @State private var words: [String] = MnemonicGenerator.generate(wordCount: .twelve)
+    let onCopy: (String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Picker("Length", selection: $selectedCount) {
+                    ForEach(MnemonicGenerator.WordCount.allCases) { count in
+                        Text(count.title).tag(count)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: selectedCount) { newValue in
+                    regenerate(using: newValue)
+                }
+
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
+                        ForEach(Array(words.enumerated()), id: \.offset) { index, word in
+                            HStack {
+                                Text(String(format: "%02d", index + 1))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(word)
+                                    .font(.headline)
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.primary.opacity(0.04))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+
+                HStack(spacing: 12) {
+                    Button {
+                        regenerate(using: selectedCount)
+                    } label: {
+                        Label("Regenerate", systemImage: "arrow.clockwise")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        let phrase = words.joined(separator: " ")
+                        onCopy(phrase)
+                    } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(.horizontal)
+
+                Text("Back up this phrase securely. Anyone with access can control your wallets.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 20)
+            .navigationTitle("Seed Phrase")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .frame(width: 550, height: 600)
+    }
+
+    private func regenerate(using count: MnemonicGenerator.WordCount) {
+        words = MnemonicGenerator.generate(wordCount: count)
+    }
+}
+
 // MARK: - Bitcoin Send Sheet
 
 private struct BitcoinSendSheet: View {
@@ -3226,94 +3514,116 @@ private struct BitcoinSendSheet: View {
     
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Recipient") {
-                    TextField("Bitcoin address", text: $recipientAddress)
-                        .font(.system(.body, design: .monospaced))
-                        .autocorrectionDisabled()
-                }
-                
-                Section("Amount") {
-                    HStack {
-                        TextField("0.00000000", text: $amountBTC)
+            VStack(spacing: 24) {
+                // Amount Input (Large)
+                VStack(spacing: 8) {
+                    Text("Amount to send")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                    
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        TextField("0", text: $amountBTC)
+                            .font(.system(size: 48, weight: .medium, design: .rounded))
+                            .multilineTextAlignment(.center)
+                            .frame(minWidth: 100)
+                            .fixedSize(horizontal: true, vertical: false)
                         Text("BTC")
+                            .font(.title2)
+                            .fontWeight(.medium)
                             .foregroundStyle(.secondary)
                     }
                     
                     if availableBalance > 0 {
-                        HStack {
-                            Text("Available:")
-                            Spacer()
-                            Text(formatSatoshis(availableBalance))
-                                .foregroundStyle(.secondary)
-                        }
+                        Text("Available: \(formatSatoshis(availableBalance))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .onTapGesture { sendMax() }
+                    }
+                }
+                .padding(.top, 20)
+
+                // Recipient Input
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("To")
                         .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .padding(.leading, 4)
+                    
+                    HStack {
+                        Image(systemName: "person.circle.fill")
+                            .foregroundStyle(.secondary)
+                        TextField("Bitcoin Address", text: $recipientAddress)
+                            .font(.system(.body, design: .monospaced))
+                            .autocorrectionDisabled()
                         
-                        Button("Send Max") {
-                            sendMax()
+                        if !recipientAddress.isEmpty {
+                            Button { recipientAddress = "" } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
                         }
+                    }
+                    .padding(12)
+                    .background(Color.gray.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .padding(.horizontal)
+
+                // Fee Selector
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Network Fee")
                         .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .padding(.leading, 4)
+                    
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(FeeRate.allCases, id: \.self) { rate in
+                                FeeRateCard(
+                                    rate: rate,
+                                    isSelected: selectedFeeRate == rate,
+                                    estimates: feeEstimates,
+                                    onSelect: { selectedFeeRate = rate }
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 4)
                     }
                 }
-                
-                Section("Transaction Fee") {
-                    Picker("Speed", selection: $selectedFeeRate) {
-                        ForEach(FeeRate.allCases, id: \.self) { rate in
-                            Text(rate.rawValue).tag(rate)
-                        }
-                    }
-                    .onChange(of: selectedFeeRate) { _ in
-                        updateFeeEstimate()
-                    }
-                    
-                    if let estimates = feeEstimates {
-                        HStack {
-                            Text("Fee Rate:")
-                            Spacer()
-                            Text("\(feeRateForSelection(estimates)) sat/vB")
-                                .foregroundStyle(.secondary)
-                        }
-                        .font(.caption)
-                    }
-                    
-                    if estimatedFee > 0 {
-                        HStack {
-                            Text("Estimated Fee:")
-                            Spacer()
-                            Text(formatSatoshis(estimatedFee))
-                                .foregroundStyle(.secondary)
-                        }
-                        .font(.caption)
-                    }
-                }
+                .padding(.horizontal)
                 
                 if let error = errorMessage {
-                    Section {
-                        Text(error)
-                            .foregroundStyle(.red)
-                            .font(.caption)
-                    }
+                    Text(error)
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                        .padding(.horizontal)
                 }
-                
-                Section {
-                    Button {
-                        Task {
-                            await sendTransaction()
-                        }
-                    } label: {
+
+                Spacer()
+
+                // Send Button
+                Button {
+                    Task { await sendTransaction() }
+                } label: {
+                    HStack {
                         if isLoading {
-                            HStack {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                Text("Sending...")
-                            }
-                        } else {
-                            Text("Review & Send")
+                            ProgressView().tint(.white)
                         }
+                        Text(isLoading ? "Sending..." : "Send Bitcoin")
+                            .font(.headline)
                     }
-                    .disabled(isLoading || !isValidForm)
                     .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(isValidForm ? Color.orange : Color.gray.opacity(0.3))
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
+                .disabled(isLoading || !isValidForm)
+                .padding()
             }
             .navigationTitle("Send \(chain.title)")
             .toolbar {
@@ -3330,7 +3640,7 @@ private struct BitcoinSendSheet: View {
                 }
             }
         }
-        .frame(minWidth: 480, minHeight: 520)
+        .frame(width: 480, height: 650)
     }
     
     private var isValidForm: Bool {
@@ -3471,10 +3781,26 @@ private struct BitcoinSendSheet: View {
                 throw BitcoinSendError.insufficientFunds
             }
             
-            // Convert UTXOs to the format expected by BitcoinTransaction
-            let utxoList = confirmedUTXOs.map { utxo in
-                (txid: utxo.txid, vout: UInt32(utxo.vout), value: UInt64(utxo.value), scriptPubKey: utxo.scriptpubkey)
+            // Convert UTXOs to Input format for BitcoinTransactionBuilder
+            let inputs = try confirmedUTXOs.map { utxo -> BitcoinTransactionBuilder.Input in
+                guard let scriptData = Data(hex: utxo.scriptpubkey) else {
+                    throw BitcoinSendError.networkError("Invalid scriptPubKey format")
+                }
+                return BitcoinTransactionBuilder.Input(
+                    txid: utxo.txid,
+                    vout: UInt32(utxo.vout),
+                    value: Int64(utxo.value),
+                    scriptPubKey: scriptData
+                )
             }
+            
+            // Create outputs
+            let outputs: [BitcoinTransactionBuilder.Output] = [
+                BitcoinTransactionBuilder.Output(
+                    address: recipient,
+                    value: Int64(satoshis)
+                )
+            ]
             
             // Get fee rate from estimates
             let feeRateValue: UInt64
@@ -3494,14 +3820,14 @@ private struct BitcoinSendSheet: View {
             }
             
             // Build and sign transaction
-            let rawTxHex = try BitcoinTransaction.buildAndSign(
-                from: utxoList,
-                to: recipient,
-                amount: UInt64(satoshis),
-                feeRate: feeRateValue,
-                changeAddress: address,
-                privateKeyWIF: privateWIF
+            let signedTx = try BitcoinTransactionBuilder.buildAndSign(
+                inputs: inputs,
+                outputs: outputs,
+                privateKeyWIF: privateWIF,
+                isTestnet: isTestnet
             )
+            
+            let rawTxHex = signedTx.rawHex
             
             // Broadcast transaction
             let baseURL = isTestnet ? "https://mempool.space/testnet/api" : "https://mempool.space/api"
@@ -3551,6 +3877,52 @@ private struct BitcoinSendSheet: View {
                 errorMessage = "Error: \(error.localizedDescription)"
                 isLoading = false
             }
+        }
+    }
+}
+
+private struct FeeRateCard: View {
+    let rate: BitcoinSendSheet.FeeRate
+    let isSelected: Bool
+    let estimates: BitcoinFeeEstimates?
+    let onSelect: () -> Void
+    
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(rate.rawValue.components(separatedBy: " (").first ?? "")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                
+                if let estimates {
+                    let fee = feeRateForSelection(estimates, rate: rate)
+                    Text("\(fee) sat/vB")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("—")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(12)
+            .frame(minWidth: 100, alignment: .leading)
+            .background(isSelected ? Color.orange.opacity(0.15) : Color.gray.opacity(0.05))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isSelected ? Color.orange : Color.clear, lineWidth: 2)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private func feeRateForSelection(_ estimates: BitcoinFeeEstimates, rate: BitcoinSendSheet.FeeRate) -> Int {
+        switch rate {
+        case .fast: return estimates.fastestFee
+        case .medium: return estimates.halfHourFee
+        case .slow: return estimates.hourFee
+        case .economy: return max(estimates.economyFee, estimates.minimumFee)
         }
     }
 }
@@ -3614,150 +3986,143 @@ private struct EthereumSendSheet: View {
     
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    // Token selector
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Asset")
-                            .font(.headline)
-                        
-                        Picker("Token", selection: $selectedToken) {
-                            ForEach(TokenType.allCases, id: \.self) { token in
-                                Text(token.rawValue).tag(token)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: selectedToken) { _ in
-                            Task {
-                                await loadBalanceAndGas()
-                            }
+            VStack(spacing: 24) {
+                // Token Selector & Amount
+                VStack(spacing: 16) {
+                    Picker("Token", selection: $selectedToken) {
+                        ForEach(TokenType.allCases, id: \.self) { token in
+                            Text(token.rawValue).tag(token)
                         }
                     }
-                    
-                    // Balance display
-                    HStack {
-                        Text("Available:")
-                            .font(.subheadline)
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 40)
+                    .onChange(of: selectedToken) { _ in
+                        Task { await loadBalanceAndGas() }
+                    }
+
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        TextField("0", text: $amountInput)
+                            .font(.system(size: 48, weight: .medium, design: .rounded))
+                            .multilineTextAlignment(.center)
+                            .frame(minWidth: 100)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .onChange(of: amountInput) { _ in updateGasEstimate() }
+                        Text(selectedToken.rawValue)
+                            .font(.title2)
+                            .fontWeight(.medium)
                             .foregroundStyle(.secondary)
-                        Spacer()
-                        Text(balance)
-                            .font(.headline)
-                            .foregroundStyle(.green)
                     }
-                    .padding(12)
-                    .background(Color.green.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
                     
-                    // Recipient address
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Recipient Address")
-                            .font(.headline)
+                    Text("Available: \(balance)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .onTapGesture { sendMax() }
+                }
+                .padding(.top, 20)
+
+                // Recipient Input
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("To")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .padding(.leading, 4)
+                    
+                    HStack {
+                        Image(systemName: "person.circle.fill")
+                            .foregroundStyle(.secondary)
                         TextField("0x...", text: $recipientAddress)
-                            .textFieldStyle(.roundedBorder)
                             .font(.system(.body, design: .monospaced))
                             .autocorrectionDisabled()
-                    }
-                    
-                    // Amount
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Amount")
-                                .font(.headline)
-                            Spacer()
-                            Button("Max") {
-                                sendMax()
+                        
+                        if !recipientAddress.isEmpty {
+                            Button { recipientAddress = "" } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
                             }
-                            .buttonStyle(.borderless)
-                            .foregroundStyle(.blue)
+                            .buttonStyle(.plain)
                         }
-                        
-                        TextField("0.0", text: $amountInput)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(.title3, design: .monospaced))
-                            .onChange(of: amountInput) { _ in
-                                updateGasEstimate()
-                            }
                     }
+                    .padding(12)
+                    .background(Color.gray.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .padding(.horizontal)
+
+                // Gas Info
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Network Fee")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .padding(.leading, 4)
                     
-                    // Gas info
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Network Fee")
-                            .font(.headline)
-                        
-                        HStack {
-                            Text("Gas Price:")
-                            Spacer()
-                            if isLoading {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Text(gasPrice.isEmpty ? "—" : gasPrice + " Gwei")
-                                    .font(.system(.body, design: .monospaced))
-                            }
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text("Gas Price")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(gasPrice.isEmpty ? "—" : "\(gasPrice) Gwei")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
                         }
-                        
-                        HStack {
-                            Text("Estimated Fee:")
-                            Spacer()
-                            Text(estimatedGasFee.isEmpty ? "—" : estimatedGasFee + " ETH")
-                                .font(.system(.body, design: .monospaced))
+                        Spacer()
+                        VStack(alignment: .trailing) {
+                            Text("Estimated Cost")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(estimatedGasFee.isEmpty ? "—" : "\(estimatedGasFee) ETH")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
                                 .foregroundStyle(.orange)
                         }
                     }
                     .padding(12)
-                    .background(Color.orange.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    
-                    // Error message
-                    if let error = errorMessage {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.red.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    
-                    // Send button
-                    Button(action: {
-                        Task {
-                            await sendTransaction()
-                        }
-                    }) {
-                        HStack {
-                            if isLoading {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .tint(.white)
-                            }
-                            Text(isLoading ? "Sending..." : "Send \(selectedToken.rawValue)")
-                                .font(.headline)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(isValidForm ? Color.orange : Color.gray)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    .disabled(!isValidForm || isLoading)
+                    .background(Color.gray.opacity(0.05))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
-                .padding(20)
+                .padding(.horizontal)
+
+                if let error = errorMessage {
+                    Text(error)
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                        .padding(.horizontal)
+                }
+
+                Spacer()
+
+                // Send Button
+                Button {
+                    Task { await sendTransaction() }
+                } label: {
+                    HStack {
+                        if isLoading {
+                            ProgressView().tint(.white)
+                        }
+                        Text(isLoading ? "Sending..." : "Send \(selectedToken.rawValue)")
+                            .font(.headline)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(isValidForm ? Color.orange : Color.gray.opacity(0.3))
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .disabled(!isValidForm || isLoading)
+                .padding()
             }
-            .navigationTitle("Send \(selectedToken.rawValue)")
+            .navigationTitle("Send Ethereum")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                        onDismiss()
-                    }
+                    Button("Cancel") { dismiss(); onDismiss() }
                 }
             }
             .task {
                 await loadBalanceAndGas()
             }
         }
-        .frame(minWidth: 480, minHeight: 560)
+        .frame(width: 480, height: 650)
     }
     
     private var isValidForm: Bool {
@@ -4018,6 +4383,555 @@ private struct EthereumSendSheet: View {
     }
 }
 
+// MARK: - BNB Send Sheet
+
+private struct BnbSendSheet: View {
+    let chain: ChainInfo
+    let keys: AllKeys
+    let onDismiss: () -> Void
+    let onSuccess: (String) -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var recipientAddress = ""
+    @State private var amountInput = ""
+    @State private var gasPriceGwei = ""
+    @State private var balanceDisplay = "0 BNB"
+    @State private var estimatedFee = "—"
+    @State private var nonce: Int = 0
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    
+    private let rpcURL = "https://bsc-dataseed.binance.org/"
+    private let chainId = 56
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Recipient") {
+                    TextField("0x...", text: $recipientAddress)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                        .autocorrectionDisabled()
+                }
+                
+                Section("Amount") {
+                    HStack {
+                        TextField("0.0", text: $amountInput)
+                        Text("BNB")
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    HStack {
+                        Text("Available")
+                        Spacer()
+                        Text(balanceDisplay)
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+                    
+                    Button("Send Max") {
+                        sendMax()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                
+                Section("Network Fee") {
+                    HStack {
+                        Text("Gas Price")
+                        Spacer()
+                        if isLoading {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Text(gasPriceGwei.isEmpty ? "—" : gasPriceGwei + " Gwei")
+                                .font(.system(.body, design: .monospaced))
+                        }
+                    }
+                    HStack {
+                        Text("Estimated Fee")
+                        Spacer()
+                        Text(estimatedFee)
+                            .font(.system(.body, design: .monospaced))
+                    }
+                }
+                
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                            .font(.caption)
+                    }
+                }
+                
+                Section {
+                    Button {
+                        Task { await sendTransaction() }
+                    } label: {
+                        HStack {
+                            if isLoading { ProgressView().controlSize(.small).tint(.white) }
+                            Text(isLoading ? "Sending..." : "Send BNB")
+                                .font(.headline)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!isValidForm || isLoading)
+                }
+            }
+            .navigationTitle("Send BNB")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                        onDismiss()
+                    }
+                }
+            }
+            .task { await loadWalletState() }
+        }
+        .frame(width: 500, height: 600)
+    }
+    
+    private var isValidForm: Bool {
+        recipientAddress.hasPrefix("0x") && recipientAddress.count == 42 &&
+        (Double(amountInput) ?? 0) > 0 && !gasPriceGwei.isEmpty
+    }
+    
+    private func sendMax() {
+        let parts = balanceDisplay.replacingOccurrences(of: " BNB", with: "")
+        let amount = Double(parts) ?? 0
+        let fee = Double(estimatedFee.replacingOccurrences(of: " BNB", with: "")) ?? 0
+        let maxValue = max(0, amount - fee)
+        amountInput = String(format: "%.6f", maxValue)
+    }
+    
+    private func loadWalletState() async {
+        isLoading = true
+        errorMessage = nil
+        do {
+            let address = keys.bnb.address
+            nonce = try await fetchNonce(address: address)
+            let gasPriceWei = try await fetchGasPrice()
+            let gwei = Double(gasPriceWei) / 1_000_000_000.0
+            gasPriceGwei = String(format: "%.2f", gwei)
+            updateFeeEstimate()
+            balanceDisplay = try await fetchBalance(address: address)
+            isLoading = false
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+                isLoading = false
+            }
+        }
+    }
+    
+    private func updateFeeEstimate() {
+        let gasPrice = Double(gasPriceGwei) ?? 0
+        let fee = (gasPrice * 21000.0) / 1_000_000_000.0
+        estimatedFee = String(format: "%.6f BNB", fee)
+    }
+    
+    private func fetchNonce(address: String) async throws -> Int {
+        guard let url = URL(string: rpcURL) else { throw EthereumError.invalidAddress }
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getTransactionCount",
+            "params": [address, "latest"],
+            "id": 1
+        ]
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let resultHex = json?["result"] as? String else {
+            throw EthereumError.gasEstimationFailed
+        }
+        let cleaned = resultHex.hasPrefix("0x") ? String(resultHex.dropFirst(2)) : resultHex
+        return Int(cleaned, radix: 16) ?? 0
+    }
+    
+    private func fetchGasPrice() async throws -> UInt64 {
+        guard let url = URL(string: rpcURL) else { throw EthereumError.invalidAddress }
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_gasPrice",
+            "params": [],
+            "id": 1
+        ]
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let resultHex = json?["result"] as? String else {
+            throw EthereumError.gasEstimationFailed
+        }
+        let cleaned = resultHex.hasPrefix("0x") ? String(resultHex.dropFirst(2)) : resultHex
+        return UInt64(cleaned, radix: 16) ?? 5_000_000_000
+    }
+    
+    private func fetchBalance(address: String) async throws -> String {
+        guard let url = URL(string: rpcURL) else { throw EthereumError.invalidAddress }
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getBalance",
+            "params": [address, "latest"],
+            "id": 1
+        ]
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let resultHex = json?["result"] as? String else {
+            return "0 BNB"
+        }
+        let cleaned = resultHex.hasPrefix("0x") ? String(resultHex.dropFirst(2)) : resultHex
+        let wei = UInt64(cleaned, radix: 16) ?? 0
+        let bnb = Double(wei) / pow(10.0, 18.0)
+        return String(format: "%.6f BNB", bnb)
+    }
+    
+    private func sendTransaction() async {
+        isLoading = true
+        errorMessage = nil
+        do {
+            let privateKey = keys.bnb.privateHex
+            let amountDecimal = NSDecimalNumber(string: amountInput)
+            let multiplier = NSDecimalNumber(mantissa: 1, exponent: 18, isNegative: false)
+            let weiAmount = amountDecimal.multiplying(by: multiplier).uint64Value
+            guard weiAmount > 0 else { throw EthereumError.invalidAmount }
+            let gasPriceWei = UInt64((Double(gasPriceGwei) ?? 5) * 1_000_000_000)
+            let signedTx = try EthereumTransaction.buildAndSign(
+                to: recipientAddress,
+                value: String(weiAmount),
+                gasLimit: 21000,
+                gasPrice: String(gasPriceWei),
+                nonce: nonce,
+                chainId: chainId,
+                privateKeyHex: privateKey
+            )
+            let txid = try await broadcastTransaction(signedTx)
+            await MainActor.run {
+                isLoading = false
+                onSuccess(txid)
+                dismiss()
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+                isLoading = false
+            }
+        }
+    }
+    
+    private func broadcastTransaction(_ raw: String) async throws -> String {
+        guard let url = URL(string: rpcURL) else {
+            throw EthereumError.invalidAddress
+        }
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_sendRawTransaction",
+            "params": [raw],
+            "id": 1
+        ]
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        if let error = json?["error"] as? [String: Any], let message = error["message"] as? String {
+            throw EthereumError.broadcastFailed(message)
+        }
+        guard let txid = json?["result"] as? String else {
+            throw EthereumError.broadcastFailed("No tx hash returned")
+        }
+        return txid
+    }
+}
+
+// MARK: - Solana Send Sheet
+
+private struct SolanaSendSheet: View {
+    let chain: ChainInfo
+    let keys: AllKeys
+    let onDismiss: () -> Void
+    let onSuccess: (String) -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var recipientAddress = ""
+    @State private var amountSOL = ""
+    @State private var balanceDisplay = "0 SOL"
+    @State private var recentBlockhash = ""
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    
+    private let rpcURL = "https://api.mainnet-beta.solana.com"
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                // Amount Input
+                VStack(spacing: 16) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        TextField("0", text: $amountSOL)
+                            .font(.system(size: 48, weight: .medium, design: .rounded))
+                            .multilineTextAlignment(.center)
+                            .frame(minWidth: 100)
+                            .fixedSize(horizontal: true, vertical: false)
+                        Text("SOL")
+                            .font(.title2)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Text("Available: \(balanceDisplay)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .onTapGesture { sendMax() }
+                }
+                .padding(.top, 20)
+
+                // Recipient Input
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("To")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .padding(.leading, 4)
+                    
+                    HStack {
+                        Image(systemName: "person.circle.fill")
+                            .foregroundStyle(.secondary)
+                        TextField("Solana Address", text: $recipientAddress)
+                            .font(.system(.body, design: .monospaced))
+                            .autocorrectionDisabled()
+                        
+                        if !recipientAddress.isEmpty {
+                            Button { recipientAddress = "" } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(12)
+                    .background(Color.gray.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .padding(.horizontal)
+
+                // Network Fee Info
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Network Fee")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .padding(.leading, 4)
+                    
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text("Estimated Fee")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text("~0.000005 SOL")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.purple)
+                        }
+                        Spacer()
+                        Text("Solana Network")
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.purple.opacity(0.1))
+                            .foregroundStyle(.purple)
+                            .clipShape(Capsule())
+                    }
+                    .padding(12)
+                    .background(Color.gray.opacity(0.05))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .padding(.horizontal)
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                        .padding(.horizontal)
+                        .multilineTextAlignment(.center)
+                }
+
+                Spacer()
+
+                // Send Button
+                Button {
+                    Task { await sendTransaction() }
+                } label: {
+                    HStack {
+                        if isLoading {
+                            ProgressView().tint(.white)
+                        }
+                        Text(isLoading ? "Sending..." : "Send SOL")
+                            .font(.headline)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(isValidForm ? Color.purple : Color.gray.opacity(0.3))
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .disabled(!isValidForm || isLoading)
+                .padding()
+            }
+            .navigationTitle("Send Solana")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss(); onDismiss() }
+                }
+            }
+            .task { await loadWalletState() }
+        }
+        .frame(width: 480, height: 600)
+    }
+    
+    private var isValidForm: Bool {
+        !recipientAddress.isEmpty && (Double(amountSOL) ?? 0) > 0 && !recentBlockhash.isEmpty
+    }
+    
+    private func sendMax() {
+        let value = Double(balanceDisplay.replacingOccurrences(of: " SOL", with: "")) ?? 0
+        amountSOL = String(format: "%.6f", max(0, value - 0.000005))
+    }
+    
+    private func loadWalletState() async {
+        isLoading = true
+        errorMessage = nil
+        do {
+            balanceDisplay = try await fetchBalance()
+            recentBlockhash = try await fetchRecentBlockhash()
+            isLoading = false
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+                isLoading = false
+            }
+        }
+    }
+    
+    private func fetchBalance() async throws -> String {
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getBalance",
+            "params": [keys.solana.publicKeyBase58]
+        ]
+        let result = try await solanaRPCResult(payload: payload)
+        if let wrapper = result as? [String: Any], let value = wrapper["value"] as? UInt64 {
+            let sol = Double(value) / 1_000_000_000.0
+            return String(format: "%.6f SOL", sol)
+        }
+        return "0 SOL"
+    }
+    
+    private func fetchRecentBlockhash() async throws -> String {
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getLatestBlockhash",
+            "params": []
+        ]
+        if let result = try await solanaRPCResult(payload: payload) as? [String: Any],
+           let value = result["value"] as? [String: Any],
+           let hash = value["blockhash"] as? String {
+            return hash
+        }
+        throw SolanaSendError.networkFailure("Missing blockhash")
+    }
+    
+    private func solanaRPCResult(payload: [String: Any]) async throws -> Any {
+        guard let url = URL(string: rpcURL) else {
+            throw SolanaSendError.networkFailure("Invalid RPC URL")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        if let error = json?["error"] as? [String: Any], let message = error["message"] as? String {
+            throw SolanaSendError.networkFailure(message)
+        }
+        guard let result = json?["result"] else {
+            throw SolanaSendError.networkFailure("Malformed RPC response")
+        }
+        return result
+    }
+    
+    private func sendTransaction() async {
+        isLoading = true
+        errorMessage = nil
+        do {
+            let amountDecimal = NSDecimalNumber(string: amountSOL)
+            let lamports = amountDecimal.multiplying(by: NSDecimalNumber(value: 1_000_000_000)).uint64Value
+            guard lamports > 0 else { throw SolanaSendError.invalidAmount }
+            let signed = try SolanaTransaction.buildAndSign(
+                from: keys.solana.publicKeyBase58,
+                to: recipientAddress,
+                amount: lamports,
+                recentBlockhash: recentBlockhash,
+                privateKeyBase58: keys.solana.privateKeyBase58
+            )
+            guard let txData = Base58.decode(signed) else {
+                throw SolanaSendError.signingFailed
+            }
+            let base64Tx = txData.base64EncodedString()
+            let payload: [String: Any] = [
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "sendTransaction",
+                "params": [base64Tx]
+            ]
+            guard let txid = try await solanaRPCResult(payload: payload) as? String else {
+                throw SolanaSendError.networkFailure("No transaction signature returned")
+            }
+            await MainActor.run {
+                isLoading = false
+                onSuccess(txid)
+                dismiss()
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+                isLoading = false
+            }
+        }
+    }
+}
+
+enum SolanaSendError: LocalizedError {
+    case invalidAmount
+    case signingFailed
+    case networkFailure(String)
+    
+    var errorDescription: String? {
+        switch self {
+        case .invalidAmount:
+            return "Enter a valid SOL amount."
+        case .signingFailed:
+            return "Failed to sign transaction."
+        case .networkFailure(let message):
+            return message
+        }
+    }
+}
+
 private struct ReceiveFundsSheet: View {
     let chains: [ChainInfo]
     let onCopy: (String) -> Void
@@ -4057,7 +4971,7 @@ private struct ReceiveFundsSheet: View {
                 }
             }
         }
-        .frame(minWidth: 520, minHeight: 460)
+        .frame(width: 550, height: 500)
     }
 }
 
@@ -4400,7 +5314,7 @@ private struct SettingsPanelView: View {
                 Spacer()
             }
             .padding()
-            .frame(minWidth: 320, minHeight: 200)
+            .frame(width: 350, height: 300)
             .navigationTitle("Settings")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -4479,7 +5393,7 @@ private struct AllPrivateKeysSheet: View {
                 }
             }
         }
-        .frame(minWidth: 520, minHeight: 560)
+        .frame(width: 600, height: 700)
     }
 }
 
@@ -4522,7 +5436,7 @@ private struct ChainDetailSheet: View {
                 }
             }
         }
-        .frame(minWidth: 420, minHeight: 520)
+        .frame(width: 480, height: 600)
         .overlay(alignment: .bottom) {
             if let message = copyFeedbackMessage {
                 CopyFeedbackBanner(message: message)
@@ -4536,7 +5450,6 @@ private struct ChainDetailSheet: View {
     private var quickActionsSection: some View {
         HStack(spacing: 12) {
             Button {
-                dismiss()
                 onSendRequested(chain)
             } label: {
                 Label("Send", systemImage: "paperplane.fill")
@@ -4891,7 +5804,7 @@ private struct SecurityNoticeView: View {
                 }
             }
         }
-        .frame(minWidth: 420, minHeight: 520)
+        .frame(width: 500, height: 600)
     }
 
     private func bulletPoint(_ text: String) -> some View {
@@ -4963,7 +5876,7 @@ private struct SecuritySettingsView: View {
                 }
             }
         }
-        .frame(minWidth: 360, minHeight: 360)
+        .frame(width: 400, height: 450)
     }
 
     private func validateAndSave() {

@@ -4,6 +4,12 @@ import SwiftUI
 struct KeyGeneratorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
+    init() {
+        print("696969")
+        print("696969")
+        print("696969")
+    }
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
