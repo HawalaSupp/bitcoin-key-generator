@@ -1,6 +1,7 @@
 import SwiftUI
 import CryptoKit
 import UniformTypeIdentifiers
+import Security
 #if canImport(AppKit)
 import AppKit
 #elseif canImport(UIKit)
@@ -89,9 +90,9 @@ struct ContentView: View {
     @State private var showAllPrivateKeysSheet = false
     @State private var showSettingsPanel = false
     @State private var showReceiveSheet = false
-    @State private var showSendSheet = false
     @State private var showSendPicker = false
     @State private var sendChainContext: ChainInfo?
+    @State private var pendingSendChain: ChainInfo?
     @State private var showSeedPhraseSheet = false
     @State private var viewportWidth: CGFloat = 900
     private let moneroBalancePlaceholder = "Balance protected – open your Monero wallet"
@@ -298,7 +299,7 @@ struct ContentView: View {
         }
         .padding(24)
         .frame(minWidth: 560, minHeight: 480)
-        .sheet(item: $selectedChain) { chain in
+        .sheet(item: $selectedChain, onDismiss: presentQueuedSendIfNeeded) { chain in
             let balanceState = balanceStates[chain.id] ?? defaultBalanceState(for: chain.id)
             let priceState = priceStates[chain.id] ?? defaultPriceState(for: chain.id)
             ChainDetailSheet(
@@ -310,12 +311,8 @@ struct ContentView: View {
                     copyToClipboard(value)
                 },
                 onSendRequested: { selectedChain in
+                    pendingSendChain = selectedChain
                     self.selectedChain = nil
-                    // Reduced delay for snappier transition
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        sendChainContext = selectedChain
-                        showSendSheet = true
-                    }
                 }
             )
         }
@@ -333,19 +330,16 @@ struct ContentView: View {
                 NoKeysPlaceholderView()
             }
         }
-        .sheet(isPresented: $showSendSheet) {
-            if let chain = sendChainContext, let keys {
-                // Show appropriate send sheet based on chain type
+        .sheet(item: $sendChainContext, onDismiss: { sendChainContext = nil }) { chain in
+            if let keys {
                 if chain.id.starts(with: "bitcoin") || chain.id.starts(with: "litecoin") {
                     BitcoinSendSheet(
                         chain: chain,
                         keys: keys,
                         onDismiss: {
-                            showSendSheet = false
                             sendChainContext = nil
                         },
                         onSuccess: { txid in
-                            showSendSheet = false
                             sendChainContext = nil
                             showStatus("Transaction broadcast: \(txid.prefix(16))...", tone: .success)
                         }
@@ -355,11 +349,9 @@ struct ContentView: View {
                         chain: chain,
                         keys: keys,
                         onDismiss: {
-                            showSendSheet = false
                             sendChainContext = nil
                         },
                         onSuccess: { txid in
-                            showSendSheet = false
                             sendChainContext = nil
                             showStatus("Transaction broadcast: \(txid.prefix(16))...", tone: .success)
                         }
@@ -369,11 +361,9 @@ struct ContentView: View {
                         chain: chain,
                         keys: keys,
                         onDismiss: {
-                            showSendSheet = false
                             sendChainContext = nil
                         },
                         onSuccess: { txid in
-                            showSendSheet = false
                             sendChainContext = nil
                             showStatus("Transaction broadcast: \(txid.prefix(16))...", tone: .success)
                         }
@@ -383,34 +373,29 @@ struct ContentView: View {
                         chain: chain,
                         keys: keys,
                         onDismiss: {
-                            showSendSheet = false
                             sendChainContext = nil
                         },
                         onSuccess: { txid in
-                            showSendSheet = false
                             sendChainContext = nil
                             showStatus("Transaction broadcast: \(txid.prefix(16))...", tone: .success)
                         }
                     )
                 } else {
-                    // Placeholder for other chains
                     Text("Send functionality coming soon for \(chain.title)")
                         .padding()
                 }
+            } else {
+                Text("Generate keys before sending funds.")
+                    .padding()
             }
         }
-        .sheet(isPresented: $showSendPicker) {
+        .sheet(isPresented: $showSendPicker, onDismiss: presentQueuedSendIfNeeded) {
             if let keys {
                 SendAssetPickerSheet(
                     chains: sendEligibleChains(from: keys),
                     onSelect: { chain in
-                        // Close picker first
+                        pendingSendChain = chain
                         showSendPicker = false
-                        // Wait for dismissal animation to finish before showing send sheet
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            sendChainContext = chain
-                            showSendSheet = true
-                        }
                     },
                     onDismiss: {
                         showSendPicker = false
@@ -1441,13 +1426,20 @@ struct ContentView: View {
             showStatus("No send-ready chains available yet.", tone: .info)
             return
         }
+        pendingSendChain = nil
         sendChainContext = nil
         showSendPicker = true
     }
     
     private func openSendSheet(for chain: ChainInfo) {
+        pendingSendChain = nil
         sendChainContext = chain
-        showSendSheet = true
+    }
+
+    private func presentQueuedSendIfNeeded() {
+        guard let chain = pendingSendChain else { return }
+        pendingSendChain = nil
+        sendChainContext = chain
     }
 
     private func sendEligibleChains(from keys: AllKeys) -> [ChainInfo] {
@@ -1942,18 +1934,29 @@ struct ContentView: View {
 
     @MainActor
     private func clearSensitiveData() {
-        cancelBalanceFetchTasks()
         keys = nil
         rawJSON = ""
         selectedChain = nil
+        sendChainContext = nil
         statusTask?.cancel()
         statusTask = nil
         statusMessage = nil
+        errorMessage = nil
         pendingImportData = nil
+    pendingSendChain = nil
+        showSendPicker = false
+        showReceiveSheet = false
+        showAllPrivateKeysSheet = false
+        showImportPrivateKeySheet = false
+        cancelBalanceFetchTasks()
         balanceStates.removeAll()
+        cachedBalances.removeAll()
+        balanceBackoff.removeAll()
+        cachedPrices.removeAll()
         priceStates.removeAll()
-        
-        // Delete from Keychain
+        priceBackoffTracker = BackoffTracker()
+        stopPriceUpdates()
+
         do {
             try KeychainHelper.deleteKeys()
             print("✅ Keys deleted from Keychain")
@@ -1962,25 +1965,27 @@ struct ContentView: View {
         }
     }
 
+    @MainActor
     private func prepareSecurityState() {
         if !hasAcknowledgedSecurityNotice {
             showSecurityNotice = true
         }
 
-        if storedPasscodeHash != nil {
-            if completedOnboardingThisSession {
-                isUnlocked = true
-                showUnlockSheet = false
-                completedOnboardingThisSession = false
-            } else {
-                isUnlocked = false
-                showUnlockSheet = true
-            }
-        } else {
+        guard storedPasscodeHash != nil else {
             isUnlocked = true
+            return
+        }
+
+        if completedOnboardingThisSession {
+            isUnlocked = true
+            showUnlockSheet = false
+            completedOnboardingThisSession = false
+        } else if !isUnlocked {
+            showUnlockSheet = true
         }
     }
 
+    @MainActor
     private func triggerAutoGenerationIfNeeded() {
         guard shouldAutoGenerateAfterOnboarding else { return }
         guard hasAcknowledgedSecurityNotice else { return }
@@ -1997,17 +2002,15 @@ struct ContentView: View {
     @MainActor
     private func startPriceUpdatesIfNeeded() {
         guard onboardingCompleted else { return }
-        
-        if let keys {
-            primeStateCaches(for: keys)
-        }
         ensurePriceStateEntries()
-        
-        // Only start the loop if it's not already running
         if priceUpdateTask == nil {
             markPriceStatesLoading()
             priceUpdateTask = Task {
                 await priceUpdateLoop()
+            }
+        } else {
+            Task {
+                await fetchAndStorePrices()
             }
         }
     }
@@ -2016,6 +2019,7 @@ struct ContentView: View {
     private func stopPriceUpdates() {
         priceUpdateTask?.cancel()
         priceUpdateTask = nil
+        priceBackoffTracker = BackoffTracker()
     }
 
     @MainActor
@@ -2027,120 +2031,96 @@ struct ContentView: View {
 
     private func priceUpdateLoop() async {
         while !Task.isCancelled {
-            var waitDuration: TimeInterval = 0
-            await MainActor.run {
-                waitDuration = priceBackoffTracker.remainingBackoff
+            let succeeded = await fetchAndStorePrices()
+            let delay = await MainActor.run { () -> TimeInterval in
+                if succeeded {
+                    priceBackoffTracker.registerSuccess()
+                    return pricePollingInterval
+                } else {
+                    return priceBackoffTracker.registerFailure()
+                }
             }
 
-            if waitDuration > 0 {
-                let nanos = UInt64(waitDuration * 1_000_000_000)
-                try? await Task.sleep(nanoseconds: nanos)
-                continue
-            }
-
-            await fetchAndStorePrices()
+            let clampedDelay = max(5, delay)
+            let nanos = UInt64(clampedDelay * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanos)
         }
     }
 
-    private func fetchAndStorePrices() async {
-        await MainActor.run {
-            markPriceStatesLoading()
-        }
-
+    private func fetchAndStorePrices() async -> Bool {
         do {
             let snapshot = try await fetchPriceSnapshot()
+            let now = Date()
             await MainActor.run {
-                let now = Date()
                 updatePriceStates(with: snapshot, timestamp: now)
-                priceBackoffTracker.registerSuccess()
-                priceBackoffTracker.schedule(after: pricePollingInterval)
             }
+            return true
         } catch {
-            print("❌ PRICE FETCH ERROR: \(error.localizedDescription)")
             await MainActor.run {
-                let retryDelay = priceBackoffTracker.registerFailure()
-                let message = friendlyBackoffMessage(for: error, retryDelay: retryDelay)
-                applyPriceFailureState(message: message)
+                applyPriceFailureState(message: error.localizedDescription)
             }
+            return false
         }
     }
 
     @MainActor
     private func updatePriceStates(with snapshot: [String: Double], timestamp: Date) {
-        func record(_ chainId: String, price: Double?, missingMessage: String) {
-            guard let price else {
-                if let cache = cachedPrices[chainId] {
-                    priceStates[chainId] = .stale(value: cache.value, lastUpdated: cache.lastUpdated, message: missingMessage)
-                } else {
-                    priceStates[chainId] = .failed(missingMessage)
-                }
-                return
+        for chainId in trackedPriceChainIDs {
+            if let staticDisplay = staticPriceDisplay(for: chainId) {
+                cachedPrices[chainId] = CachedPrice(value: staticDisplay, lastUpdated: timestamp)
+                priceStates[chainId] = .loaded(value: staticDisplay, lastUpdated: timestamp)
+                continue
             }
 
-            let formatted = formatFiatAmount(price, currencyCode: "USD")
-            let entry = CachedPrice(value: formatted, lastUpdated: timestamp)
-            cachedPrices[chainId] = entry
-            priceStates[chainId] = .loaded(value: formatted, lastUpdated: timestamp)
+            guard let identifiers = priceIdentifiers(for: chainId) else { continue }
+            guard let priceValue = identifiers.compactMap({ snapshot[$0] }).first else {
+                if let cache = cachedPrices[chainId] {
+                    priceStates[chainId] = .stale(value: cache.value, lastUpdated: cache.lastUpdated, message: "Price unavailable.")
+                } else {
+                    priceStates[chainId] = .failed("Price unavailable.")
+                }
+                continue
+            }
+
+            let display = formatFiatAmount(priceValue, currencyCode: "USD")
+            cachedPrices[chainId] = CachedPrice(value: display, lastUpdated: timestamp)
+            priceStates[chainId] = .loaded(value: display, lastUpdated: timestamp)
         }
+    }
 
-        record("bitcoin", price: snapshot["bitcoin"], missingMessage: "Missing BTC price data.")
-        record("ethereum", price: snapshot["ethereum"], missingMessage: "Missing ETH price data.")
-        record("litecoin", price: snapshot["litecoin"], missingMessage: "Missing LTC price data.")
-        record("monero", price: snapshot["monero"], missingMessage: "Missing XMR price data.")
-        record("solana", price: snapshot["solana"], missingMessage: "Missing SOL price data.")
-        record("xrp", price: snapshot["ripple"] ?? snapshot["xrp"], missingMessage: "Missing XRP price data.")
-        record("bnb", price: snapshot["binancecoin"] ?? snapshot["bnb"], missingMessage: "Missing BNB price data.")
-
-        if let stableDisplay = staticPriceDisplay(for: "usdt-erc20") {
-            let usdtEntry = CachedPrice(value: stableDisplay, lastUpdated: timestamp)
-            let usdcEntry = CachedPrice(value: stableDisplay, lastUpdated: timestamp)
-            let daiEntry = CachedPrice(value: stableDisplay, lastUpdated: timestamp)
-
-            cachedPrices["usdt-erc20"] = usdtEntry
-            cachedPrices["usdc-erc20"] = usdcEntry
-            cachedPrices["dai-erc20"] = daiEntry
-
-            priceStates["usdt-erc20"] = .loaded(value: stableDisplay, lastUpdated: timestamp)
-            priceStates["usdc-erc20"] = .loaded(value: stableDisplay, lastUpdated: timestamp)
-            priceStates["dai-erc20"] = .loaded(value: stableDisplay, lastUpdated: timestamp)
-        }
-
-        if let testnetDisplay = staticPriceDisplay(for: "bitcoin-testnet") {
-            let entry = CachedPrice(value: testnetDisplay, lastUpdated: timestamp)
-            cachedPrices["bitcoin-testnet"] = entry
-            priceStates["bitcoin-testnet"] = .loaded(value: testnetDisplay, lastUpdated: timestamp)
-        }
-
-        if let testnetDisplay = staticPriceDisplay(for: "ethereum-sepolia") {
-            let entry = CachedPrice(value: testnetDisplay, lastUpdated: timestamp)
-            cachedPrices["ethereum-sepolia"] = entry
-            priceStates["ethereum-sepolia"] = .loaded(value: testnetDisplay, lastUpdated: timestamp)
+    private func priceIdentifiers(for chainId: String) -> [String]? {
+        switch chainId {
+        case "bitcoin":
+            return ["bitcoin"]
+        case "ethereum":
+            return ["ethereum"]
+        case "litecoin":
+            return ["litecoin"]
+        case "monero":
+            return ["monero"]
+        case "solana":
+            return ["solana"]
+        case "xrp":
+            return ["ripple", "xrp"]
+        case "bnb":
+            return ["binancecoin", "bnb"]
+        case "bitcoin-testnet", "ethereum-sepolia", "usdt-erc20", "usdc-erc20", "dai-erc20":
+            return nil
+        default:
+            return nil
         }
     }
 
     private func fetchPriceSnapshot() async throws -> [String: Double] {
-        // Try CoinGecko first
-        do {
-            return try await fetchPricesFromCoinGecko()
-        } catch {
-            print("⚠️ CoinGecko failed: \(error). Trying Binance backup...")
-            return try await fetchPricesFromBinance()
-        }
-    }
-
-    private func fetchPricesFromCoinGecko() async throws -> [String: Double] {
-        print("🔍 Fetching price snapshot from CoinGecko...")
-        guard let url = URL(string: "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,litecoin,monero,solana,ripple,binancecoin,tether,usd-coin,dai&vs_currencies=usd") else {
+        guard let url = URL(string: "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,litecoin,monero,solana,ripple,binancecoin&vs_currencies=usd") else {
             throw BalanceFetchError.invalidRequest
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 10
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        
         guard let httpResponse = response as? HTTPURLResponse else {
             throw BalanceFetchError.invalidResponse
         }
@@ -2150,80 +2130,20 @@ struct ContentView: View {
         }
 
         let object = try JSONSerialization.jsonObject(with: data, options: [])
-        guard let dict = object as? [String: Any] else {
+        guard let dictionary = object as? [String: Any] else {
             throw BalanceFetchError.invalidPayload
         }
 
-        var prices: [String: Double] = [:]
-        if let btc = dict["bitcoin"] as? [String: Any], let usd = btc["usd"] as? NSNumber { prices["bitcoin"] = usd.doubleValue }
-        if let eth = dict["ethereum"] as? [String: Any], let usd = eth["usd"] as? NSNumber { prices["ethereum"] = usd.doubleValue }
-        if let ltc = dict["litecoin"] as? [String: Any], let usd = ltc["usd"] as? NSNumber { prices["litecoin"] = usd.doubleValue }
-        if let xmr = dict["monero"] as? [String: Any], let usd = xmr["usd"] as? NSNumber { prices["monero"] = usd.doubleValue }
-        if let sol = dict["solana"] as? [String: Any], let usd = sol["usd"] as? NSNumber { prices["solana"] = usd.doubleValue }
-        if let xrp = dict["ripple"] as? [String: Any], let usd = xrp["usd"] as? NSNumber { prices["ripple"] = usd.doubleValue }
-        if let bnb = dict["binancecoin"] as? [String: Any], let usd = bnb["usd"] as? NSNumber { prices["binancecoin"] = usd.doubleValue }
-        if let usdt = dict["tether"] as? [String: Any], let usd = usdt["usd"] as? NSNumber { prices["tether"] = usd.doubleValue }
-        if let usdc = dict["usd-coin"] as? [String: Any], let usd = usdc["usd"] as? NSNumber { prices["usd-coin"] = usd.doubleValue }
-        if let dai = dict["dai"] as? [String: Any], let usd = dai["usd"] as? NSNumber { prices["dai"] = usd.doubleValue }
-
-        return prices
-    }
-
-    private func fetchPricesFromBinance() async throws -> [String: Double] {
-        print("🔍 Fetching price snapshot from Binance...")
-        // Binance API returns array of objects: [{"symbol":"BTCUSDT","price":"20000.00"}, ...]
-        // We'll fetch all tickers (lightweight enough) or specific symbols if possible.
-        // Fetching all tickers is one request: https://api.binance.com/api/v3/ticker/price
-        
-        guard let url = URL(string: "https://api.binance.com/api/v3/ticker/price") else {
-            throw BalanceFetchError.invalidRequest
-        }
-        
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 10
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.invalidResponse
-        }
-        
-        let json = try JSONSerialization.jsonObject(with: data, options: [])
-        guard let list = json as? [[String: Any]] else {
-            throw BalanceFetchError.invalidPayload
-        }
-        
-        var prices: [String: Double] = [:]
-        // Map Binance symbols to our IDs
-        let symbolMap: [String: String] = [
-            "BTCUSDT": "bitcoin",
-            "ETHUSDT": "ethereum",
-            "LTCUSDT": "litecoin",
-            "XMRUSDT": "monero",
-            "SOLUSDT": "solana",
-            "XRPUSDT": "ripple",
-            "BNBUSDT": "binancecoin",
-            "USDCUSDT": "usd-coin", // USDC price in USDT
-            // USDT is base, assume 1.0 or find a pair like USDT/DAI? 
-            // Usually USDT is ~1.0 USD.
-        ]
-        
-        for item in list {
-            if let symbol = item["symbol"] as? String,
-               let priceStr = item["price"] as? String,
-               let price = Double(priceStr),
-               let id = symbolMap[symbol] {
-                prices[id] = price
+        var snapshot: [String: Double] = [:]
+        for (key, value) in dictionary {
+            if let entry = value as? [String: Any], let usd = entry["usd"] as? NSNumber {
+                snapshot[key] = usd.doubleValue
             }
         }
-        
-        // Stablecoin fallbacks if not found or for USDT/DAI
-        prices["tether"] = 1.0
-        prices["dai"] = 1.0
-        if prices["usd-coin"] == nil { prices["usd-coin"] = 1.0 }
-        
-        return prices
+
+        return snapshot
     }
+
 
     @MainActor
     private func startBalanceFetch(for keys: AllKeys) {
@@ -2899,7 +2819,7 @@ struct ContentView: View {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
         
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (responseData, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw BalanceFetchError.invalidResponse
         }
@@ -2908,7 +2828,7 @@ struct ContentView: View {
             throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
         }
         
-                let ethDecimal = try BalanceResponseParser.parseAlchemyETHBalance(from: data)
+                let ethDecimal = try BalanceResponseParser.parseAlchemyETHBalance(from: responseData)
                 let eth = NSDecimalNumber(decimal: ethDecimal).doubleValue
         return formatCryptoAmount(eth, symbol: "ETH", maxFractionDigits: 6)
     }
@@ -3477,25 +3397,19 @@ private struct BitcoinSendSheet: View {
     let onDismiss: () -> Void
     let onSuccess: (String) -> Void
     
-    @Environment(\.dismiss) private var dismiss
-    @State private var recipientAddress = ""
-    @State private var amountBTC = ""
-    @State private var selectedFeeRate: FeeRate = .medium
-    @State private var isLoading = false
-    @State private var errorMessage: String?
-    @State private var feeEstimates: BitcoinFeeEstimates?
-    @State private var availableBalance: Int64 = 0
-    @State private var estimatedFee: Int64 = 0
-    @State private var showConfirmation = false
-    
-    private var isTestnet: Bool {
-        chain.id == "bitcoin-testnet"
+    var body: some View {
+        NavigationStack {
+            BitcoinSendView(
+                chain: chain,
+                keys: keys,
+                onDismiss: onDismiss,
+                onSuccess: onSuccess,
+                isPushed: false
+            )
+        }
+        .frame(width: 480, height: 650)
     }
-    
-    private var baseURL: String {
-        isTestnet ? "https://mempool.space/testnet/api" : "https://mempool.space/api"
-    }
-    
+
     enum FeeRate: String, CaseIterable {
         case fast = "Fast (~10 min)"
         case medium = "Medium (~30 min)"
@@ -3511,122 +3425,148 @@ private struct BitcoinSendSheet: View {
             }
         }
     }
+}
+
+private struct BitcoinSendView: View {
+    let chain: ChainInfo
+    let keys: AllKeys
+    let onDismiss: () -> Void
+    let onSuccess: (String) -> Void
+    let isPushed: Bool
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var recipientAddress = ""
+    @State private var amountBTC = ""
+    @State private var selectedFeeRate: BitcoinSendSheet.FeeRate = .medium
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var feeEstimates: BitcoinFeeEstimates?
+    @State private var availableBalance: Int64 = 0
+    @State private var estimatedFee: Int64 = 0
+    @State private var showConfirmation = false
+    
+    private var isTestnet: Bool {
+        chain.id == "bitcoin-testnet"
+    }
+    
+    private var baseURL: String {
+        isTestnet ? "https://mempool.space/testnet/api" : "https://mempool.space/api"
+    }
     
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-                // Amount Input (Large)
-                VStack(spacing: 8) {
-                    Text("Amount to send")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                    
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        TextField("0", text: $amountBTC)
-                            .font(.system(size: 48, weight: .medium, design: .rounded))
-                            .multilineTextAlignment(.center)
-                            .frame(minWidth: 100)
-                            .fixedSize(horizontal: true, vertical: false)
-                        Text("BTC")
-                            .font(.title2)
-                            .fontWeight(.medium)
-                            .foregroundStyle(.secondary)
-                    }
-                    
-                    if availableBalance > 0 {
-                        Text("Available: \(formatSatoshis(availableBalance))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .onTapGesture { sendMax() }
-                    }
-                }
-                .padding(.top, 20)
-
-                // Recipient Input
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("To")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                        .padding(.leading, 4)
-                    
-                    HStack {
-                        Image(systemName: "person.circle.fill")
-                            .foregroundStyle(.secondary)
-                        TextField("Bitcoin Address", text: $recipientAddress)
-                            .font(.system(.body, design: .monospaced))
-                            .autocorrectionDisabled()
-                        
-                        if !recipientAddress.isEmpty {
-                            Button { recipientAddress = "" } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(12)
-                    .background(Color.gray.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-                .padding(.horizontal)
-
-                // Fee Selector
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Network Fee")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                        .padding(.leading, 4)
-                    
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(FeeRate.allCases, id: \.self) { rate in
-                                FeeRateCard(
-                                    rate: rate,
-                                    isSelected: selectedFeeRate == rate,
-                                    estimates: feeEstimates,
-                                    onSelect: { selectedFeeRate = rate }
-                                )
-                            }
-                        }
-                        .padding(.horizontal, 4)
-                    }
-                }
-                .padding(.horizontal)
+        VStack(spacing: 24) {
+            // Amount Input (Large)
+            VStack(spacing: 8) {
+                Text("Amount to send")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
                 
-                if let error = errorMessage {
-                    Text(error)
-                        .foregroundStyle(.red)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    TextField("0", text: $amountBTC)
+                        .font(.system(size: 48, weight: .medium, design: .rounded))
+                        .multilineTextAlignment(.center)
+                        .frame(minWidth: 100)
+                        .fixedSize(horizontal: true, vertical: false)
+                    Text("BTC")
+                        .font(.title2)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.secondary)
+                }
+                
+                if availableBalance > 0 {
+                    Text("Available: \(formatSatoshis(availableBalance))")
                         .font(.caption)
-                        .padding(.horizontal)
+                        .foregroundStyle(.secondary)
+                        .onTapGesture { sendMax() }
                 }
-
-                Spacer()
-
-                // Send Button
-                Button {
-                    Task { await sendTransaction() }
-                } label: {
-                    HStack {
-                        if isLoading {
-                            ProgressView().tint(.white)
-                        }
-                        Text(isLoading ? "Sending..." : "Send Bitcoin")
-                            .font(.headline)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(isValidForm ? Color.orange : Color.gray.opacity(0.3))
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                }
-                .disabled(isLoading || !isValidForm)
-                .padding()
             }
-            .navigationTitle("Send \(chain.title)")
-            .toolbar {
+            .padding(.top, 20)
+
+            // Recipient Input
+            VStack(alignment: .leading, spacing: 8) {
+                Text("To")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                    .padding(.leading, 4)
+                
+                HStack {
+                    Image(systemName: "person.circle.fill")
+                        .foregroundStyle(.secondary)
+                    TextField("Bitcoin Address", text: $recipientAddress)
+                        .font(.system(.body, design: .monospaced))
+                        .autocorrectionDisabled()
+                    
+                    if !recipientAddress.isEmpty {
+                        Button { recipientAddress = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(12)
+                .background(Color.gray.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .padding(.horizontal)
+
+            // Fee Selector
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Network Fee")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                    .padding(.leading, 4)
+                
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(BitcoinSendSheet.FeeRate.allCases, id: \.self) { rate in
+                            FeeRateCard(
+                                rate: rate,
+                                isSelected: selectedFeeRate == rate,
+                                estimates: feeEstimates,
+                                onSelect: { selectedFeeRate = rate }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+            }
+            .padding(.horizontal)
+            
+            if let error = errorMessage {
+                Text(error)
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            }
+
+            Spacer()
+
+            // Send Button
+            Button {
+                Task { await sendTransaction() }
+            } label: {
+                HStack {
+                    if isLoading {
+                        ProgressView().tint(.white)
+                    }
+                    Text(isLoading ? "Sending..." : "Send Bitcoin")
+                        .font(.headline)
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(isValidForm ? Color.orange : Color.gray.opacity(0.3))
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+            }
+            .disabled(isLoading || !isValidForm)
+            .padding()
+        }
+        .navigationTitle("Send \(chain.title)")
+        .toolbar {
+            if !isPushed {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
@@ -3634,13 +3574,12 @@ private struct BitcoinSendSheet: View {
                     }
                 }
             }
-            .onAppear {
-                Task {
-                    await loadBalanceAndFees()
-                }
+        }
+        .onAppear {
+            Task {
+                await loadBalanceAndFees()
             }
         }
-        .frame(width: 480, height: 650)
     }
     
     private var isValidForm: Bool {
@@ -3682,7 +3621,7 @@ private struct BitcoinSendSheet: View {
     
     private func loadBalanceAndFees() async {
         isLoading = true
-        defer { isLoading = false }
+        errorMessage = nil
         
         do {
             // Get address
@@ -3801,23 +3740,6 @@ private struct BitcoinSendSheet: View {
                     value: Int64(satoshis)
                 )
             ]
-            
-            // Get fee rate from estimates
-            let feeRateValue: UInt64
-            if let estimates = feeEstimates {
-                switch selectedFeeRate {
-                case .fast:
-                    feeRateValue = UInt64(estimates.fastestFee)
-                case .medium:
-                    feeRateValue = UInt64(estimates.halfHourFee)
-                case .slow:
-                    feeRateValue = UInt64(estimates.hourFee)
-                case .economy:
-                    feeRateValue = UInt64(estimates.economyFee)
-                }
-            } else {
-                feeRateValue = 10 // Default fallback
-            }
             
             // Build and sign transaction
             let signedTx = try BitcoinTransactionBuilder.buildAndSign(
