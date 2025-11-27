@@ -221,6 +221,8 @@ struct ContentView: View {
     @AppStorage("hawala.onboardingCompleted") private var onboardingCompleted = false
     @AppStorage("hawala.appearanceMode") private var storedAppearanceMode = AppearanceMode.system.rawValue
     @AppStorage("hawala.biometricUnlockEnabled") private var biometricUnlockEnabled = false
+    @AppStorage("hawala.biometricForSends") private var biometricForSends = true
+    @AppStorage("hawala.biometricForKeyReveal") private var biometricForKeyReveal = true
     @AppStorage("hawala.autoLockInterval") private var storedAutoLockInterval: Double = AutoLockIntervalOption.fiveMinutes.rawValue
     @AppStorage("hawala.selectedFiatCurrency") private var storedFiatCurrency = FiatCurrency.usd.rawValue
     @State private var fxRates: [String: Double] = [:] // Currency code -> rate (relative to USD)
@@ -249,6 +251,7 @@ struct ContentView: View {
     @State private var sparklineFetchTask: Task<Void, Never>?
     @State private var showAllPrivateKeysSheet = false
     @State private var showSettingsPanel = false
+    @State private var showContactsSheet = false
     @State private var showReceiveSheet = false
     @State private var showSendPicker = false
     @State private var sendChainContext: ChainInfo?
@@ -258,6 +261,10 @@ struct ContentView: View {
     @State private var historyError: String?
     @State private var isHistoryLoading = false
     @State private var historyFetchTask: Task<Void, Never>?
+    // History filtering
+    @State private var historySearchText: String = ""
+    @State private var historyFilterChain: String? = nil
+    @State private var historyFilterType: String? = nil
     @State private var pendingTransactions: [PendingTransactionManager.PendingTransaction] = []
     @State private var pendingTxRefreshTask: Task<Void, Never>?
     @State private var speedUpTransaction: PendingTransactionManager.PendingTransaction?
@@ -265,6 +272,7 @@ struct ContentView: View {
     @State private var biometricState: BiometricState = .unknown
     @State private var lastActivityTimestamp = Date()
     @State private var autoLockTask: Task<Void, Never>?
+    @State private var showPrivacyBlur = false
     #if canImport(AppKit)
     @State private var activityMonitor: UserActivityMonitor?
     #endif
@@ -276,7 +284,12 @@ struct ContentView: View {
     private let sendEnabledChainIDs: Set<String> = [
         "bitcoin", "bitcoin-testnet", "litecoin", "ethereum", "ethereum-sepolia", "bnb", "solana"
     ]
-    private let pricePollingInterval: TimeInterval = 30
+    // CoinGecko free API: ~10-30 calls/min without key, ~30 calls/min with demo key
+    // We poll prices every 2 minutes to stay well under limits
+    private let pricePollingInterval: TimeInterval = 120
+    // Optional: Set your CoinGecko Demo API key here for higher rate limits
+    // Get a free key at: https://www.coingecko.com/en/api/pricing (Demo tier is free)
+    private let coingeckoAPIKey: String? = nil // e.g. "CG-xxxxxxxxxxxxxxxxxxxx"
     private let minimumBalanceRetryDelay: TimeInterval = 0.5
     private static var cachedWorkspaceRoot: URL?
     private static let historyDateFormatter: DateFormatter = {
@@ -397,6 +410,15 @@ struct ContentView: View {
                 }
                 Spacer()
                 appearanceMenu
+                Button {
+                    showContactsSheet = true
+                } label: {
+                    Image(systemName: "person.crop.rectangle.stack")
+                        .font(.title2)
+                        .padding(6)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Contacts")
                 Button {
                     guard hasAcknowledgedSecurityNotice else {
                         showSecurityNotice = true
@@ -553,6 +575,7 @@ struct ContentView: View {
                     BitcoinSendSheet(
                         chain: chain,
                         keys: keys,
+                        requireBiometric: biometricForSends && BiometricAuthHelper.isBiometricAvailable,
                         onDismiss: {
                             sendChainContext = nil
                         },
@@ -564,6 +587,7 @@ struct ContentView: View {
                     EthereumSendSheet(
                         chain: chain,
                         keys: keys,
+                        requireBiometric: biometricForSends && BiometricAuthHelper.isBiometricAvailable,
                         onDismiss: {
                             sendChainContext = nil
                         },
@@ -575,6 +599,7 @@ struct ContentView: View {
                     BnbSendSheet(
                         chain: chain,
                         keys: keys,
+                        requireBiometric: biometricForSends && BiometricAuthHelper.isBiometricAvailable,
                         onDismiss: {
                             sendChainContext = nil
                         },
@@ -586,6 +611,7 @@ struct ContentView: View {
                     SolanaSendSheet(
                         chain: chain,
                         keys: keys,
+                        requireBiometric: biometricForSends && BiometricAuthHelper.isBiometricAvailable,
                         onDismiss: {
                             sendChainContext = nil
                         },
@@ -637,14 +663,15 @@ struct ContentView: View {
                 )
             }
         }
+        .sheet(isPresented: $showContactsSheet) {
+            ContactsView()
+        }
         .sheet(isPresented: $showSettingsPanel) {
             SettingsPanelView(
                 hasKeys: keys != nil,
                 onShowKeys: {
                     if keys != nil {
-                        DispatchQueue.main.async {
-                            showAllPrivateKeysSheet = true
-                        }
+                        Task { await revealPrivateKeysWithBiometric() }
                     } else {
                         showStatus("Generate keys before viewing private material.", tone: .info)
                     }
@@ -685,6 +712,8 @@ struct ContentView: View {
                 },
                 biometricState: biometricState,
                 biometricEnabled: biometricToggleBinding,
+                biometricForSends: $biometricForSends,
+                biometricForKeyReveal: $biometricForKeyReveal,
                 autoLockSelection: autoLockSelectionBinding,
                 onBiometricRequest: {
                     attemptBiometricUnlock(reason: "Unlock Hawala")
@@ -753,6 +782,13 @@ struct ContentView: View {
                 }
             )
         }
+        .overlay {
+            // Privacy blur overlay when app goes to background/inactive
+            if showPrivacyBlur {
+                PrivacyBlurOverlay()
+                    .transition(.opacity)
+            }
+        }
         .onAppear {
             prepareSecurityState()
             triggerAutoGenerationIfNeeded()
@@ -802,6 +838,57 @@ struct ContentView: View {
             }
         )
     }
+
+    // MARK: - Privacy Blur Overlay
+    private struct PrivacyBlurOverlay: View {
+        var body: some View {
+            ZStack {
+                // Blur background
+                #if canImport(AppKit)
+                VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+                #else
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                #endif
+                
+                // Hawala branding
+                VStack(spacing: 16) {
+                    Image(systemName: "lock.shield.fill")
+                        .font(.system(size: 48))
+                        .foregroundStyle(.orange)
+                    
+                    Text("Hawala")
+                        .font(.title)
+                        .fontWeight(.bold)
+                    
+                    Text("Wallet protected")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .ignoresSafeArea()
+        }
+    }
+    
+    #if canImport(AppKit)
+    private struct VisualEffectBlur: NSViewRepresentable {
+        let material: NSVisualEffectView.Material
+        let blendingMode: NSVisualEffectView.BlendingMode
+        
+        func makeNSView(context: Context) -> NSVisualEffectView {
+            let view = NSVisualEffectView()
+            view.material = material
+            view.blendingMode = blendingMode
+            view.state = .active
+            return view
+        }
+        
+        func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+            nsView.material = material
+            nsView.blendingMode = blendingMode
+        }
+    }
+    #endif
 
     private struct OnboardingFlowView: View {
         @Binding var step: OnboardingStep
@@ -1368,7 +1455,7 @@ struct ContentView: View {
                 return
             }
             if keys != nil {
-                showAllPrivateKeysSheet = true
+                Task { await revealPrivateKeysWithBiometric() }
             } else {
                 showStatus("Generate keys before viewing private material.", tone: .info)
             }
@@ -1545,6 +1632,24 @@ struct ContentView: View {
                         ProgressView()
                             .controlSize(.small)
                     }
+                    
+                    // Export button
+                    if !historyEntries.isEmpty {
+                        Menu {
+                            Button {
+                                exportHistoryAsCSV()
+                            } label: {
+                                Label("Export as CSV", systemImage: "tablecells")
+                            }
+                        } label: {
+                            Label("Export", systemImage: "square.and.arrow.up")
+                                .labelStyle(.titleAndIcon)
+                                .font(.caption)
+                                .fontWeight(.medium)
+                        }
+                        .buttonStyle(.link)
+                    }
+                    
                     Button {
                         refreshTransactionHistory(force: true)
                     } label: {
@@ -1557,6 +1662,9 @@ struct ContentView: View {
                     .disabled(isHistoryLoading)
                 }
             }
+            
+            // Search and Filter Controls
+            historyFilterBar
 
             if let historyError {
                 VStack(spacing: 8) {
@@ -1604,12 +1712,37 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 24)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(historyEntries) { entry in
-                        TransactionHistoryRow(entry: entry)
-                        if entry.id != historyEntries.last?.id {
-                            Divider()
-                                .padding(.leading, 48)
+                let filtered = filteredHistoryEntries
+                if filtered.isEmpty && !historyEntries.isEmpty {
+                    // No results match the filter
+                    VStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.largeTitle)
+                            .foregroundStyle(.secondary.opacity(0.5))
+                        Text("No matching transactions")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        Text("Try adjusting your search or filters")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Clear Filters") {
+                            historySearchText = ""
+                            historyFilterChain = nil
+                            historyFilterType = nil
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(filtered) { entry in
+                            TransactionHistoryRow(entry: entry)
+                            if entry.id != filtered.last?.id {
+                                Divider()
+                                    .padding(.leading, 48)
+                            }
                         }
                     }
                 }
@@ -1625,6 +1758,211 @@ struct ContentView: View {
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
     }
+    
+    // MARK: - History Filter Bar
+    private var historyFilterBar: some View {
+        VStack(spacing: 8) {
+            // Search field
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search transactions…", text: $historySearchText)
+                    .textFieldStyle(.plain)
+                if !historySearchText.isEmpty {
+                    Button {
+                        historySearchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(8)
+            .background(Color.primary.opacity(0.05))
+            .cornerRadius(8)
+            
+            // Filter chips
+            HStack(spacing: 8) {
+                // Chain filter
+                Menu {
+                    Button("All Chains") {
+                        historyFilterChain = nil
+                    }
+                    Divider()
+                    ForEach(uniqueHistoryChains, id: \.self) { chain in
+                        Button(chainDisplayName(chain)) {
+                            historyFilterChain = chain
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "link")
+                        Text(historyFilterChain.map { chainDisplayName($0) } ?? "All Chains")
+                        Image(systemName: "chevron.down")
+                            .font(.caption2)
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(historyFilterChain != nil ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.05))
+                    .foregroundStyle(historyFilterChain != nil ? Color.accentColor : .primary)
+                    .cornerRadius(6)
+                }
+                .buttonStyle(.plain)
+                
+                // Type filter
+                Menu {
+                    Button("All Types") {
+                        historyFilterType = nil
+                    }
+                    Divider()
+                    Button("Received") {
+                        historyFilterType = "Received"
+                    }
+                    Button("Sent") {
+                        historyFilterType = "Sent"
+                    }
+                    Button("Contract") {
+                        historyFilterType = "Contract"
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.left.arrow.right")
+                        Text(historyFilterType ?? "All Types")
+                        Image(systemName: "chevron.down")
+                            .font(.caption2)
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(historyFilterType != nil ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.05))
+                    .foregroundStyle(historyFilterType != nil ? Color.accentColor : .primary)
+                    .cornerRadius(6)
+                }
+                .buttonStyle(.plain)
+                
+                Spacer()
+                
+                // Active filter count
+                if hasActiveHistoryFilters {
+                    Button {
+                        historySearchText = ""
+                        historyFilterChain = nil
+                        historyFilterType = nil
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("Clear")
+                            Image(systemName: "xmark")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+    
+    // MARK: - History Filtering Logic
+    private var hasActiveHistoryFilters: Bool {
+        !historySearchText.isEmpty || historyFilterChain != nil || historyFilterType != nil
+    }
+    
+    private var uniqueHistoryChains: [String] {
+        let chains = Set(historyEntries.compactMap { $0.chainId })
+        return chains.sorted()
+    }
+    
+    private func chainDisplayName(_ chainId: String) -> String {
+        switch chainId {
+        case "bitcoin": return "Bitcoin"
+        case "bitcoin-testnet": return "Bitcoin Testnet"
+        case "litecoin": return "Litecoin"
+        case "ethereum": return "Ethereum"
+        case "ethereum-sepolia": return "Ethereum Sepolia"
+        case "bnb": return "BNB Chain"
+        case "solana": return "Solana"
+        case "xrp": return "XRP"
+        case "monero": return "Monero"
+        default: return chainId.capitalized
+        }
+    }
+    
+    private var filteredHistoryEntries: [TransactionHistoryEntry] {
+        var entries = historyEntries
+        
+        // Filter by chain
+        if let chain = historyFilterChain {
+            entries = entries.filter { $0.chainId == chain }
+        }
+        
+        // Filter by type
+        if let type = historyFilterType {
+            entries = entries.filter { $0.type == type }
+        }
+        
+        // Filter by search text
+        if !historySearchText.isEmpty {
+            let searchLower = historySearchText.lowercased()
+            entries = entries.filter { entry in
+                entry.asset.lowercased().contains(searchLower) ||
+                entry.amountDisplay.lowercased().contains(searchLower) ||
+                (entry.txHash?.lowercased().contains(searchLower) ?? false) ||
+                entry.timestamp.lowercased().contains(searchLower)
+            }
+        }
+        
+        return entries
+    }
+    
+    // MARK: - Export Transaction History
+    private func exportHistoryAsCSV() {
+        let entries = filteredHistoryEntries
+        guard !entries.isEmpty else { return }
+        
+        // Build CSV content
+        var csv = "Date,Type,Asset,Amount,Status,Fee,Confirmations,TX Hash,Chain\n"
+        
+        for entry in entries {
+            let date = entry.timestamp.replacingOccurrences(of: ",", with: ";")
+            let type = entry.type
+            let asset = entry.asset
+            let amount = entry.amountDisplay.replacingOccurrences(of: ",", with: "")
+            let status = entry.status
+            let fee = entry.fee ?? ""
+            let confirmations = entry.confirmations.map { String($0) } ?? ""
+            let txHash = entry.txHash ?? ""
+            let chain = entry.chainId ?? ""
+            
+            csv += "\"\(date)\",\"\(type)\",\"\(asset)\",\"\(amount)\",\"\(status)\",\"\(fee)\",\"\(confirmations)\",\"\(txHash)\",\"\(chain)\"\n"
+        }
+        
+        #if canImport(AppKit)
+        let savePanel = NSSavePanel()
+        savePanel.title = "Export Transaction History"
+        savePanel.message = "Save your transaction history as a CSV file"
+        savePanel.nameFieldStringValue = "hawala_transactions_\(formattedExportDate()).csv"
+        savePanel.allowedContentTypes = [.commaSeparatedText]
+        savePanel.canCreateDirectories = true
+        
+        let response = savePanel.runModal()
+        if response == .OK, let url = savePanel.url {
+            do {
+                try csv.write(to: url, atomically: true, encoding: .utf8)
+                showStatus("Exported \(entries.count) transactions to \(url.lastPathComponent)", tone: .success)
+            } catch {
+                showStatus("Export failed: \(error.localizedDescription)", tone: .error)
+            }
+        }
+        #endif
+    }
+    
+    private func formattedExportDate() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date())
+    }
 
     private struct TransactionHistoryEntry: Identifiable, Equatable {
         let id: String
@@ -1634,42 +1972,296 @@ struct ContentView: View {
         let status: String
         let timestamp: String
         let sortTimestamp: TimeInterval?
+        var txHash: String? = nil
+        var chainId: String? = nil
+        var confirmations: Int? = nil
+        var fee: String? = nil
+        var blockNumber: Int? = nil
+        
+        /// Human-readable confirmations display
+        var confirmationsDisplay: String? {
+            guard let confs = confirmations else { return nil }
+            if confs >= 6 {
+                return "6+ confirmations"
+            } else if confs == 1 {
+                return "1 confirmation"
+            } else {
+                return "\(confs) confirmations"
+            }
+        }
+        
+        /// Returns the block explorer URL for this transaction
+        var explorerURL: URL? {
+            guard let hash = txHash, let chain = chainId else { return nil }
+            
+            switch chain {
+            case "bitcoin":
+                return URL(string: "https://mempool.space/tx/\(hash)")
+            case "bitcoin-testnet":
+                return URL(string: "https://mempool.space/testnet/tx/\(hash)")
+            case "litecoin":
+                return URL(string: "https://blockchair.com/litecoin/transaction/\(hash)")
+            case "ethereum":
+                return URL(string: "https://etherscan.io/tx/\(hash)")
+            case "ethereum-sepolia":
+                return URL(string: "https://sepolia.etherscan.io/tx/\(hash)")
+            case "bnb":
+                return URL(string: "https://bscscan.com/tx/\(hash)")
+            case "solana":
+                return URL(string: "https://solscan.io/tx/\(hash)")
+            case "xrp":
+                return URL(string: "https://xrpscan.com/tx/\(hash)")
+            default:
+                return nil
+            }
+        }
     }
 
     private struct TransactionHistoryRow: View {
         let entry: TransactionHistoryEntry
+        @State private var isHovered = false
+        @State private var isExpanded = false
+        @State private var noteText: String = ""
+        @State private var isEditingNote = false
 
         var body: some View {
-            HStack(spacing: 12) {
-                Image(systemName: iconForType(entry.type))
-                    .font(.title3)
-                    .foregroundStyle(colorForType(entry.type))
-                    .frame(width: 36, height: 36)
-                    .background(colorForType(entry.type).opacity(0.15))
-                    .clipShape(Circle())
-                
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(entry.asset)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                    Text(entry.timestamp)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Image(systemName: iconForType(entry.type))
+                        .font(.title3)
+                        .foregroundStyle(colorForType(entry.type))
+                        .frame(width: 36, height: 36)
+                        .background(colorForType(entry.type).opacity(0.15))
+                        .clipShape(Circle())
+                    
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 4) {
+                            Text(entry.asset)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            if hasNote {
+                                Image(systemName: "note.text")
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                        HStack(spacing: 4) {
+                            Text(entry.timestamp)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            if let confs = entry.confirmationsDisplay {
+                                Text("•")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(confs)
+                                    .font(.caption)
+                                    .foregroundStyle(confirmationsColor)
+                            }
+                        }
+                    }
+                    
+                    Spacer()
+                    
+                    VStack(alignment: .trailing, spacing: 3) {
+                        Text(entry.amountDisplay)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundStyle(amountColor)
+                        HStack(spacing: 4) {
+                            if let fee = entry.fee {
+                                Text("Fee: \(fee)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text(entry.status)
+                                .font(.caption)
+                                .foregroundStyle(statusColor)
+                            if hasDetails {
+                                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+                .onHover { hovering in
+                    isHovered = hovering
+                }
+                .background(isHovered ? Color.primary.opacity(0.05) : Color.clear)
+                .cornerRadius(6)
+                .onTapGesture {
+                    if hasDetails {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isExpanded.toggle()
+                        }
+                    }
                 }
                 
-                Spacer()
-                
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text(entry.amountDisplay)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .foregroundStyle(amountColor)
-                    Text(entry.status)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                // Expandable details section
+                if isExpanded {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Divider()
+                            .padding(.leading, 48)
+                        
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                if let hash = entry.txHash {
+                                    HStack(spacing: 4) {
+                                        Text("TX Hash:")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                        Text(String(hash.prefix(16)) + "..." + String(hash.suffix(8)))
+                                            .font(.caption2.monospaced())
+                                            .foregroundStyle(.primary)
+                                        Button {
+                                            #if canImport(AppKit)
+                                            NSPasteboard.general.clearContents()
+                                            NSPasteboard.general.setString(hash, forType: .string)
+                                            #endif
+                                        } label: {
+                                            Image(systemName: "doc.on.doc")
+                                                .font(.caption2)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundStyle(.secondary)
+                                    }
+                                }
+                                
+                                if let block = entry.blockNumber {
+                                    HStack(spacing: 4) {
+                                        Text("Block:")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                        Text("#\(block)")
+                                            .font(.caption2.monospaced())
+                                            .foregroundStyle(.primary)
+                                    }
+                                }
+                                
+                                if let fee = entry.fee {
+                                    HStack(spacing: 4) {
+                                        Text("Network Fee:")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                        Text(fee)
+                                            .font(.caption2.monospaced())
+                                            .foregroundStyle(.primary)
+                                    }
+                                }
+                                
+                                // Note/Label section
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 4) {
+                                        Text("Note:")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                        if !isEditingNote {
+                                            Button {
+                                                isEditingNote = true
+                                            } label: {
+                                                Image(systemName: "pencil")
+                                                    .font(.caption2)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    
+                                    if isEditingNote {
+                                        HStack {
+                                            TextField("Add a note...", text: $noteText)
+                                                .textFieldStyle(.roundedBorder)
+                                                .font(.caption)
+                                                .frame(maxWidth: 200)
+                                            
+                                            Button("Save") {
+                                                if let hash = entry.txHash {
+                                                    TransactionNotesManager.shared.setNote(noteText, for: hash)
+                                                }
+                                                isEditingNote = false
+                                            }
+                                            .buttonStyle(.borderedProminent)
+                                            .controlSize(.small)
+                                            
+                                            Button("Cancel") {
+                                                noteText = entry.txHash.flatMap { TransactionNotesManager.shared.getNote(for: $0) } ?? ""
+                                                isEditingNote = false
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .controlSize(.small)
+                                        }
+                                    } else if let hash = entry.txHash, let note = TransactionNotesManager.shared.getNote(for: hash), !note.isEmpty {
+                                        Text(note)
+                                            .font(.caption)
+                                            .foregroundStyle(.orange)
+                                            .italic()
+                                    } else {
+                                        Text("No note")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary.opacity(0.5))
+                                    }
+                                }
+                                .padding(.top, 4)
+                            }
+                            
+                            Spacer()
+                            
+                            if let url = entry.explorerURL {
+                                Button {
+                                    #if canImport(AppKit)
+                                    NSWorkspace.shared.open(url)
+                                    #elseif canImport(UIKit)
+                                    UIApplication.shared.open(url)
+                                    #endif
+                                } label: {
+                                    Label("View in Explorer", systemImage: "arrow.up.right.square")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                        }
+                        .padding(.leading, 48)
+                        .padding(.vertical, 8)
+                    }
                 }
             }
-            .padding(.vertical, 8)
+            .onAppear {
+                if let hash = entry.txHash {
+                    noteText = TransactionNotesManager.shared.getNote(for: hash) ?? ""
+                }
+            }
+        }
+        
+        private var hasNote: Bool {
+            guard let hash = entry.txHash else { return false }
+            return TransactionNotesManager.shared.getNote(for: hash) != nil
+        }
+        
+        private var hasDetails: Bool {
+            entry.txHash != nil || entry.fee != nil || entry.blockNumber != nil
+        }
+        
+        private var confirmationsColor: Color {
+            guard let confs = entry.confirmations else { return .secondary }
+            if confs >= 6 {
+                return .green
+            } else if confs >= 3 {
+                return .orange
+            } else {
+                return .yellow
+            }
+        }
+        
+        private var statusColor: Color {
+            switch entry.status.lowercased() {
+            case "confirmed", "success": return .green
+            case "pending": return .orange
+            case "failed": return .red
+            default: return .secondary
+            }
         }
         
         private func iconForType(_ type: String) -> String {
@@ -1678,6 +2270,7 @@ struct ContentView: View {
             case "Send": return "paperplane.fill"
             case "Swap": return "arrow.left.arrow.right.circle.fill"
             case "Stake": return "chart.bar.fill"
+            case "Transaction": return "arrow.left.arrow.right"
             default: return "circle.fill"
             }
         }
@@ -1688,6 +2281,7 @@ struct ContentView: View {
             case "Send": return .orange
             case "Swap": return .blue
             case "Stake": return .purple
+            case "Transaction": return .gray
             default: return .gray
             }
         }
@@ -1799,6 +2393,7 @@ struct ContentView: View {
         let confirmed: Bool
         let timestamp: UInt64?
         let height: UInt64?
+        let feeSats: UInt64?
     }
 
     private struct HistoryChainTarget {
@@ -1934,8 +2529,24 @@ struct ContentView: View {
                     } else {
                         failureCount += 1
                     }
+                case "bnb":
+                    let entries = await fetchBNBHistoryEntries(for: target)
+                    if !entries.isEmpty {
+                        successCount += 1
+                        aggregated.append(contentsOf: entries)
+                    } else {
+                        failureCount += 1
+                    }
                 case "solana":
                     let entries = await fetchSolanaHistoryEntries(for: target)
+                    if !entries.isEmpty {
+                        successCount += 1
+                        aggregated.append(contentsOf: entries)
+                    } else {
+                        failureCount += 1
+                    }
+                case "xrp":
+                    let entries = await fetchXRPHistoryEntries(for: target)
                     if !entries.isEmpty {
                         successCount += 1
                         aggregated.append(contentsOf: entries)
@@ -1988,7 +2599,9 @@ struct ContentView: View {
         appendTarget(id: "litecoin", address: keys.litecoin.address, displayName: "Litecoin", symbol: "LTC")
         appendTarget(id: "ethereum", address: keys.ethereum.address, displayName: "Ethereum", symbol: "ETH")
         appendTarget(id: "ethereum-sepolia", address: keys.ethereumSepolia.address, displayName: "Ethereum Sepolia", symbol: "ETH")
+        appendTarget(id: "bnb", address: keys.bnb.address, displayName: "BNB Chain", symbol: "BNB")
         appendTarget(id: "solana", address: keys.solana.publicKeyBase58, displayName: "Solana", symbol: "SOL")
+        appendTarget(id: "xrp", address: keys.xrp.classicAddress, displayName: "XRP Ledger", symbol: "XRP")
 
         return targets
     }
@@ -1999,6 +2612,12 @@ struct ContentView: View {
         let amount = formatBitcoinAmount(abs(item.amountSats), symbol: target.symbol)
         let prefix = isReceive ? "+" : "-"
         let timestamp = timestampString(for: item.timestamp)
+        
+        // Format fee if available
+        let feeString: String? = item.feeSats.map { sats in
+            let feeValue = Double(sats) / 100_000_000.0
+            return String(format: "%.8f", feeValue).trimmingCharacters(in: ["0"]).trimmingCharacters(in: ["."]) + " \(target.symbol)"
+        }
 
         return TransactionHistoryEntry(
             id: "\(target.id)-\(item.txid)",
@@ -2007,7 +2626,11 @@ struct ContentView: View {
             amountDisplay: "\(prefix)\(amount)",
             status: item.confirmed ? "Confirmed" : "Pending",
             timestamp: timestamp,
-            sortTimestamp: item.timestamp.map { TimeInterval($0) }
+            sortTimestamp: item.timestamp.map { TimeInterval($0) },
+            txHash: item.txid,
+            chainId: target.id,
+            fee: feeString,
+            blockNumber: item.height.map { Int($0) }
         )
     }
 
@@ -2052,6 +2675,9 @@ struct ContentView: View {
         let timeStamp: String
         let confirmations: String
         let isError: String?
+        let gasUsed: String?
+        let gasPrice: String?
+        let blockNumber: String?
     }
 
     private func fetchEthereumHistoryEntries(for target: HistoryChainTarget) async -> [TransactionHistoryEntry] {
@@ -2095,6 +2721,19 @@ struct ContentView: View {
 
                 let confirmations = Int(tx.confirmations) ?? 0
                 let status = confirmations > 0 ? "Confirmed" : "Pending"
+                
+                // Calculate fee: gasUsed * gasPrice in ETH
+                var feeString: String? = nil
+                if let gasUsed = tx.gasUsed, let gasPrice = tx.gasPrice,
+                   let gasUsedDecimal = Decimal(string: gasUsed),
+                   let gasPriceDecimal = Decimal(string: gasPrice) {
+                    let feeWei = gasUsedDecimal * gasPriceDecimal
+                    let feeEth = feeWei / Decimal(string: "1000000000000000000")!
+                    let feeValue = NSDecimalNumber(decimal: feeEth).doubleValue
+                    feeString = String(format: "%.6f ETH", feeValue)
+                }
+                
+                let blockNum = tx.blockNumber.flatMap { Int($0) }
 
                 return TransactionHistoryEntry(
                     id: "\(target.id)-\(tx.hash)",
@@ -2103,7 +2742,12 @@ struct ContentView: View {
                     amountDisplay: "\(prefix)\(formattedAmount) \(target.symbol)",
                     status: status,
                     timestamp: timestamp,
-                    sortTimestamp: UInt64(tx.timeStamp).map { TimeInterval($0) }
+                    sortTimestamp: UInt64(tx.timeStamp).map { TimeInterval($0) },
+                    txHash: tx.hash,
+                    chainId: target.id,
+                    confirmations: confirmations,
+                    fee: feeString,
+                    blockNumber: blockNum
                 )
             }
         } catch {
@@ -2179,11 +2823,246 @@ struct ContentView: View {
                     amountDisplay: "View details",
                     status: status,
                     timestamp: timestamp,
-                    sortTimestamp: sig.blockTime.map { TimeInterval($0) }
+                    sortTimestamp: sig.blockTime.map { TimeInterval($0) },
+                    txHash: sig.signature,
+                    chainId: target.id
                 )
             }
         } catch {
             print("Solana history fetch error: \(error)")
+            return []
+        }
+    }
+    
+    // MARK: - BNB (BSC) History Fetching
+    
+    private struct BscScanTxListResponse: Decodable {
+        let status: String
+        let result: [BscScanTx]?
+    }
+    
+    private struct BscScanTx: Decodable {
+        let hash: String
+        let from: String
+        let to: String
+        let value: String
+        let timeStamp: String
+        let confirmations: String
+        let isError: String?
+        let gasUsed: String?
+        let gasPrice: String?
+        let blockNumber: String?
+    }
+    
+    private func fetchBNBHistoryEntries(for target: HistoryChainTarget) async -> [TransactionHistoryEntry] {
+        // BscScan API (similar to Etherscan)
+        guard let url = URL(string: "https://api.bscscan.com/api?module=account&action=txlist&address=\(target.address)&startblock=0&endblock=99999999&sort=desc&apikey=YourApiKeyToken") else {
+            return []
+        }
+        
+        do {
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue("HawalaApp/\(AppVersion.displayVersion)", forHTTPHeaderField: "User-Agent")
+            
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let response = try JSONDecoder().decode(BscScanTxListResponse.self, from: data)
+            
+            guard let txs = response.result, !txs.isEmpty else { return [] }
+            
+            return txs.prefix(50).compactMap { tx -> TransactionHistoryEntry? in
+                let isReceive = tx.to.lowercased() == target.address.lowercased()
+                let direction = isReceive ? "Receive" : "Send"
+                let prefix = isReceive ? "+" : "-"
+                
+                let weiValue = Decimal(string: tx.value) ?? 0
+                let bnbValue = weiValue / Decimal(string: "1000000000000000000")!
+                let formattedAmount = String(format: "%.6f", NSDecimalNumber(decimal: bnbValue).doubleValue)
+                
+                let timestamp: String
+                if let epochInt = UInt64(tx.timeStamp) {
+                    let date = Date(timeIntervalSince1970: TimeInterval(epochInt))
+                    timestamp = Self.historyDateFormatter.string(from: date)
+                } else {
+                    timestamp = "Unknown"
+                }
+                
+                let confirmations = Int(tx.confirmations) ?? 0
+                let status = confirmations > 0 ? "Confirmed" : "Pending"
+                
+                // Calculate fee: gasUsed * gasPrice in BNB
+                var feeString: String? = nil
+                if let gasUsed = tx.gasUsed, let gasPrice = tx.gasPrice,
+                   let gasUsedDecimal = Decimal(string: gasUsed),
+                   let gasPriceDecimal = Decimal(string: gasPrice) {
+                    let feeWei = gasUsedDecimal * gasPriceDecimal
+                    let feeBnb = feeWei / Decimal(string: "1000000000000000000")!
+                    let feeValue = NSDecimalNumber(decimal: feeBnb).doubleValue
+                    feeString = String(format: "%.6f BNB", feeValue)
+                }
+                
+                let blockNum = tx.blockNumber.flatMap { Int($0) }
+                
+                return TransactionHistoryEntry(
+                    id: "\(target.id)-\(tx.hash)",
+                    type: direction,
+                    asset: target.displayName,
+                    amountDisplay: "\(prefix)\(formattedAmount) \(target.symbol)",
+                    status: status,
+                    timestamp: timestamp,
+                    sortTimestamp: UInt64(tx.timeStamp).map { TimeInterval($0) },
+                    txHash: tx.hash,
+                    chainId: target.id,
+                    confirmations: confirmations,
+                    fee: feeString,
+                    blockNumber: blockNum
+                )
+            }
+        } catch {
+            print("BNB history fetch error: \(error)")
+            return []
+        }
+    }
+    
+    // MARK: - XRP History Fetching
+    
+    private struct XRPLAccountTxResponse: Decodable {
+        let result: XRPLAccountTxResult?
+    }
+    
+    private struct XRPLAccountTxResult: Decodable {
+        let transactions: [XRPLTransactionWrapper]?
+    }
+    
+    private struct XRPLTransactionWrapper: Decodable {
+        let tx: XRPLTransaction?
+        let meta: XRPLMeta?
+        let validated: Bool?
+    }
+    
+    private struct XRPLTransaction: Decodable {
+        let hash: String?
+        let Account: String?
+        let Destination: String?
+        let Amount: XRPLAmount?
+        let date: Int?
+        let TransactionType: String?
+        let Fee: String?
+        let ledger_index: Int?
+    }
+    
+    private enum XRPLAmount: Decodable {
+        case drops(String)
+        case token(XRPLTokenAmount)
+        
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if let drops = try? container.decode(String.self) {
+                self = .drops(drops)
+            } else if let token = try? container.decode(XRPLTokenAmount.self) {
+                self = .token(token)
+            } else {
+                self = .drops("0")
+            }
+        }
+        
+        var xrpValue: Double {
+            switch self {
+            case .drops(let drops):
+                return (Double(drops) ?? 0) / 1_000_000.0
+            case .token:
+                return 0 // Token transfers shown differently
+            }
+        }
+    }
+    
+    private struct XRPLTokenAmount: Decodable {
+        let value: String
+        let currency: String
+        let issuer: String?
+    }
+    
+    private struct XRPLMeta: Decodable {
+        let TransactionResult: String?
+    }
+    
+    private func fetchXRPHistoryEntries(for target: HistoryChainTarget) async -> [TransactionHistoryEntry] {
+        // XRPL JSON-RPC
+        guard let url = URL(string: "https://xrplcluster.com/") else { return [] }
+        
+        let payload: [String: Any] = [
+            "method": "account_tx",
+            "params": [[
+                "account": target.address,
+                "ledger_index_min": -1,
+                "ledger_index_max": -1,
+                "limit": 50
+            ]]
+        ]
+        
+        do {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+            
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let response = try JSONDecoder().decode(XRPLAccountTxResponse.self, from: data)
+            
+            guard let transactions = response.result?.transactions, !transactions.isEmpty else { return [] }
+            
+            return transactions.compactMap { wrapper -> TransactionHistoryEntry? in
+                guard let tx = wrapper.tx,
+                      let hash = tx.hash,
+                      tx.TransactionType == "Payment" else { return nil }
+                
+                let isReceive = tx.Destination?.lowercased() == target.address.lowercased()
+                let direction = isReceive ? "Receive" : "Send"
+                let prefix = isReceive ? "+" : "-"
+                
+                let xrpValue = tx.Amount?.xrpValue ?? 0
+                let formattedAmount = String(format: "%.6f", xrpValue)
+                
+                // XRP ledger epoch starts at 2000-01-01 00:00:00 UTC (946684800 seconds after Unix epoch)
+                let timestamp: String
+                if let rippleTime = tx.date {
+                    let unixTime = TimeInterval(rippleTime) + 946684800
+                    let date = Date(timeIntervalSince1970: unixTime)
+                    timestamp = Self.historyDateFormatter.string(from: date)
+                } else {
+                    timestamp = "Unknown"
+                }
+                
+                let status: String
+                if let result = wrapper.meta?.TransactionResult, result == "tesSUCCESS" {
+                    status = wrapper.validated == true ? "Confirmed" : "Pending"
+                } else {
+                    status = "Failed"
+                }
+                
+                // XRP fee is in drops (1 XRP = 1,000,000 drops)
+                var feeString: String? = nil
+                if let feeDrops = tx.Fee, let feeValue = Double(feeDrops) {
+                    let feeXRP = feeValue / 1_000_000.0
+                    feeString = String(format: "%.6f XRP", feeXRP)
+                }
+                
+                return TransactionHistoryEntry(
+                    id: "\(target.id)-\(hash)",
+                    type: direction,
+                    asset: target.displayName,
+                    amountDisplay: "\(prefix)\(formattedAmount) \(target.symbol)",
+                    status: status,
+                    timestamp: timestamp,
+                    sortTimestamp: tx.date.map { TimeInterval($0) + 946684800 },
+                    txHash: hash,
+                    chainId: target.id,
+                    fee: feeString,
+                    blockNumber: tx.ledger_index
+                )
+            }
+        } catch {
+            print("XRP history fetch error: \(error)")
             return []
         }
     }
@@ -2816,35 +3695,54 @@ struct ContentView: View {
 
     private func priceUpdateLoop() async {
         while !Task.isCancelled {
-            let succeeded = await fetchAndStorePrices()
+            let (succeeded, wasRateLimited) = await fetchAndStorePrices()
             let delay = await MainActor.run { () -> TimeInterval in
                 if succeeded {
                     priceBackoffTracker.registerSuccess()
                     return pricePollingInterval
+                } else if wasRateLimited {
+                    // On rate limit, wait longer (minimum 3 minutes)
+                    let backoff = priceBackoffTracker.registerFailure()
+                    return max(180, backoff)
                 } else {
                     return priceBackoffTracker.registerFailure()
                 }
             }
 
-            let clampedDelay = max(5, delay)
+            let clampedDelay = max(30, delay) // Minimum 30 seconds between retries
             let nanos = UInt64(clampedDelay * 1_000_000_000)
             try? await Task.sleep(nanoseconds: nanos)
         }
     }
 
-    private func fetchAndStorePrices() async -> Bool {
+    private func fetchAndStorePrices() async -> (success: Bool, rateLimited: Bool) {
         do {
             let snapshot = try await fetchPriceSnapshot()
             let now = Date()
             await MainActor.run {
                 updatePriceStates(with: snapshot, timestamp: now)
             }
-            return true
+            return (true, false)
+        } catch BalanceFetchError.rateLimited {
+            // On rate limit, keep cached prices but mark as stale
+            await MainActor.run {
+                applyPriceStaleState(message: "Rate limited - retrying soon")
+            }
+            return (false, true)
         } catch {
             await MainActor.run {
                 applyPriceFailureState(message: error.localizedDescription)
             }
-            return false
+            return (false, false)
+        }
+    }
+
+    @MainActor
+    private func applyPriceStaleState(message: String) {
+        for chainId in trackedPriceChainIDs {
+            if let cache = cachedPrices[chainId] {
+                priceStates[chainId] = .stale(value: cache.value, lastUpdated: cache.lastUpdated, message: message)
+            }
         }
     }
 
@@ -2897,19 +3795,33 @@ struct ContentView: View {
     }
 
     private func fetchPriceSnapshot() async throws -> [String: Double] {
-        guard let url = URL(string: "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,litecoin,monero,solana,ripple,binancecoin&vs_currencies=usd") else {
+        // Use CoinGecko Pro API endpoint if API key is provided, otherwise use free endpoint
+        let baseURL: String
+        if let apiKey = coingeckoAPIKey, !apiKey.isEmpty {
+            baseURL = "https://pro-api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,litecoin,monero,solana,ripple,binancecoin&vs_currencies=usd&x_cg_pro_api_key=\(apiKey)"
+        } else {
+            baseURL = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,litecoin,monero,solana,ripple,binancecoin&vs_currencies=usd"
+        }
+        
+        guard let url = URL(string: baseURL) else {
             throw BalanceFetchError.invalidRequest
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("HawalaApp/\(AppVersion.displayVersion)", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 15
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw BalanceFetchError.invalidResponse
         }
 
+        // Handle rate limiting with specific error
+        if httpResponse.statusCode == 429 {
+            throw BalanceFetchError.rateLimited
+        }
+        
         guard httpResponse.statusCode == 200 else {
             throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
         }
@@ -2933,16 +3845,33 @@ struct ContentView: View {
     private func fetchFXRates() async throws -> [String: Double] {
         // CoinGecko provides exchange rates for many currencies relative to BTC
         // We use USD as base (rate = 1.0) and calculate other rates
-        guard let url = URL(string: "https://api.coingecko.com/api/v3/exchange_rates") else {
+        let baseURL: String
+        if let apiKey = coingeckoAPIKey, !apiKey.isEmpty {
+            baseURL = "https://pro-api.coingecko.com/api/v3/exchange_rates?x_cg_pro_api_key=\(apiKey)"
+        } else {
+            baseURL = "https://api.coingecko.com/api/v3/exchange_rates"
+        }
+        
+        guard let url = URL(string: baseURL) else {
             throw BalanceFetchError.invalidRequest
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("HawalaApp/\(AppVersion.displayVersion)", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 15
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BalanceFetchError.invalidResponse
+        }
+        
+        // Handle rate limiting
+        if httpResponse.statusCode == 429 {
+            throw BalanceFetchError.rateLimited
+        }
+        
+        guard httpResponse.statusCode == 200 else {
             throw BalanceFetchError.invalidResponse
         }
 
@@ -2991,16 +3920,33 @@ struct ContentView: View {
 
     /// Fetches 24-hour price history for sparkline display from CoinGecko
     private func fetchSparklineData(coinId: String) async throws -> [Double] {
-        guard let url = URL(string: "https://api.coingecko.com/api/v3/coins/\(coinId)/market_chart?vs_currency=usd&days=1") else {
+        let baseURL: String
+        if let apiKey = coingeckoAPIKey, !apiKey.isEmpty {
+            baseURL = "https://pro-api.coingecko.com/api/v3/coins/\(coinId)/market_chart?vs_currency=usd&days=1&x_cg_pro_api_key=\(apiKey)"
+        } else {
+            baseURL = "https://api.coingecko.com/api/v3/coins/\(coinId)/market_chart?vs_currency=usd&days=1"
+        }
+        
+        guard let url = URL(string: baseURL) else {
             throw BalanceFetchError.invalidRequest
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("HawalaApp/\(AppVersion.displayVersion)", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 15
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BalanceFetchError.invalidResponse
+        }
+        
+        // Handle rate limiting
+        if httpResponse.statusCode == 429 {
+            throw BalanceFetchError.rateLimited
+        }
+        
+        guard httpResponse.statusCode == 200 else {
             throw BalanceFetchError.invalidResponse
         }
 
@@ -3045,8 +3991,9 @@ struct ContentView: View {
                 } catch {
                     print("Failed to fetch sparkline for \(chainId): \(error)")
                 }
-                // Small delay between requests to be nice to CoinGecko
-                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+                // Delay between requests to avoid CoinGecko rate limits
+                // Free tier: ~10-30 calls/min, so 2 seconds between calls is safe
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
             }
         }
     }
@@ -3316,6 +4263,8 @@ struct ContentView: View {
                 base = "Unexpected response"
             case .invalidPayload:
                 base = "Unreadable data"
+            case .rateLimited:
+                base = "Rate limited - prices updating soon"
             }
         } else {
             base = error.localizedDescription
@@ -4010,6 +4959,10 @@ struct ContentView: View {
     private func handleScenePhase(_ phase: ScenePhase) {
         switch phase {
         case .active:
+            // Remove privacy blur when app becomes active
+            withAnimation(.easeOut(duration: 0.2)) {
+                showPrivacyBlur = false
+            }
             startPriceUpdatesIfNeeded()
             refreshBiometricAvailability()
             startActivityMonitoringIfNeeded()
@@ -4020,7 +4973,13 @@ struct ContentView: View {
                 }
                 showUnlockSheet = true
             }
-        case .inactive, .background:
+        case .inactive:
+            // Show privacy blur when app goes inactive (e.g., app switcher)
+            withAnimation(.easeIn(duration: 0.1)) {
+                showPrivacyBlur = true
+            }
+        case .background:
+            showPrivacyBlur = true
             stopPriceUpdates()
             clearSensitiveData()
             if storedPasscodeHash != nil {
@@ -4155,6 +5114,28 @@ struct ContentView: View {
         let digest = SHA256.hash(data: data)
         return digest.map { String(format: "%02x", $0) }.joined()
     }
+    
+    /// Reveal private keys with optional biometric authentication
+    @MainActor
+    private func revealPrivateKeysWithBiometric() async {
+        // Check biometric authentication if enabled
+        if BiometricAuthHelper.shouldRequireBiometric(settingEnabled: biometricForKeyReveal) {
+            let result = await BiometricAuthHelper.authenticate(reason: "Authenticate to view private keys")
+            switch result {
+            case .success:
+                break // Continue to show keys
+            case .cancelled:
+                return // User cancelled
+            case .failed(let message):
+                showStatus("Authentication failed: \(message)", tone: .error)
+                return
+            case .notAvailable:
+                break // Biometric not available, continue anyway
+            }
+        }
+        
+        showAllPrivateKeysSheet = true
+    }
 
     private var workspaceRoot: URL {
         if let cached = ContentView.cachedWorkspaceRoot {
@@ -4252,6 +5233,59 @@ struct BitcoinFeeEstimates: Codable {
     let hourFee: Int
     let economyFee: Int
     let minimumFee: Int
+}
+
+enum EthGasSpeed: String, CaseIterable {
+    case slow = "Slow"
+    case standard = "Standard"
+    case fast = "Fast"
+    case instant = "Instant"
+    
+    var multiplier: Double {
+        switch self {
+        case .slow: return 0.8
+        case .standard: return 1.0
+        case .fast: return 1.3
+        case .instant: return 1.6
+        }
+    }
+    
+    var estimatedTime: String {
+        switch self {
+        case .slow: return "~5 min"
+        case .standard: return "~2 min"
+        case .fast: return "~30 sec"
+        case .instant: return "~15 sec"
+        }
+    }
+    
+    var icon: String {
+        switch self {
+        case .slow: return "tortoise.fill"
+        case .standard: return "hare.fill"
+        case .fast: return "bolt.fill"
+        case .instant: return "bolt.horizontal.fill"
+        }
+    }
+}
+
+struct EthGasEstimates {
+    let baseFee: Double // Gwei
+    let slowPriorityFee: Double
+    let standardPriorityFee: Double
+    let fastPriorityFee: Double
+    let instantPriorityFee: Double
+    
+    func gasPriceFor(_ speed: EthGasSpeed) -> Double {
+        let priorityFee: Double
+        switch speed {
+        case .slow: priorityFee = slowPriorityFee
+        case .standard: priorityFee = standardPriorityFee
+        case .fast: priorityFee = fastPriorityFee
+        case .instant: priorityFee = instantPriorityFee
+        }
+        return baseFee + priorityFee
+    }
 }
 
 private enum BitcoinSendError: LocalizedError {
@@ -4459,6 +5493,7 @@ private struct SeedPhraseSheet: View {
 private struct BitcoinSendSheet: View {
     let chain: ChainInfo
     let keys: AllKeys
+    let requireBiometric: Bool
     let onDismiss: () -> Void
     let onSuccess: (TransactionBroadcastResult) -> Void
     
@@ -4467,6 +5502,7 @@ private struct BitcoinSendSheet: View {
             BitcoinSendView(
                 chain: chain,
                 keys: keys,
+                requireBiometric: requireBiometric,
                 onDismiss: onDismiss,
                 onSuccess: onSuccess,
                 isPushed: false
@@ -4495,6 +5531,7 @@ private struct BitcoinSendSheet: View {
 private struct BitcoinSendView: View {
     let chain: ChainInfo
     let keys: AllKeys
+    let requireBiometric: Bool
     let onDismiss: () -> Void
     let onSuccess: (TransactionBroadcastResult) -> Void
     let isPushed: Bool
@@ -4511,6 +5548,9 @@ private struct BitcoinSendView: View {
     @State private var showConfirmation = false
     @State private var amountValidation: AmountValidationResult = .empty
     @State private var addressValidation: AddressValidationResult = .empty
+    @State private var biometricFailed = false
+    @State private var showCameraScanner = false
+    @State private var showContactPicker = false
     
     private var isTestnet: Bool {
         chain.id == "bitcoin-testnet"
@@ -4568,11 +5608,54 @@ private struct BitcoinSendView: View {
 
             // Recipient Input
             VStack(alignment: .leading, spacing: 8) {
-                Text("To")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
-                    .padding(.leading, 4)
+                HStack {
+                    Text("To")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                    
+                    Spacer()
+                    
+                    // QR Scan buttons
+                    HStack(spacing: 8) {
+                        Button {
+                            showContactPicker = true
+                        } label: {
+                            Label("Contacts", systemImage: "person.crop.rectangle.stack")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.blue)
+                        
+                        Button {
+                            showCameraScanner = true
+                        } label: {
+                            Label("Camera", systemImage: "camera")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.orange)
+                        
+                        Button {
+                            scanQRFromClipboard()
+                        } label: {
+                            Label("Paste QR", systemImage: "doc.on.clipboard")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.orange)
+                        
+                        Button {
+                            scanQRFromFile()
+                        } label: {
+                            Label("Scan QR", systemImage: "qrcode.viewfinder")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.orange)
+                    }
+                }
+                .padding(.leading, 4)
                 
                 HStack {
                     Image(systemName: "person.circle.fill")
@@ -4686,6 +5769,25 @@ private struct BitcoinSendView: View {
         }
         .onChange(of: estimatedFee) { _ in
             validateAmount()
+        }
+        .sheet(isPresented: $showCameraScanner) {
+            QRCameraScannerView(isPresented: $showCameraScanner) { scannedText in
+                applyBitcoinPayload(scannedText)
+            }
+        }
+        .sheet(isPresented: $showContactPicker) {
+            ContactPickerSheet(
+                chain: "bitcoin",
+                contacts: ContactsManager.shared.contacts,
+                onSelect: { contact in
+                    recipientAddress = contact.address
+                    validateRecipientAddress()
+                    showContactPicker = false
+                },
+                onCancel: {
+                    showContactPicker = false
+                }
+            )
         }
     }
     
@@ -4805,8 +5907,28 @@ private struct BitcoinSendView: View {
     }
     
     private func sendTransaction() async {
+        // Check biometric authentication first if required
+        if BiometricAuthHelper.shouldRequireBiometric(settingEnabled: requireBiometric) {
+            let result = await BiometricAuthHelper.authenticate(reason: "Authenticate to send Bitcoin")
+            switch result {
+            case .success:
+                break // Continue with transaction
+            case .cancelled:
+                return // User cancelled, don't show error
+            case .failed(let message):
+                await MainActor.run {
+                    errorMessage = "Authentication failed: \(message)"
+                    biometricFailed = true
+                }
+                return
+            case .notAvailable:
+                break // Biometric not available, continue anyway
+            }
+        }
+        
         isLoading = true
         errorMessage = nil
+        biometricFailed = false
         
         do {
             // Validate address
@@ -4944,6 +6066,21 @@ private struct BitcoinSendView: View {
         )
     }
 
+    private func scanQRFromFile() {
+        guard let payload = QRCodeScanner.scanText() else { return }
+        applyBitcoinPayload(payload)
+    }
+    
+    private func scanQRFromClipboard() {
+        let result = QRCodeScanner.scanFromClipboard()
+        switch result {
+        case .success(let payload):
+            applyBitcoinPayload(payload)
+        case .failure(let error):
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func scanBitcoinQRCode() {
         guard let payload = QRCodeScanner.scanText() else { return }
         applyBitcoinPayload(payload)
@@ -5015,11 +6152,58 @@ private struct FeeRateCard: View {
     }
 }
 
+private struct GasSpeedCard: View {
+    let speed: EthGasSpeed
+    let isSelected: Bool
+    let estimates: EthGasEstimates?
+    let onSelect: () -> Void
+    
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 4) {
+                    Image(systemName: speed.icon)
+                        .font(.caption)
+                        .foregroundStyle(isSelected ? .orange : .secondary)
+                    Text(speed.rawValue)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                }
+                
+                Text(speed.estimatedTime)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                
+                if let estimates {
+                    let price = estimates.gasPriceFor(speed)
+                    Text(String(format: "%.1f Gwei", price))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("—")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(12)
+            .frame(minWidth: 90, alignment: .leading)
+            .background(isSelected ? Color.orange.opacity(0.15) : Color.gray.opacity(0.05))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isSelected ? Color.orange : Color.clear, lineWidth: 2)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: - Ethereum Send Sheet
 
 private struct EthereumSendSheet: View {
     let chain: ChainInfo
     let keys: AllKeys
+    let requireBiometric: Bool
     let onDismiss: () -> Void
     let onSuccess: (TransactionBroadcastResult) -> Void
     
@@ -5039,6 +6223,11 @@ private struct EthereumSendSheet: View {
     @State private var resolvedENSName: String? = nil
     @State private var isResolvingENS = false
     @State private var ensResolutionTask: Task<Void, Never>?
+    @State private var biometricFailed = false
+    @State private var selectedGasSpeed: EthGasSpeed = .standard
+    @State private var gasEstimates: EthGasEstimates?
+    @State private var showCameraScanner = false
+    @State private var showContactPicker = false
     
     private var isTestnet: Bool {
         chain.id == "ethereum-sepolia"
@@ -5134,11 +6323,54 @@ private struct EthereumSendSheet: View {
 
                 // Recipient Input
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("To")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                        .padding(.leading, 4)
+                    HStack {
+                        Text("To")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                        
+                        Spacer()
+                        
+                        // QR Scan buttons
+                        HStack(spacing: 8) {
+                            Button {
+                                showContactPicker = true
+                            } label: {
+                                Label("Contacts", systemImage: "person.crop.rectangle.stack")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.blue)
+                            
+                            Button {
+                                showCameraScanner = true
+                            } label: {
+                                Label("Camera", systemImage: "camera")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.orange)
+                            
+                            Button {
+                                scanQRFromClipboard()
+                            } label: {
+                                Label("Paste QR", systemImage: "doc.on.clipboard")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.orange)
+                            
+                            Button {
+                                scanQRFromFile()
+                            } label: {
+                                Label("Scan QR", systemImage: "qrcode.viewfinder")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.orange)
+                        }
+                    }
+                    .padding(.leading, 4)
                     
                     HStack {
                         Image(systemName: "person.circle.fill")
@@ -5203,7 +6435,7 @@ private struct EthereumSendSheet: View {
                 }
                 .padding(.horizontal)
 
-                // Gas Info
+                // Gas Speed Selector
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Network Fee")
                         .font(.caption)
@@ -5211,6 +6443,24 @@ private struct EthereumSendSheet: View {
                         .textCase(.uppercase)
                         .padding(.leading, 4)
                     
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(EthGasSpeed.allCases, id: \.self) { speed in
+                                GasSpeedCard(
+                                    speed: speed,
+                                    isSelected: selectedGasSpeed == speed,
+                                    estimates: gasEstimates,
+                                    onSelect: {
+                                        selectedGasSpeed = speed
+                                        updateGasPriceForSpeed()
+                                    }
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 4)
+                    }
+                    
+                    // Gas Price Details
                     HStack {
                         VStack(alignment: .leading) {
                             Text("Gas Price")
@@ -5281,6 +6531,26 @@ private struct EthereumSendSheet: View {
                 ensResolutionTask?.cancel()
                 validateRecipientAddressWithENS()
             }
+        }
+        .sheet(isPresented: $showCameraScanner) {
+            QRCameraScannerView(isPresented: $showCameraScanner) { scannedText in
+                applyEthereumPayload(scannedText)
+            }
+        }
+        .sheet(isPresented: $showContactPicker) {
+            ContactPickerSheet(
+                chain: "ethereum",
+                contacts: ContactsManager.shared.contacts,
+                onSelect: { contact in
+                    recipientAddress = contact.address
+                    resolvedENSName = nil
+                    validateRecipientAddress()
+                    showContactPicker = false
+                },
+                onCancel: {
+                    showContactPicker = false
+                }
+            )
         }
         .frame(width: 480, height: 650)
     }
@@ -5401,12 +6671,11 @@ private struct EthereumSendSheet: View {
             // Fetch nonce
             nonce = try await fetchNonce(address: address)
             
-            // Fetch gas price
-            let gasPriceWei = try await fetchGasPrice()
-            let gasPriceGwei = Double(gasPriceWei) / 1_000_000_000.0
+            // Fetch gas estimates (EIP-1559 style with fallback)
+            let estimates = try await fetchGasEstimates()
             await MainActor.run {
-                gasPrice = String(format: "%.2f", gasPriceGwei)
-                updateGasEstimate()
+                gasEstimates = estimates
+                updateGasPriceForSpeed()
             }
             
             // Fetch balance
@@ -5423,6 +6692,63 @@ private struct EthereumSendSheet: View {
                 isLoading = false
             }
         }
+    }
+    
+    private func updateGasPriceForSpeed() {
+        guard let estimates = gasEstimates else { return }
+        let price = estimates.gasPriceFor(selectedGasSpeed)
+        gasPrice = String(format: "%.2f", price)
+        updateGasEstimate()
+    }
+    
+    private func fetchGasEstimates() async throws -> EthGasEstimates {
+        guard let url = URL(string: rpcURL) else {
+            throw EthereumError.invalidAddress
+        }
+        
+        // Try to fetch base fee from latest block
+        let blockPayload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getBlockByNumber",
+            "params": ["latest", false],
+            "id": 1
+        ]
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: blockPayload)
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        
+        var baseFeeGwei: Double = 20.0 // Default fallback
+        
+        if let result = json?["result"] as? [String: Any],
+           let baseFeeHex = result["baseFeePerGas"] as? String {
+            let cleaned = baseFeeHex.hasPrefix("0x") ? String(baseFeeHex.dropFirst(2)) : baseFeeHex
+            if let baseFeeWei = UInt64(cleaned, radix: 16) {
+                baseFeeGwei = Double(baseFeeWei) / 1_000_000_000.0
+            }
+        }
+        
+        // Also fetch legacy gas price for comparison
+        let legacyPrice = try await fetchGasPrice()
+        let legacyGwei = Double(legacyPrice) / 1_000_000_000.0
+        
+        // If baseFee seems off, use legacy price
+        if baseFeeGwei < 1.0 {
+            baseFeeGwei = legacyGwei * 0.7 // Estimate base fee as ~70% of legacy price
+        }
+        
+        // Priority fee tiers (typical mainnet values)
+        return EthGasEstimates(
+            baseFee: baseFeeGwei,
+            slowPriorityFee: 0.5,
+            standardPriorityFee: 1.5,
+            fastPriorityFee: 3.0,
+            instantPriorityFee: 5.0
+        )
     }
     
     private func fetchNonce(address: String) async throws -> Int {
@@ -5521,6 +6847,21 @@ private struct EthereumSendSheet: View {
     private func validateRecipientAddress() {
         addressValidation = AddressValidator.validateEthereumAddress(recipientAddress)
     }
+    
+    private func scanQRFromFile() {
+        guard let payload = QRCodeScanner.scanText() else { return }
+        applyEthereumPayload(payload)
+    }
+    
+    private func scanQRFromClipboard() {
+        let result = QRCodeScanner.scanFromClipboard()
+        switch result {
+        case .success(let payload):
+            applyEthereumPayload(payload)
+        case .failure(let error):
+            errorMessage = error.localizedDescription
+        }
+    }
 
     private func validateRecipientAddressWithENS() {
         let input = recipientAddress.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5561,8 +6902,28 @@ private struct EthereumSendSheet: View {
     }
     
     private func sendTransaction() async {
+        // Check biometric authentication first if required
+        if BiometricAuthHelper.shouldRequireBiometric(settingEnabled: requireBiometric) {
+            let result = await BiometricAuthHelper.authenticate(reason: "Authenticate to send \(selectedToken.rawValue)")
+            switch result {
+            case .success:
+                break // Continue with transaction
+            case .cancelled:
+                return // User cancelled, don't show error
+            case .failed(let message):
+                await MainActor.run {
+                    errorMessage = "Authentication failed: \(message)"
+                    biometricFailed = true
+                }
+                return
+            case .notAvailable:
+                break // Biometric not available, continue anyway
+            }
+        }
+        
         isLoading = true
         errorMessage = nil
+        biometricFailed = false
         
         do {
             let privateKey = isTestnet ? keys.ethereumSepolia.privateHex : keys.ethereum.privateHex
@@ -5680,6 +7041,7 @@ private struct EthereumSendSheet: View {
 private struct BnbSendSheet: View {
     let chain: ChainInfo
     let keys: AllKeys
+    let requireBiometric: Bool
     let onDismiss: () -> Void
     let onSuccess: (TransactionBroadcastResult) -> Void
     
@@ -5694,6 +7056,9 @@ private struct BnbSendSheet: View {
     @State private var errorMessage: String?
     @State private var amountValidation: AmountValidationResult = .empty
     @State private var addressValidation: AddressValidationResult = .empty
+    @State private var biometricFailed = false
+    @State private var showCameraScanner = false
+    @State private var showContactPicker = false
     
     private let rpcURL = "https://bsc-dataseed.binance.org/"
     private let chainId = 56
@@ -5720,10 +7085,22 @@ private struct BnbSendSheet: View {
                         EmptyView()
                     }
 
-                    Button(action: scanBnbQRCode) {
-                        Label("Scan QR", systemImage: "qrcode.viewfinder")
+                    HStack(spacing: 8) {
+                        Button { showContactPicker = true } label: {
+                            Label("Contacts", systemImage: "person.crop.rectangle.stack")
+                        }
+                        .buttonStyle(.bordered)
+                        
+                        Button { showCameraScanner = true } label: {
+                            Label("Camera", systemImage: "camera")
+                        }
+                        .buttonStyle(.bordered)
+                        
+                        Button(action: scanBnbQRCode) {
+                            Label("Scan QR", systemImage: "qrcode.viewfinder")
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
                 }
                 
                 Section("Amount") {
@@ -5821,6 +7198,25 @@ private struct BnbSendSheet: View {
             }
             .onChange(of: recipientAddress) { _ in validateRecipientAddress() }
         }
+        .sheet(isPresented: $showCameraScanner) {
+            QRCameraScannerView(isPresented: $showCameraScanner) { scannedText in
+                applyBnbPayload(scannedText)
+            }
+        }
+        .sheet(isPresented: $showContactPicker) {
+            ContactPickerSheet(
+                chain: "bnb",
+                contacts: ContactsManager.shared.contacts,
+                onSelect: { contact in
+                    recipientAddress = contact.address
+                    validateRecipientAddress()
+                    showContactPicker = false
+                },
+                onCancel: {
+                    showContactPicker = false
+                }
+            )
+        }
         .frame(width: 500, height: 600)
     }
     
@@ -5894,6 +7290,16 @@ private struct BnbSendSheet: View {
     private func scanBnbQRCode() {
         guard let payload = QRCodeScanner.scanText() else { return }
         applyBnbPayload(payload)
+    }
+    
+    private func scanBnbQRFromClipboard() {
+        let result = QRCodeScanner.scanFromClipboard()
+        switch result {
+        case .success(let payload):
+            applyBnbPayload(payload)
+        case .failure(let error):
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func applyBnbPayload(_ raw: String) {
@@ -6000,8 +7406,29 @@ private struct BnbSendSheet: View {
     }
     
     private func sendTransaction() async {
+        // Check biometric authentication first if required
+        if BiometricAuthHelper.shouldRequireBiometric(settingEnabled: requireBiometric) {
+            let result = await BiometricAuthHelper.authenticate(reason: "Authenticate to send BNB")
+            switch result {
+            case .success:
+                break // Continue with transaction
+            case .cancelled:
+                return // User cancelled, don't show error
+            case .failed(let message):
+                await MainActor.run {
+                    errorMessage = "Authentication failed: \(message)"
+                    biometricFailed = true
+                }
+                return
+            case .notAvailable:
+                break // Biometric not available, continue anyway
+            }
+        }
+        
         isLoading = true
         errorMessage = nil
+        biometricFailed = false
+        
         do {
             let privateKey = keys.bnb.privateHex
             guard addressValidation == .valid else {
@@ -6076,6 +7503,7 @@ private struct BnbSendSheet: View {
 private struct SolanaSendSheet: View {
     let chain: ChainInfo
     let keys: AllKeys
+    let requireBiometric: Bool
     let onDismiss: () -> Void
     let onSuccess: (TransactionBroadcastResult) -> Void
     
@@ -6091,6 +7519,9 @@ private struct SolanaSendSheet: View {
     @State private var resolvedSNSName: String? = nil
     @State private var isResolvingSNS = false
     @State private var snsResolutionTask: Task<Void, Never>?
+    @State private var biometricFailed = false
+    @State private var showCameraScanner = false
+    @State private var showContactPicker = false
     
     private let rpcURL = "https://api.mainnet-beta.solana.com"
     
@@ -6200,7 +7631,17 @@ private struct SolanaSendSheet: View {
                         EmptyView()
                     }
 
-                    HStack {
+                    HStack(spacing: 8) {
+                        Button { showContactPicker = true } label: {
+                            Label("Contacts", systemImage: "person.crop.rectangle.stack")
+                        }
+                        .buttonStyle(.bordered)
+                        
+                        Button { showCameraScanner = true } label: {
+                            Label("Camera", systemImage: "camera")
+                        }
+                        .buttonStyle(.bordered)
+                        
                         Button(action: scanSolanaQRCode) {
                             Label("Scan QR", systemImage: "qrcode.viewfinder")
                         }
@@ -6290,6 +7731,26 @@ private struct SolanaSendSheet: View {
                 validateRecipientAddressWithSNS()
             }
         }
+        .sheet(isPresented: $showCameraScanner) {
+            QRCameraScannerView(isPresented: $showCameraScanner) { scannedText in
+                applySolanaPayload(scannedText)
+            }
+        }
+        .sheet(isPresented: $showContactPicker) {
+            ContactPickerSheet(
+                chain: "solana",
+                contacts: ContactsManager.shared.contacts,
+                onSelect: { contact in
+                    recipientAddress = contact.address
+                    resolvedSNSName = nil
+                    validateRecipientAddress()
+                    showContactPicker = false
+                },
+                onCancel: {
+                    showContactPicker = false
+                }
+            )
+        }
         .frame(width: 480, height: 600)
     }
     
@@ -6326,6 +7787,16 @@ private struct SolanaSendSheet: View {
     private func scanSolanaQRCode() {
         guard let payload = QRCodeScanner.scanText() else { return }
         applySolanaPayload(payload)
+    }
+    
+    private func scanSolanaQRFromClipboard() {
+        let result = QRCodeScanner.scanFromClipboard()
+        switch result {
+        case .success(let payload):
+            applySolanaPayload(payload)
+        case .failure(let error):
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func applySolanaPayload(_ raw: String) {
@@ -6464,8 +7935,29 @@ private struct SolanaSendSheet: View {
     }
     
     private func sendTransaction() async {
+        // Check biometric authentication first if required
+        if BiometricAuthHelper.shouldRequireBiometric(settingEnabled: requireBiometric) {
+            let result = await BiometricAuthHelper.authenticate(reason: "Authenticate to send SOL")
+            switch result {
+            case .success:
+                break // Continue with transaction
+            case .cancelled:
+                return // User cancelled, don't show error
+            case .failed(let message):
+                await MainActor.run {
+                    errorMessage = "Authentication failed: \(message)"
+                    biometricFailed = true
+                }
+                return
+            case .notAvailable:
+                break // Biometric not available, continue anyway
+            }
+        }
+        
         isLoading = true
         errorMessage = nil
+        biometricFailed = false
+        
         do {
             guard addressValidation == .valid else {
                 throw SolanaSendError.invalidAddress
@@ -7164,6 +8656,7 @@ private struct ChainDetailSheet: View {
     let onSendRequested: (ChainInfo) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var showReceiveInfo = false
+    @State private var showReceiveQR = false
     @State private var copyFeedbackMessage: String?
     @State private var copyFeedbackTask: Task<Void, Never>?
     
@@ -7247,22 +8740,65 @@ private struct ChainDetailSheet: View {
             }
 
             if showReceiveInfo {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 12) {
                     Text("Share this address to receive funds:")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    HStack(alignment: .top, spacing: 8) {
-                        Text(address)
-                            .font(.system(.body, design: .monospaced))
-                            .textSelection(.enabled)
-                        Spacer(minLength: 0)
+                    
+                    // QR Code (toggleable)
+                    if showReceiveQR {
+                        HStack {
+                            Spacer()
+                            QRCodeView(content: address, size: 160)
+                            Spacer()
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    
+                    // Address display
+                    Text(address)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.primary.opacity(0.05))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    
+                    // Action buttons
+                    HStack(spacing: 10) {
                         Button {
                             copyWithFeedback(value: address, label: "Receive address")
                         } label: {
-                            Image(systemName: "doc.on.doc")
-                                .padding(8)
+                            Label("Copy", systemImage: "doc.on.doc")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(chain.accentColor)
+                        
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showReceiveQR.toggle()
+                            }
+                        } label: {
+                            Label(
+                                showReceiveQR ? "Hide QR" : "Show QR",
+                                systemImage: showReceiveQR ? "qrcode" : "qrcode.viewfinder"
+                            )
+                            .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
+                        
+                        #if canImport(AppKit)
+                        Button {
+                            shareReceiveAddress(address)
+                        } label: {
+                            Label("Share", systemImage: "square.and.arrow.up")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        #endif
                     }
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -7272,6 +8808,17 @@ private struct ChainDetailSheet: View {
         .background(chain.accentColor.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
+    
+    #if canImport(AppKit)
+    private func shareReceiveAddress(_ address: String) {
+        let sharingText = "My \(chain.title) address: \(address)"
+        let picker = NSSharingServicePicker(items: [sharingText])
+        if let window = NSApp.keyWindow, let contentView = window.contentView {
+            let rect = CGRect(x: contentView.bounds.midX, y: contentView.bounds.midY, width: 1, height: 1)
+            picker.show(relativeTo: rect, of: contentView, preferredEdge: .minY)
+        }
+    }
+    #endif
 
     @ViewBuilder
     private var balanceSummary: some View {
@@ -7582,6 +9129,8 @@ private struct SecuritySettingsView: View {
     let onRemovePasscode: () -> Void
     let biometricState: BiometricState
     @Binding var biometricEnabled: Bool
+    @Binding var biometricForSends: Bool
+    @Binding var biometricForKeyReveal: Bool
     @Binding var autoLockSelection: AutoLockIntervalOption
     let onBiometricRequest: () -> Void
 
@@ -7653,6 +9202,22 @@ private struct SecuritySettingsView: View {
                                 Label("Test \(biometricLabel)", systemImage: "hand.raised.fill")
                             }
                         }
+                    }
+                }
+                
+                if BiometricAuthHelper.isBiometricAvailable {
+                    Section(header: Text("Biometric Protection")) {
+                        Toggle(isOn: $biometricForSends) {
+                            Label("Require for Sends", systemImage: "paperplane.fill")
+                        }
+                        
+                        Toggle(isOn: $biometricForKeyReveal) {
+                            Label("Require for Key Reveal", systemImage: "key.fill")
+                        }
+                        
+                        Text("When enabled, \(biometricLabel) will be required before sending funds or viewing private keys.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -8073,6 +9638,7 @@ enum BalanceFetchError: LocalizedError {
     case invalidResponse
     case invalidStatus(Int)
     case invalidPayload
+    case rateLimited
 
     var errorDescription: String? {
         switch self {
@@ -8084,6 +9650,8 @@ enum BalanceFetchError: LocalizedError {
             return "Balance service returned status code \(code)."
         case .invalidPayload:
             return "Balance service returned unexpected data."
+        case .rateLimited:
+            return "Rate limited - prices will update shortly."
         }
     }
 }

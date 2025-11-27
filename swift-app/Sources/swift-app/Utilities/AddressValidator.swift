@@ -95,6 +95,44 @@ struct AddressValidator {
         return .valid
     }
 
+    static func validateXrpAddress(_ address: String) -> AddressValidationResult {
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .empty }
+        
+        // XRP classic addresses start with 'r' and are 25-35 characters
+        guard trimmed.hasPrefix("r") else {
+            return .invalid("XRP addresses must start with 'r'")
+        }
+        guard trimmed.count >= 25 && trimmed.count <= 35 else {
+            return .invalid("XRP addresses must be 25-35 characters")
+        }
+        
+        // Decode using XRP's Base58 alphabet (same as Bitcoin but different checksum)
+        guard let decoded = decodeBase58(trimmed) else {
+            return .invalid("Address contains invalid Base58 characters")
+        }
+        
+        // XRP address: [1 byte version] [20 bytes payload] [4 bytes checksum]
+        guard decoded.count == 25 else {
+            return .invalid("Invalid XRP address length after decoding")
+        }
+        
+        // Version byte should be 0x00 for mainnet
+        guard decoded[0] == 0x00 else {
+            return .invalid("Invalid XRP address version byte")
+        }
+        
+        // Verify checksum (XRP uses double SHA256 like Bitcoin)
+        let payload = Array(decoded[0..<21])
+        let checksum = Array(decoded[21...])
+        let computed = Array(doubleSHA256(Data(payload)).prefix(4))
+        guard checksum.elementsEqual(computed) else {
+            return .invalid("Invalid XRP address checksum")
+        }
+        
+        return .valid
+    }
+
     // MARK: - Bitcoin Helpers
 
     private static func validateBech32Address(_ address: String, allowedHRP: [String], networkName: String) -> AddressValidationResult {

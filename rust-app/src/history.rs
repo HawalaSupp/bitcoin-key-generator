@@ -8,6 +8,7 @@ pub struct TransactionHistoryItem {
     pub confirmed: bool,
     pub timestamp: Option<u64>,
     pub height: Option<u64>,
+    pub fee_sats: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -16,6 +17,7 @@ struct EsploraTx {
     status: EsploraStatus,
     vin: Vec<EsploraVin>,
     vout: Vec<EsploraVout>,
+    fee: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -82,6 +84,7 @@ pub fn fetch_bitcoin_history(address: &str) -> Result<Vec<TransactionHistoryItem
             confirmed: tx.status.confirmed,
             timestamp: tx.status.block_time,
             height: tx.status.block_height,
+            fee_sats: tx.fee,
         });
     }
 
