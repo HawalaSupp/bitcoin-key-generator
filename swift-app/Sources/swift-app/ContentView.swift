@@ -247,11 +247,15 @@ struct ContentView: View {
     @State private var cachedPrices: [String: CachedPrice] = [:]
     @State private var priceBackoffTracker = BackoffTracker()
     @State private var priceUpdateTask: Task<Void, Never>?
-    @State private var priceSparklines: [String: [Double]] = [:] // chainId -> 24h price points
-    @State private var sparklineFetchTask: Task<Void, Never>?
+    @StateObject private var sparklineCache = SparklineCache.shared
     @State private var showAllPrivateKeysSheet = false
     @State private var showSettingsPanel = false
     @State private var showContactsSheet = false
+    @State private var showStakingSheet = false
+    @State private var showNotificationsSheet = false
+    @State private var showMultisigSheet = false
+    @State private var showHardwareWalletSheet = false
+    @State private var showWatchOnlySheet = false
     @State private var showReceiveSheet = false
     @State private var showSendPicker = false
     @State private var sendChainContext: ChainInfo?
@@ -411,6 +415,36 @@ struct ContentView: View {
                 Spacer()
                 appearanceMenu
                 Button {
+                    showStakingSheet = true
+                } label: {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .font(.title2)
+                        .padding(6)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Staking")
+                Button {
+                    showNotificationsSheet = true
+                } label: {
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: "bell")
+                            .font(.title2)
+                            .padding(6)
+                        
+                        if NotificationManager.shared.unreadCount > 0 {
+                            Text("\(min(NotificationManager.shared.unreadCount, 99))")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(4)
+                                .background(Color.red)
+                                .clipShape(Circle())
+                                .offset(x: 8, y: -4)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Notifications")
+                Button {
                     showContactsSheet = true
                 } label: {
                     Image(systemName: "person.crop.rectangle.stack")
@@ -419,6 +453,33 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Contacts")
+                Button {
+                    showMultisigSheet = true
+                } label: {
+                    Image(systemName: "person.3")
+                        .font(.title2)
+                        .padding(6)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Multisig")
+                Button {
+                    showHardwareWalletSheet = true
+                } label: {
+                    Image(systemName: "cpu")
+                        .font(.title2)
+                        .padding(6)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Hardware Wallet")
+                Button {
+                    showWatchOnlySheet = true
+                } label: {
+                    Image(systemName: "eye")
+                        .font(.title2)
+                        .padding(6)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Watch-Only")
                 Button {
                     guard hasAcknowledgedSecurityNotice else {
                         showSecurityNotice = true
@@ -665,6 +726,21 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showContactsSheet) {
             ContactsView()
+        }
+        .sheet(isPresented: $showStakingSheet) {
+            StakingView()
+        }
+        .sheet(isPresented: $showNotificationsSheet) {
+            NotificationsView()
+        }
+        .sheet(isPresented: $showMultisigSheet) {
+            MultisigView()
+        }
+        .sheet(isPresented: $showHardwareWalletSheet) {
+            HardwareWalletView()
+        }
+        .sheet(isPresented: $showWatchOnlySheet) {
+            WatchOnlyView()
         }
         .sheet(isPresented: $showSettingsPanel) {
             SettingsPanelView(
@@ -1149,7 +1225,7 @@ struct ContentView: View {
                                 } label: {
                                     let balance = balanceStates[chain.id] ?? defaultBalanceState(for: chain.id)
                                     let price = priceStates[chain.id] ?? defaultPriceState(for: chain.id)
-                                    let sparkline = priceSparklines[chain.id] ?? []
+                                    let sparkline = sparklineCache.sparklines[chain.id] ?? []
                                     ChainCard(
                                         chain: chain,
                                         balanceState: balance,
@@ -3571,10 +3647,12 @@ struct ContentView: View {
 
                 do {
                     let decoder = JSONDecoder()
-                    let decoded = try decoder.decode(AllKeys.self, from: jsonData)
-                    continuation.resume(returning: (decoded, outputString))
+                    // The Rust CLI returns { "mnemonic": "...", "keys": {...} }
+                    let response = try decoder.decode(WalletResponse.self, from: jsonData)
+                    continuation.resume(returning: (response.keys, outputString))
                 } catch {
                     print("Key decode failed: \(error)")
+                    print("Raw output: \(outputString)")
                     continuation.resume(throwing: error)
                 }
             }
@@ -3666,7 +3744,8 @@ struct ContentView: View {
         ensurePriceStateEntries()
         // Also fetch FX rates and sparklines when starting price updates
         startFXRatesFetch()
-        startSparklineFetch()
+        sparklineCache.apiKey = coingeckoAPIKey
+        sparklineCache.fetchAllSparklines()
         if priceUpdateTask == nil {
             markPriceStatesLoading()
             priceUpdateTask = Task {
@@ -3918,86 +3997,7 @@ struct ContentView: View {
         }
     }
 
-    /// Fetches 24-hour price history for sparkline display from CoinGecko
-    private func fetchSparklineData(coinId: String) async throws -> [Double] {
-        let baseURL: String
-        if let apiKey = coingeckoAPIKey, !apiKey.isEmpty {
-            baseURL = "https://pro-api.coingecko.com/api/v3/coins/\(coinId)/market_chart?vs_currency=usd&days=1&x_cg_pro_api_key=\(apiKey)"
-        } else {
-            baseURL = "https://api.coingecko.com/api/v3/coins/\(coinId)/market_chart?vs_currency=usd&days=1"
-        }
-        
-        guard let url = URL(string: baseURL) else {
-            throw BalanceFetchError.invalidRequest
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("HawalaApp/\(AppVersion.displayVersion)", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 15
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.invalidResponse
-        }
-        
-        // Handle rate limiting
-        if httpResponse.statusCode == 429 {
-            throw BalanceFetchError.rateLimited
-        }
-        
-        guard httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.invalidResponse
-        }
-
-        let object = try JSONSerialization.jsonObject(with: data, options: [])
-        guard let dictionary = object as? [String: Any],
-              let prices = dictionary["prices"] as? [[Any]] else {
-            throw BalanceFetchError.invalidPayload
-        }
-
-        // Extract just the price values (skip timestamps), downsample to ~24 points
-        let allPrices = prices.compactMap { $0.last as? Double }
-        guard !allPrices.isEmpty else { return [] }
-        
-        // Downsample: take every Nth point to get approximately 24 data points
-        let targetPoints = 24
-        if allPrices.count <= targetPoints {
-            return allPrices
-        }
-        
-        let step = max(1, allPrices.count / targetPoints)
-        return stride(from: 0, to: allPrices.count, by: step).map { allPrices[$0] }
-    }
-
-    @MainActor
-    private func startSparklineFetch() {
-        sparklineFetchTask?.cancel()
-        sparklineFetchTask = Task {
-            let coinMappings: [String: String] = [
-                "bitcoin": "bitcoin",
-                "ethereum": "ethereum",
-                "litecoin": "litecoin",
-                "solana": "solana",
-                "xrp": "ripple",
-                "bnb": "binancecoin",
-                "monero": "monero"
-            ]
-
-            for (chainId, coinId) in coinMappings {
-                do {
-                    let points = try await fetchSparklineData(coinId: coinId)
-                    self.priceSparklines[chainId] = points
-                } catch {
-                    print("Failed to fetch sparkline for \(chainId): \(error)")
-                }
-                // Delay between requests to avoid CoinGecko rate limits
-                // Free tier: ~10-30 calls/min, so 2 seconds between calls is safe
-                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
-            }
-        }
-    }
-
+    // MARK: - Sparkline data now handled by SparklineCache service
 
     @MainActor
     private func startBalanceFetch(for keys: AllKeys) {
@@ -9747,6 +9747,12 @@ private enum SecureArchiveError: LocalizedError {
             return "Encrypted backup file is malformed or corrupted."
         }
     }
+}
+
+// MARK: - Wallet Response Wrapper (from Rust CLI)
+private struct WalletResponse: Codable {
+    let mnemonic: String
+    let keys: AllKeys
 }
 
 struct AllKeys: Codable {
