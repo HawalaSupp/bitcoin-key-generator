@@ -1,14 +1,17 @@
-use rust_app::{AllKeys, generate_all_keys};
+use rust_app::{AllKeys, create_new_wallet};
 use std::env;
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
-    let keys = generate_all_keys()?;
+    let (mnemonic, keys) = create_new_wallet()?;
 
     if args.iter().any(|arg| arg == "--json") {
-        println!("{}", serde_json::to_string_pretty(&keys)?);
+        println!("{{ \"mnemonic\": \"{}\", \"keys\": {} }}", mnemonic, serde_json::to_string(&keys)?);
     } else {
+        println!("=== Mnemonic ===");
+        println!("{}", mnemonic);
+        println!();
         print_human_readable(&keys);
     }
 

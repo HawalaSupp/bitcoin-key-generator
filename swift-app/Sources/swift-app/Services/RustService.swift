@@ -98,4 +98,11 @@ final class RustService: @unchecked Sendable {
         }
         return validate_mnemonic_ffi(mnemonicCString)
     }
+
+    func validateEthereumAddress(_ address: String) -> Bool {
+        guard let addressCString = address.cString(using: .utf8) else {
+            return false
+        }
+        return validate_ethereum_address_ffi(addressCString)
+    }
 }

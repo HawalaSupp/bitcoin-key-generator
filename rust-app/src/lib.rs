@@ -10,8 +10,23 @@ use ed25519_dalek::SigningKey;
 use rand::RngCore;
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::convert::TryFrom;
 use std::error::Error;
+use std::ffi::{CStr, CString};
+use std::os::raw::c_char;
+use bip39::Mnemonic;
+use bitcoin::bip32::{ExtendedPrivKey, DerivationPath, ChildNumber};
+use std::str::FromStr;
+
+mod balances;
+mod bitcoin_wallet;
+mod ethereum_wallet;
+mod history;
+use balances::{fetch_bitcoin_balance, fetch_ethereum_balance};
+use bitcoin_wallet::prepare_transaction;
+use ethereum_wallet::prepare_ethereum_transaction;
+use history::fetch_bitcoin_history;
 use tiny_keccak::{Hasher, Keccak};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -80,68 +95,61 @@ pub struct XrpKeys {
     pub classic_address: String,
 }
 
-pub fn generate_all_keys() -> Result<AllKeys, Box<dyn Error>> {
-    let secp = Secp256k1::new();
-    let mut rng = OsRng;
+pub fn create_new_wallet() -> Result<(String, AllKeys), Box<dyn Error>> {
+    let mut entropy = [0u8; 16];
+    OsRng.fill_bytes(&mut entropy);
+    let mnemonic = Mnemonic::from_entropy(&entropy)?;
+    let phrase = mnemonic.to_string();
+    let seed = mnemonic.to_seed("");
+    let keys = generate_keys_from_seed(&seed)?;
+    Ok((phrase, keys))
+}
 
-    let bitcoin_keys = generate_bitcoin_keys(&secp, &mut rng)?;
-    let bitcoin_testnet_keys = generate_bitcoin_testnet_keys(&secp, &mut rng)?;
-    let litecoin_keys = generate_litecoin_keys(&secp, &mut rng)?;
-    let monero_keys = generate_monero_keys(&mut rng)?;
-    let solana_keys = generate_solana_keys(&mut rng)?;
-    let ethereum_keys = generate_ethereum_keys(&secp, &mut rng)?;
-    let ethereum_sepolia_keys = generate_ethereum_keys(&secp, &mut rng)?;
-    let bnb_keys = generate_bnb_keys(&secp, &mut rng)?;
-    let xrp_keys = generate_xrp_keys(&secp, &mut rng)?;
+pub fn generate_keys_from_seed(seed: &[u8]) -> Result<AllKeys, Box<dyn Error>> {
+    let secp = Secp256k1::new();
+    let master_xprv = bitcoin::bip32::Xpriv::new_master(Network::Bitcoin, seed)?;
 
     Ok(AllKeys {
-        bitcoin: bitcoin_keys,
-        bitcoin_testnet: bitcoin_testnet_keys,
-        litecoin: litecoin_keys,
-        monero: monero_keys,
-        solana: solana_keys,
-        ethereum: ethereum_keys,
-        ethereum_sepolia: ethereum_sepolia_keys,
-        bnb: bnb_keys,
-        xrp: xrp_keys,
+        bitcoin: derive_bitcoin_keys(&secp, &master_xprv)?,
+        bitcoin_testnet: derive_bitcoin_testnet_keys(&secp, &master_xprv)?,
+        litecoin: derive_litecoin_keys(&secp, &master_xprv)?,
+        monero: derive_monero_keys(seed)?,
+        solana: derive_solana_keys(seed)?,
+        ethereum: derive_ethereum_keys(&secp, &master_xprv)?,
+        ethereum_sepolia: derive_ethereum_keys(&secp, &master_xprv)?,
+        bnb: derive_bnb_keys(&secp, &master_xprv)?,
+        xrp: derive_xrp_keys(&secp, &master_xprv)?,
     })
 }
 
-pub fn generate_bitcoin_keys(
-    secp: &Secp256k1<secp256k1::All>,
-    rng: &mut OsRng,
-) -> Result<BitcoinKeys, Box<dyn Error>> {
-    let mut secret_bytes = [0u8; 32];
-    rng.fill_bytes(&mut secret_bytes);
-    let secret_key = SecretKey::from_slice(&secret_bytes)?;
-
+fn derive_bitcoin_keys(secp: &Secp256k1<secp256k1::All>, master: &bitcoin::bip32::Xpriv) -> Result<BitcoinKeys, Box<dyn Error>> {
+    let path = DerivationPath::from_str("m/84'/0'/0'/0/0")?;
+    let child = master.derive_priv(secp, &path)?;
+    let secret_key = child.private_key;
+    
     let private_hex = hex::encode(secret_key.secret_bytes());
-    let secp_public_key = SecpPublicKey::from_secret_key(secp, &secret_key);
+    let secp_public_key = secret_key.public_key(secp);
     let public_key = BitcoinPublicKey::from(secp_public_key);
-    let compressed = CompressedPublicKey::try_from(public_key.clone())?;
-    let private_key = PrivateKey::new(secret_key, Network::Bitcoin);
+    let compressed = CompressedPublicKey::try_from(public_key)?;
     let address = Address::p2wpkh(&compressed, Network::Bitcoin);
 
     Ok(BitcoinKeys {
         private_hex,
-        private_wif: private_key.to_wif(),
+        private_wif: PrivateKey::new(secret_key, Network::Bitcoin).to_wif(),
         public_compressed_hex: hex::encode(compressed.to_bytes()),
         address: address.to_string(),
     })
 }
 
-pub fn generate_bitcoin_testnet_keys(
-    secp: &Secp256k1<secp256k1::All>,
-    rng: &mut OsRng,
-) -> Result<BitcoinKeys, Box<dyn Error>> {
-    let mut secret_bytes = [0u8; 32];
-    rng.fill_bytes(&mut secret_bytes);
-    let secret_key = SecretKey::from_slice(&secret_bytes)?;
-
+fn derive_bitcoin_testnet_keys(secp: &Secp256k1<secp256k1::All>, master: &bitcoin::bip32::Xpriv) -> Result<BitcoinKeys, Box<dyn Error>> {
+    let path = DerivationPath::from_str("m/84'/1'/0'/0/0")?;
+    let child = master.derive_priv(secp, &path)?;
+    let secret_key = child.private_key;
+    
     let private_hex = hex::encode(secret_key.secret_bytes());
-    let secp_public_key = SecpPublicKey::from_secret_key(secp, &secret_key);
+    let secp_public_key = secret_key.public_key(secp);
     let public_key = BitcoinPublicKey::from(secp_public_key);
-    let compressed = CompressedPublicKey::try_from(public_key.clone())?;
+    let compressed = CompressedPublicKey::try_from(public_key)?;
     let private_key = PrivateKey::new(secret_key, Network::Testnet);
     let address = Address::p2wpkh(&compressed, Network::Testnet);
 
@@ -153,18 +161,15 @@ pub fn generate_bitcoin_testnet_keys(
     })
 }
 
-pub fn generate_litecoin_keys(
-    secp: &Secp256k1<secp256k1::All>,
-    rng: &mut OsRng,
-) -> Result<LitecoinKeys, Box<dyn Error>> {
-    let mut secret_bytes = [0u8; 32];
-    rng.fill_bytes(&mut secret_bytes);
-    let secret_key = SecretKey::from_slice(&secret_bytes)?;
+fn derive_litecoin_keys(secp: &Secp256k1<secp256k1::All>, master: &bitcoin::bip32::Xpriv) -> Result<LitecoinKeys, Box<dyn Error>> {
+    let path = DerivationPath::from_str("m/84'/2'/0'/0/0")?;
+    let child = master.derive_priv(secp, &path)?;
+    let secret_key = child.private_key;
 
     let private_hex = hex::encode(secret_key.secret_bytes());
-    let secp_public_key = SecpPublicKey::from_secret_key(secp, &secret_key);
+    let secp_public_key = secret_key.public_key(secp);
     let public_key = BitcoinPublicKey::from(secp_public_key);
-    let compressed = CompressedPublicKey::try_from(public_key.clone())?;
+    let compressed = CompressedPublicKey::try_from(public_key)?;
     let compressed_bytes = compressed.to_bytes();
 
     let private_wif = encode_litecoin_wif(&secret_key);
@@ -190,22 +195,15 @@ pub fn generate_litecoin_keys(
     })
 }
 
-pub fn encode_litecoin_wif(secret_key: &SecretKey) -> String {
-    let mut data = Vec::with_capacity(34);
-    data.push(0xB0);
-    data.extend_from_slice(&secret_key.secret_bytes());
-    data.push(0x01);
-
-    let checksum = sha256d::Hash::hash(&data);
-    let mut payload = data;
-    payload.extend_from_slice(&checksum[..4]);
-
-    bs58::encode(payload).into_string()
-}
-
-pub fn generate_monero_keys(rng: &mut OsRng) -> Result<MoneroKeys, Box<dyn Error>> {
+fn derive_monero_keys(seed: &[u8]) -> Result<MoneroKeys, Box<dyn Error>> {
+    let mut hasher = Sha256::new();
+    hasher.update(seed);
+    hasher.update(b"MONERO_DERIVATION");
+    let result = hasher.finalize();
+    
     let mut spend_seed = [0u8; 32];
-    rng.fill_bytes(&mut spend_seed);
+    spend_seed.copy_from_slice(&result);
+    
     let spend_scalar = Scalar::from_bytes_mod_order(spend_seed);
     let private_spend = spend_scalar.to_bytes();
 
@@ -234,6 +232,448 @@ pub fn generate_monero_keys(rng: &mut OsRng) -> Result<MoneroKeys, Box<dyn Error
         public_view_hex: hex::encode(public_view),
         address,
     })
+}
+
+fn derive_solana_keys(seed: &[u8]) -> Result<SolanaKeys, Box<dyn Error>> {
+    let mut hasher = Sha256::new();
+    hasher.update(seed);
+    hasher.update(b"SOLANA_DERIVATION");
+    let result = hasher.finalize();
+    
+    let signing_key = SigningKey::from_bytes(&result.into());
+    let private_seed = signing_key.to_bytes();
+    let public_key_bytes = signing_key.verifying_key().to_bytes();
+
+    let mut keypair_bytes = [0u8; 64];
+    keypair_bytes[..32].copy_from_slice(&private_seed);
+    keypair_bytes[32..].copy_from_slice(&public_key_bytes);
+
+    Ok(SolanaKeys {
+        private_seed_hex: hex::encode(private_seed),
+        private_key_base58: bs58::encode(keypair_bytes).into_string(),
+        public_key_base58: bs58::encode(public_key_bytes).into_string(),
+    })
+}
+
+fn derive_ethereum_keys(secp: &Secp256k1<secp256k1::All>, master: &bitcoin::bip32::Xpriv) -> Result<EthereumKeys, Box<dyn Error>> {
+    let path = DerivationPath::from_str("m/44'/60'/0'/0/0")?;
+    let child = master.derive_priv(secp, &path)?;
+    let secret_key = child.private_key;
+
+    let private_hex = hex::encode(secret_key.secret_bytes());
+    let secp_public_key = secret_key.public_key(secp);
+    let uncompressed = secp_public_key.serialize_uncompressed();
+    let public_key_bytes = &uncompressed[1..];
+
+    let public_uncompressed_hex = hex::encode(public_key_bytes);
+    let address_bytes = keccak256(public_key_bytes);
+    let address = to_checksum_address(&address_bytes[12..]);
+
+    Ok(EthereumKeys {
+        private_hex,
+        public_uncompressed_hex,
+        address,
+    })
+}
+
+fn derive_bnb_keys(secp: &Secp256k1<secp256k1::All>, master: &bitcoin::bip32::Xpriv) -> Result<BnbKeys, Box<dyn Error>> {
+    let path = DerivationPath::from_str("m/44'/60'/0'/0/0")?; 
+    let child = master.derive_priv(secp, &path)?;
+    let secret_key = child.private_key;
+
+    let private_hex = hex::encode(secret_key.secret_bytes());
+    let secp_public_key = secret_key.public_key(secp);
+    let uncompressed = secp_public_key.serialize_uncompressed();
+    let public_key_bytes = &uncompressed[1..];
+
+    let public_uncompressed_hex = hex::encode(public_key_bytes);
+    let address_bytes = keccak256(public_key_bytes);
+    let address = to_checksum_address(&address_bytes[12..]);
+
+    Ok(BnbKeys {
+        private_hex,
+        public_uncompressed_hex,
+        address,
+    })
+}
+
+fn derive_xrp_keys(secp: &Secp256k1<secp256k1::All>, master: &bitcoin::bip32::Xpriv) -> Result<XrpKeys, Box<dyn Error>> {
+    let path = DerivationPath::from_str("m/44'/144'/0'/0/0")?;
+    let child = master.derive_priv(secp, &path)?;
+    let secret_key = child.private_key;
+
+    let private_hex = hex::encode(secret_key.secret_bytes());
+    let secp_public_key = secret_key.public_key(secp);
+    let compressed = secp_public_key.serialize();
+
+    let account_id = hash160::Hash::hash(&compressed);
+    let mut payload = Vec::new();
+    payload.push(0x00); 
+    payload.extend_from_slice(account_id.as_ref());
+
+    let checksum = sha256d::Hash::hash(&payload);
+    let mut address_bytes = payload;
+    address_bytes.extend_from_slice(&checksum[..4]);
+    let classic_address = bs58::encode(address_bytes)
+        .with_alphabet(Alphabet::RIPPLE)
+        .into_string();
+
+    Ok(XrpKeys {
+        private_hex,
+        public_compressed_hex: hex::encode(compressed),
+        classic_address,
+    })
+}
+
+
+pub fn keccak256(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Keccak::v256();
+    hasher.update(data);
+    let mut out = [0u8; 32];
+    hasher.finalize(&mut out);
+    out
+}
+
+pub fn to_checksum_address(address: &[u8]) -> String {
+    let lower = hex::encode(address);
+    let hash = keccak256(lower.as_bytes());
+
+    let mut result = String::from("0x");
+    for (i, ch) in lower.chars().enumerate() {
+        let byte = hash[i / 2];
+        let nibble = if i % 2 == 0 { byte >> 4 } else { byte & 0x0f };
+
+        if ch.is_ascii_digit() {
+            result.push(ch);
+        } else if nibble >= 8 {
+            result.push(ch.to_ascii_uppercase());
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
+}
+
+fn is_valid_ethereum_address(address: &str) -> bool {
+    let trimmed = address.trim();
+    if !trimmed.starts_with("0x") || trimmed.len() != 42 {
+        return false;
+    }
+
+    let hex_part = &trimmed[2..];
+    if !hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
+        return false;
+    }
+
+    let lower = hex_part.to_lowercase();
+    let bytes = match hex::decode(&lower) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+
+    if bytes.len() != 20 {
+        return false;
+    }
+
+    // Accept fully lowercase or uppercase addresses without checksum
+    if hex_part == lower || hex_part == hex_part.to_uppercase() {
+        return true;
+    }
+
+    let checksummed = to_checksum_address(&bytes);
+    match checksummed.get(2..) {
+        Some(stripped) => stripped == hex_part,
+        None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn litecoin_wif_has_correct_prefix() {
+        let secret_key = SecretKey::from_slice(&[1u8; 32]).expect("valid secret");
+        let wif = encode_litecoin_wif(&secret_key);
+        assert!(wif.starts_with('T'));
+    }
+}
+
+/// FFI Interface
+
+#[derive(Serialize)]
+struct WalletResponse {
+    mnemonic: String,
+    keys: AllKeys,
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn generate_keys_ffi() -> *mut c_char {
+    let (mnemonic, keys) = match create_new_wallet() {
+        Ok(res) => res,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let response = WalletResponse { mnemonic, keys };
+
+    let json = match serde_json::to_string(&response) {
+        Ok(j) => j,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let c_str = match CString::new(json) {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    c_str.into_raw()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn restore_wallet_ffi(mnemonic_str: *const c_char) -> *mut c_char {
+    let c_str = unsafe {
+        assert!(!mnemonic_str.is_null());
+        CStr::from_ptr(mnemonic_str)
+    };
+    let phrase = match c_str.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let mnemonic = match Mnemonic::parse(phrase) {
+        Ok(m) => m,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let seed = mnemonic.to_seed("");
+    let keys = match generate_keys_from_seed(&seed) {
+        Ok(k) => k,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let json = match serde_json::to_string(&keys) {
+        Ok(j) => j,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    
+    CString::new(json).unwrap().into_raw()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn validate_mnemonic_ffi(mnemonic_str: *const c_char) -> bool {
+    let c_str = unsafe {
+        if mnemonic_str.is_null() { return false; }
+        CStr::from_ptr(mnemonic_str)
+    };
+    let phrase = match c_str.to_str() {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    
+    Mnemonic::parse(phrase).is_ok()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn validate_ethereum_address_ffi(address: *const c_char) -> bool {
+    let c_str = unsafe {
+        if address.is_null() { return false; }
+        CStr::from_ptr(address)
+    };
+
+    match c_str.to_str() {
+        Ok(addr) => is_valid_ethereum_address(addr),
+        Err(_) => false,
+    }
+}
+
+#[derive(Deserialize)]
+struct BalanceRequest {
+    bitcoin: Option<String>,
+    ethereum: Option<String>,
+}
+
+#[derive(Serialize)]
+struct BalanceResponse {
+    bitcoin: Option<String>,
+    ethereum: Option<String>,
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn fetch_balances_ffi(json_input: *const c_char) -> *mut c_char {
+    let c_str = unsafe {
+        assert!(!json_input.is_null());
+        CStr::from_ptr(json_input)
+    };
+
+    let json_str = match c_str.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let request: BalanceRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(_) => {
+            return CString::new("{\"error\": \"Invalid JSON\"}")
+                .unwrap()
+                .into_raw();
+        }
+    };
+
+    // In a real implementation, we'd use threads/rayon here.
+    // For MVP, we'll do serial blocking calls (which is still faster than process spawning).
+
+    let btc_bal = if let Some(addr) = request.bitcoin {
+        fetch_bitcoin_balance(&addr).unwrap_or_else(|_| "0.00000000".to_string())
+    } else {
+        "0.00000000".to_string()
+    };
+
+    let eth_bal = if let Some(addr) = request.ethereum {
+        fetch_ethereum_balance(&addr).unwrap_or_else(|_| "0.0000".to_string())
+    } else {
+        "0.0000".to_string()
+    };
+
+    let response = BalanceResponse {
+        bitcoin: Some(btc_bal),
+        ethereum: Some(eth_bal),
+    };
+
+    let output_json = serde_json::to_string(&response).unwrap();
+    CString::new(output_json).unwrap().into_raw()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn fetch_bitcoin_history_ffi(address: *const c_char) -> *mut c_char {
+    let c_str = unsafe {
+        if address.is_null() { return std::ptr::null_mut(); }
+        CStr::from_ptr(address)
+    };
+    let addr_str = match c_str.to_str() {
+        Ok(s) => s,
+        Err(_) => return CString::new("[]").unwrap().into_raw(),
+    };
+
+    match fetch_bitcoin_history(addr_str) {
+        Ok(items) => {
+            let json = serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string());
+            CString::new(json).unwrap().into_raw()
+        },
+        Err(_) => CString::new("[]").unwrap().into_raw(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn free_string(s: *mut c_char) {
+    if s.is_null() {
+        return;
+    }
+    unsafe {
+        let _ = CString::from_raw(s);
+    }
+}
+
+#[derive(Deserialize)]
+struct TransactionRequest {
+    recipient: String,
+    amount_sats: u64,
+    fee_rate: u64,
+    sender_wif: String,
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn prepare_transaction_ffi(json_input: *const c_char) -> *mut c_char {
+    let c_str = unsafe {
+        assert!(!json_input.is_null());
+        CStr::from_ptr(json_input)
+    };
+
+    let json_str = match c_str.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let request: TransactionRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(_) => {
+            return CString::new("{\"error\": \"Invalid JSON\"}")
+                .unwrap()
+                .into_raw();
+        }
+    };
+
+    match prepare_transaction(
+        &request.recipient,
+        request.amount_sats,
+        request.fee_rate,
+        &request.sender_wif,
+    ) {
+        Ok(hex) => CString::new(format!("{{\"success\": true, \"tx_hex\": \"{}\"}}", hex))
+            .unwrap()
+            .into_raw(),
+        Err(e) => CString::new(format!("{{\"success\": false, \"error\": \"{}\"}}", e))
+            .unwrap()
+            .into_raw(),
+    }
+}
+
+#[derive(Deserialize)]
+struct EthTransactionRequest {
+    recipient: String,
+    amount_eth: String,
+    chain_id: u64,
+    sender_key_hex: String,
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn prepare_ethereum_transaction_ffi(json_input: *const c_char) -> *mut c_char {
+    let c_str = unsafe {
+        assert!(!json_input.is_null());
+        CStr::from_ptr(json_input)
+    };
+
+    let json_str = match c_str.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let request: EthTransactionRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(_) => {
+            return CString::new("{\"error\": \"Invalid JSON\"}")
+                .unwrap()
+                .into_raw();
+        }
+    };
+
+    // Block on async function for FFI (simplest for now)
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    match rt.block_on(prepare_ethereum_transaction(
+        &request.recipient,
+        &request.amount_eth,
+        request.chain_id,
+        &request.sender_key_hex,
+    )) {
+        Ok(hex) => CString::new(format!("{{\"success\": true, \"tx_hex\": \"0x{}\"}}", hex))
+            .unwrap()
+            .into_raw(),
+        Err(e) => CString::new(format!("{{\"success\": false, \"error\": \"{}\"}}", e))
+            .unwrap()
+            .into_raw(),
+    }
+}
+
+pub fn encode_litecoin_wif(secret_key: &SecretKey) -> String {
+    let mut data = Vec::with_capacity(34);
+    data.push(0xB0);
+    data.extend_from_slice(&secret_key.secret_bytes());
+    data.push(0x01);
+
+    let checksum = sha256d::Hash::hash(&data);
+    let mut payload = data;
+    payload.extend_from_slice(&checksum[..4]);
+
+    bs58::encode(payload).into_string()
 }
 
 const MONERO_BASE58_ALPHABET: &[u8; 58] =
@@ -283,142 +723,4 @@ fn encode_monero_block(block: &[u8]) -> String {
     }
 
     chars.into_iter().collect()
-}
-
-pub fn generate_solana_keys(rng: &mut OsRng) -> Result<SolanaKeys, Box<dyn Error>> {
-    let mut seed = [0u8; 32];
-    rng.fill_bytes(&mut seed);
-    let signing_key = SigningKey::from_bytes(&seed);
-    let private_seed = signing_key.to_bytes();
-    let public_key_bytes = signing_key.verifying_key().to_bytes();
-
-    let mut keypair_bytes = [0u8; 64];
-    keypair_bytes[..32].copy_from_slice(&private_seed);
-    keypair_bytes[32..].copy_from_slice(&public_key_bytes);
-
-    Ok(SolanaKeys {
-        private_seed_hex: hex::encode(private_seed),
-        private_key_base58: bs58::encode(keypair_bytes).into_string(),
-        public_key_base58: bs58::encode(public_key_bytes).into_string(),
-    })
-}
-
-pub fn generate_ethereum_keys(
-    secp: &Secp256k1<secp256k1::All>,
-    rng: &mut OsRng,
-) -> Result<EthereumKeys, Box<dyn Error>> {
-    let mut secret_bytes = [0u8; 32];
-    rng.fill_bytes(&mut secret_bytes);
-    let secret_key = SecretKey::from_slice(&secret_bytes)?;
-
-    let private_hex = hex::encode(secret_key.secret_bytes());
-    let secp_public_key = SecpPublicKey::from_secret_key(secp, &secret_key);
-    let uncompressed = secp_public_key.serialize_uncompressed();
-    let public_key_bytes = &uncompressed[1..];
-
-    let public_uncompressed_hex = hex::encode(public_key_bytes);
-    let address_bytes = keccak256(public_key_bytes);
-    let address = to_checksum_address(&address_bytes[12..]);
-
-    Ok(EthereumKeys {
-        private_hex,
-        public_uncompressed_hex,
-        address,
-    })
-}
-
-pub fn generate_bnb_keys(
-    secp: &Secp256k1<secp256k1::All>,
-    rng: &mut OsRng,
-) -> Result<BnbKeys, Box<dyn Error>> {
-    let mut secret_bytes = [0u8; 32];
-    rng.fill_bytes(&mut secret_bytes);
-    let secret_key = SecretKey::from_slice(&secret_bytes)?;
-
-    let private_hex = hex::encode(secret_key.secret_bytes());
-    let secp_public_key = SecpPublicKey::from_secret_key(secp, &secret_key);
-    let uncompressed = secp_public_key.serialize_uncompressed();
-    let public_key_bytes = &uncompressed[1..];
-
-    let public_uncompressed_hex = hex::encode(public_key_bytes);
-    let address_bytes = keccak256(public_key_bytes);
-    let address = to_checksum_address(&address_bytes[12..]);
-
-    Ok(BnbKeys {
-        private_hex,
-        public_uncompressed_hex,
-        address,
-    })
-}
-
-pub fn generate_xrp_keys(
-    secp: &Secp256k1<secp256k1::All>,
-    rng: &mut OsRng,
-) -> Result<XrpKeys, Box<dyn Error>> {
-    let mut secret_bytes = [0u8; 32];
-    rng.fill_bytes(&mut secret_bytes);
-    let secret_key = SecretKey::from_slice(&secret_bytes)?;
-
-    let private_hex = hex::encode(secret_key.secret_bytes());
-    let secp_public_key = SecpPublicKey::from_secret_key(secp, &secret_key);
-    let compressed = secp_public_key.serialize();
-
-    let account_id = hash160::Hash::hash(&compressed);
-    let mut payload = Vec::new();
-    payload.push(0x00); // mainnet account prefix
-    payload.extend_from_slice(account_id.as_ref());
-
-    let checksum = sha256d::Hash::hash(&payload);
-    let mut address_bytes = payload;
-    address_bytes.extend_from_slice(&checksum[..4]);
-    let classic_address = bs58::encode(address_bytes)
-        .with_alphabet(Alphabet::RIPPLE)
-        .into_string();
-
-    Ok(XrpKeys {
-        private_hex,
-        public_compressed_hex: hex::encode(compressed),
-        classic_address,
-    })
-}
-
-pub fn keccak256(data: &[u8]) -> [u8; 32] {
-    let mut hasher = Keccak::v256();
-    hasher.update(data);
-    let mut out = [0u8; 32];
-    hasher.finalize(&mut out);
-    out
-}
-
-pub fn to_checksum_address(address: &[u8]) -> String {
-    let lower = hex::encode(address);
-    let hash = keccak256(lower.as_bytes());
-
-    let mut result = String::from("0x");
-    for (i, ch) in lower.chars().enumerate() {
-        let byte = hash[i / 2];
-        let nibble = if i % 2 == 0 { byte >> 4 } else { byte & 0x0f };
-
-        if ch.is_ascii_digit() {
-            result.push(ch);
-        } else if nibble >= 8 {
-            result.push(ch.to_ascii_uppercase());
-        } else {
-            result.push(ch);
-        }
-    }
-
-    result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn litecoin_wif_has_correct_prefix() {
-        let secret_key = SecretKey::from_slice(&[1u8; 32]).expect("valid secret");
-        let wif = encode_litecoin_wif(&secret_key);
-        assert!(wif.starts_with('T'));
-    }
 }

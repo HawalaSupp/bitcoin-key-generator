@@ -11,8 +11,11 @@
   - Ran `cargo build --manifest-path rust-app/Cargo.toml` and `swift build --package-path swift-app`.
 - [x] Create and Run Task
   - Defined VS Code tasks in `.vscode/tasks.json` and executed the "Build Rust" task successfully.
-- [ ] Launch the Project
-  - After every change, launch the Hawala app so it appears in the Dock (e.g. `open swift-app/.build/arm64-apple-macosx/debug/swift-app.app`).
+- [x] Launch the Project
+  - **ALWAYS** launch the Hawala Swift app using `swift run swift-app` from the `/Users/x/Desktop/888/swift-app` directory.
+  - This ensures the latest code is loaded and runs in the terminal's process context (not as a separate Dock app).
+  - **NEVER** use `open` commands to launch the app, as they load outdated cached versions.
+  - To stop: Press Ctrl+C or use `pkill -f "swift run swift-app"`.
 - [x] Ensure Documentation is Complete
   - README.md and docs/ placeholders created; this file now reflects the latest project status without HTML comments.
 - Work through each checklist item systematically.

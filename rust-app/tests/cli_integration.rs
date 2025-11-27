@@ -53,6 +53,34 @@ fn cli_emits_consistent_key_material() {
         "bitcoin address matches"
     );
 
+    // Bitcoin Testnet
+    let btc_test_private =
+        PrivateKey::from_wif(&keys.bitcoin_testnet.private_wif).expect("bitcoin testnet wif valid");
+    assert_eq!(
+        btc_test_private.network,
+        Network::Testnet.into(),
+        "bitcoin testnet network encoded in wif"
+    );
+    assert_eq!(
+        hex::encode(btc_test_private.inner.secret_bytes()),
+        keys.bitcoin_testnet.private_hex,
+        "bitcoin testnet hex matches wif",
+    );
+    let btc_test_public = btc_test_private.public_key(&secp);
+    let btc_test_compressed =
+        CompressedPublicKey::try_from(btc_test_public).expect("bitcoin testnet compressed pubkey");
+    assert_eq!(
+        hex::encode(btc_test_compressed.to_bytes()),
+        keys.bitcoin_testnet.public_compressed_hex,
+        "bitcoin testnet compressed matches",
+    );
+    let btc_test_address = Address::p2wpkh(&btc_test_compressed, Network::Testnet);
+    assert_eq!(
+        btc_test_address.to_string(),
+        keys.bitcoin_testnet.address,
+        "bitcoin testnet address matches"
+    );
+
     // Litecoin
     let ltc_secret_bytes = hex::decode(&keys.litecoin.private_hex).expect("litecoin private hex");
     let ltc_secret = SecpSecretKey::from_slice(&ltc_secret_bytes).expect("litecoin secret key");
@@ -173,6 +201,28 @@ fn cli_emits_consistent_key_material() {
         "ethereum checksum address matches"
     );
     assert!(keys.ethereum.address.starts_with("0x"));
+
+    // Ethereum Sepolia
+    let sep_secret_bytes =
+        hex::decode(&keys.ethereum_sepolia.private_hex).expect("ethereum sepolia private hex");
+    let sep_secret = SecpSecretKey::from_slice(&sep_secret_bytes).expect("ethereum sepolia secret");
+    let sep_public = bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &sep_secret);
+    let sep_uncompressed = sep_public.serialize_uncompressed();
+    assert_eq!(
+        hex::encode(&sep_uncompressed[1..]),
+        keys.ethereum_sepolia.public_uncompressed_hex,
+        "ethereum sepolia public matches",
+    );
+    let sep_address_bytes = keccak256(&sep_uncompressed[1..]);
+    let sep_checksummed = to_checksum_address(&sep_address_bytes[12..]);
+    assert_eq!(
+        sep_checksummed, keys.ethereum_sepolia.address,
+        "ethereum sepolia checksum address matches"
+    );
+    assert!(
+        keys.ethereum_sepolia.address.starts_with("0x"),
+        "ethereum sepolia address has 0x prefix"
+    );
 
     // BNB
     let bnb_secret_bytes = hex::decode(&keys.bnb.private_hex).expect("bnb private hex");

@@ -13,6 +13,7 @@ const char* prepare_transaction_ffi(const char* json_input);
 const char* prepare_ethereum_transaction_ffi(const char* json_input);
 const char* restore_wallet_ffi(const char* mnemonic);
 bool validate_mnemonic_ffi(const char* mnemonic);
+bool validate_ethereum_address_ffi(const char* address);
 // Frees a string allocated by Rust.
 void free_string(char* s);
 
