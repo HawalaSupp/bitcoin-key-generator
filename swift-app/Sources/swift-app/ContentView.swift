@@ -260,6 +260,7 @@ struct ContentView: View {
     @State private var historyFetchTask: Task<Void, Never>?
     @State private var pendingTransactions: [PendingTransactionManager.PendingTransaction] = []
     @State private var pendingTxRefreshTask: Task<Void, Never>?
+    @State private var speedUpTransaction: PendingTransactionManager.PendingTransaction?
     @State private var viewportWidth: CGFloat = 900
     @State private var biometricState: BiometricState = .unknown
     @State private var lastActivityTimestamp = Date()
@@ -619,6 +620,22 @@ struct ContentView: View {
             SeedPhraseSheet(onCopy: { value in
                 copyToClipboard(value)
             })
+        }
+        .sheet(item: $speedUpTransaction) { tx in
+            if let keys {
+                SpeedUpTransactionSheet(
+                    pendingTx: tx,
+                    keys: keys,
+                    onDismiss: {
+                        speedUpTransaction = nil
+                    },
+                    onSuccess: { newTxid in
+                        speedUpTransaction = nil
+                        showStatus("Transaction replaced: \(newTxid.prefix(16))...", tone: .success)
+                        Task { await refreshPendingTransactions() }
+                    }
+                )
+            }
         }
         .sheet(isPresented: $showSettingsPanel) {
             SettingsPanelView(
@@ -1450,7 +1467,7 @@ struct ContentView: View {
         HStack(spacing: 4) {
             Image(systemName: "sparkles")
                 .font(.caption)
-            Text("Version 1.3")
+            Text(AppVersion.displayVersion)
                 .font(.caption)
                 .fontWeight(.semibold)
         }
@@ -1465,7 +1482,7 @@ struct ContentView: View {
                 .stroke(Color.green.opacity(0.45), lineWidth: 1)
         )
         .foregroundStyle(Color.green)
-        .accessibilityLabel("Version 1.3 indicator")
+        .accessibilityLabel("\(AppVersion.displayVersion) indicator")
     }
 
     /// Shows pending (unconfirmed) transactions with live status updates
@@ -1490,7 +1507,9 @@ struct ContentView: View {
                 
                 VStack(spacing: 0) {
                     ForEach(pending) { tx in
-                        PendingTransactionRow(transaction: tx)
+                        PendingTransactionRow(transaction: tx) {
+                            speedUpTransaction = tx
+                        }
                         if tx.id != pending.last?.id {
                             Divider()
                                 .padding(.leading, 48)
@@ -1683,9 +1702,15 @@ struct ContentView: View {
         }
     }
 
-    /// Row view for pending transactions with explorer link
+    /// Row view for pending transactions with explorer link and speed-up option
     private struct PendingTransactionRow: View {
         let transaction: PendingTransactionManager.PendingTransaction
+        let onSpeedUp: (() -> Void)?
+        
+        init(transaction: PendingTransactionManager.PendingTransaction, onSpeedUp: (() -> Void)? = nil) {
+            self.transaction = transaction
+            self.onSpeedUp = onSpeedUp
+        }
         
         private var timeAgo: String {
             let interval = Date().timeIntervalSince(transaction.timestamp)
@@ -1736,7 +1761,20 @@ struct ContentView: View {
                         .fontWeight(.medium)
                         .foregroundStyle(.orange)
                     
-                    HStack(spacing: 4) {
+                    HStack(spacing: 6) {
+                        // Speed Up button if available
+                        if transaction.canSpeedUp, let speedUp = onSpeedUp {
+                            Button {
+                                speedUp()
+                            } label: {
+                                Label("Speed Up", systemImage: "bolt.fill")
+                                    .font(.caption2)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                            .tint(.orange)
+                        }
+                        
                         Text(transaction.displayStatus)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -4208,7 +4246,7 @@ private struct BitcoinUTXO: Codable {
     }
 }
 
-private struct BitcoinFeeEstimates: Codable {
+struct BitcoinFeeEstimates: Codable {
     let fastestFee: Int
     let halfHourFee: Int
     let hourFee: Int

@@ -9,6 +9,7 @@ actor PendingTransactionManager {
         case pending = "pending"
         case confirmed = "confirmed"
         case failed = "failed"
+        case replaced = "replaced" // RBF replaced
     }
     
     struct PendingTransaction: Identifiable, Codable, Equatable {
@@ -21,6 +22,9 @@ actor PendingTransactionManager {
         var status: TransactionStatus
         var confirmations: Int
         var explorerURL: URL?
+        var isRBFEnabled: Bool // Whether tx was sent with RBF flag
+        var originalFeeRate: Int? // sat/vB for Bitcoin, gwei for ETH
+        var nonce: Int? // For Ethereum speedup
         
         var displayStatus: String {
             switch status {
@@ -30,6 +34,23 @@ actor PendingTransactionManager {
                 return "Confirmed"
             case .failed:
                 return "Failed"
+            case .replaced:
+                return "Replaced"
+            }
+        }
+        
+        /// Whether this transaction can be sped up
+        var canSpeedUp: Bool {
+            guard status == .pending else { return false }
+            // Bitcoin/Litecoin: need RBF flag
+            // Ethereum/BNB: can always replace with same nonce
+            switch chainId {
+            case "bitcoin", "bitcoin-testnet", "litecoin":
+                return isRBFEnabled
+            case "ethereum", "ethereum-sepolia", "bnb":
+                return nonce != nil
+            default:
+                return false
             }
         }
     }
@@ -67,7 +88,10 @@ actor PendingTransactionManager {
         chainId: String,
         chainName: String,
         amount: String,
-        recipient: String
+        recipient: String,
+        isRBFEnabled: Bool = false,
+        feeRate: Int? = nil,
+        nonce: Int? = nil
     ) async {
         let tx = PendingTransaction(
             id: txid,
@@ -78,11 +102,27 @@ actor PendingTransactionManager {
             timestamp: Date(),
             status: .pending,
             confirmations: 0,
-            explorerURL: explorerURL(for: chainId, txid: txid)
+            explorerURL: explorerURL(for: chainId, txid: txid),
+            isRBFEnabled: isRBFEnabled,
+            originalFeeRate: feeRate,
+            nonce: nonce
         )
         transactions.insert(tx, at: 0)
         await saveToStorage()
         startPollingIfNeeded()
+    }
+
+    /// Mark a transaction as replaced (after RBF)
+    func markReplaced(_ txid: String, replacedBy newTxid: String) async {
+        if let index = transactions.firstIndex(where: { $0.id == txid }) {
+            transactions[index].status = .replaced
+        }
+        await saveToStorage()
+    }
+    
+    /// Get a specific transaction by ID
+    func get(_ txid: String) -> PendingTransaction? {
+        transactions.first { $0.id == txid }
     }
     
     /// Get all pending transactions
