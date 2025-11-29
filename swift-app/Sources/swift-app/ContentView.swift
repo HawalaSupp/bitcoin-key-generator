@@ -208,6 +208,7 @@ private struct TransactionBroadcastResult {
 }
 
 struct ContentView: View {
+    @State private var showSplashScreen = true
     @State private var keys: AllKeys?
     @State private var rawJSON: String = ""
     @State private var isGenerating = false
@@ -357,20 +358,31 @@ struct ContentView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Group {
-                if onboardingCompleted {
-                    mainAppStage
-                } else {
-                    onboardingFlow
-                }
+        ZStack {
+            // Splash screen overlay
+            if showSplashScreen {
+                HawalaSplashView(isShowingSplash: $showSplashScreen)
+                    .zIndex(100)
+                    .transition(.opacity)
             }
+            
+            ZStack(alignment: .topTrailing) {
+                Group {
+                    if onboardingCompleted {
+                        mainAppStage
+                    } else {
+                        onboardingFlow
+                    }
+                }
 
-            newestBuildBadge
-                .padding(.top, 12)
-                .padding(.trailing, 12)
-                .allowsHitTesting(false)
+                newestBuildBadge
+                    .padding(.top, 12)
+                    .padding(.trailing, 12)
+                    .allowsHitTesting(false)
+            }
+            .opacity(showSplashScreen ? 0 : 1)
         }
+        .animation(.easeInOut(duration: 0.3), value: showSplashScreen)
         .animation(.easeInOut(duration: 0.3), value: onboardingCompleted)
         .animation(.easeInOut(duration: 0.3), value: onboardingStep)
         .preferredColorScheme(appearanceMode.colorScheme)
@@ -402,220 +414,73 @@ struct ContentView: View {
     }
 
     private var mainAppStage: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 8) {
-                Text("Multi-Chain Key Generator")
-                    .font(.largeTitle)
-                    .bold()
-                if let keys = keys {
-                    Text("(\(keys.chainInfos.count) chains)")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                appearanceMenu
-                Button {
-                    showStakingSheet = true
-                } label: {
-                    Image(systemName: "chart.line.uptrend.xyaxis")
-                        .font(.title2)
-                        .padding(6)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Staking")
-                Button {
-                    showNotificationsSheet = true
-                } label: {
-                    ZStack(alignment: .topTrailing) {
-                        Image(systemName: "bell")
-                            .font(.title2)
-                            .padding(6)
-                        
-                        if NotificationManager.shared.unreadCount > 0 {
-                            Text("\(min(NotificationManager.shared.unreadCount, 99))")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.white)
-                                .padding(4)
-                                .background(Color.red)
-                                .clipShape(Circle())
-                                .offset(x: 8, y: -4)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Notifications")
-                Button {
-                    showContactsSheet = true
-                } label: {
-                    Image(systemName: "person.crop.rectangle.stack")
-                        .font(.title2)
-                        .padding(6)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Contacts")
-                Button {
-                    showMultisigSheet = true
-                } label: {
-                    Image(systemName: "person.3")
-                        .font(.title2)
-                        .padding(6)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Multisig")
-                Button {
-                    showHardwareWalletSheet = true
-                } label: {
-                    Image(systemName: "cpu")
-                        .font(.title2)
-                        .padding(6)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Hardware Wallet")
-                Button {
-                    showWatchOnlySheet = true
-                } label: {
-                    Image(systemName: "eye")
-                        .font(.title2)
-                        .padding(6)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Watch-Only")
-                Button {
-                    guard hasAcknowledgedSecurityNotice else {
-                        showSecurityNotice = true
-                        return
-                    }
-                    guard canAccessSensitiveData else {
-                        showUnlockSheet = true
-                        return
-                    }
-                    showSettingsPanel = true
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.title2)
-                        .padding(6)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Settings")
-            }
-
-            Text("Generate production-ready key material for Bitcoin, Litecoin, Monero, Solana, Ethereum, BNB, XRP, and popular ERC-20 tokens. Tap a card to inspect and copy individual keys.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 12) {
-                Button {
-                    guard hasAcknowledgedSecurityNotice else {
-                        showSecurityNotice = true
-                        return
-                    }
-                    guard canAccessSensitiveData else {
-                        showUnlockSheet = true
-                        return
-                    }
-                    Task { await runGenerator() }
-                } label: {
-                    Label("Generate Keys", systemImage: "key.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isGenerating || !hasAcknowledgedSecurityNotice || !canAccessSensitiveData)
-
-                Button {
-                    clearSensitiveData()
-                    errorMessage = nil
-                } label: {
-                    Label("Clear", systemImage: "trash")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .disabled(isGenerating || (keys == nil && errorMessage == nil))
-
-                Button {
-                    guard canAccessSensitiveData else {
-                        showUnlockSheet = true
-                        return
-                    }
-                    copyOutput()
-                } label: {
-                    Label("Copy JSON", systemImage: "doc.on.doc")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .disabled(isGenerating || rawJSON.isEmpty || !canAccessSensitiveData)
-
-                Menu {
-                    Button {
-                        guard keys != nil else {
-                            showStatus("Generate keys before exporting.", tone: .info)
+        ZStack {
+            // New modern UI
+            if selectedChain == nil {
+                HawalaMainView(
+                    keys: $keys,
+                    selectedChain: $selectedChain,
+                    balanceStates: $balanceStates,
+                    priceStates: $priceStates,
+                    sparklineCache: sparklineCache,
+                    showSendPicker: $showSendPicker,
+                    showReceiveSheet: $showReceiveSheet,
+                    showSettingsPanel: $showSettingsPanel,
+                    showStakingSheet: $showStakingSheet,
+                    showNotificationsSheet: $showNotificationsSheet,
+                    showContactsSheet: $showContactsSheet,
+                    onGenerateKeys: {
+                        guard hasAcknowledgedSecurityNotice else {
+                            showSecurityNotice = true
                             return
                         }
-                        showExportPasswordPrompt = true
-                    } label: {
-                        Label("Export encrypted…", systemImage: "tray.and.arrow.up")
-                    }
-                    .disabled(keys == nil)
-
-                    Button {
-                        beginEncryptedImport()
-                    } label: {
-                        Label("Import encrypted…", systemImage: "tray.and.arrow.down")
-                    }
-                    
-                    Divider()
-                    
-                    Button {
-                        showImportPrivateKeySheet = true
-                    } label: {
-                        Label("Import Private Key…", systemImage: "key.horizontal")
-                    }
-                } label: {
-                    Label("More", systemImage: "ellipsis.circle")
-                        .frame(maxWidth: .infinity)
-                }
-                .menuStyle(.borderedButton)
-                .disabled(isGenerating || !hasAcknowledgedSecurityNotice || !canAccessSensitiveData)
+                        guard canAccessSensitiveData else {
+                            showUnlockSheet = true
+                            return
+                        }
+                        Task { await runGenerator() }
+                    },
+                    onRefreshBalances: {
+                        if let keys = keys {
+                            startBalanceFetch(for: keys)
+                        }
+                    },
+                    selectedFiatSymbol: selectedFiatCurrency.symbol,
+                    fxRates: fxRates,
+                    selectedFiatCurrency: storedFiatCurrency
+                )
+            } else if let chain = selectedChain {
+                HawalaAssetDetailView(
+                    chain: chain,
+                    balanceState: Binding(
+                        get: { balanceStates[chain.id] },
+                        set: { balanceStates[chain.id] = $0 ?? .idle }
+                    ),
+                    priceState: Binding(
+                        get: { priceStates[chain.id] },
+                        set: { priceStates[chain.id] = $0 ?? .idle }
+                    ),
+                    sparklineData: sparklineCache.sparklines[chain.id] ?? [],
+                    onSend: {
+                        pendingSendChain = chain
+                        selectedChain = nil
+                    },
+                    onReceive: {
+                        showReceiveSheet = true
+                    },
+                    onClose: {
+                        withAnimation(HawalaTheme.Animation.fast) {
+                            selectedChain = nil
+                        }
+                    },
+                    selectedFiatSymbol: selectedFiatCurrency.symbol,
+                    fxMultiplier: fxRates[storedFiatCurrency] ?? 1.0
+                )
             }
-
-            if isGenerating {
-                ProgressView("Running Rust generator...")
-            }
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .foregroundStyle(.red)
-                    .font(.caption)
-            }
-
-            if let statusMessage {
-                Text(statusMessage)
-                    .foregroundStyle(statusColor)
-                    .font(.caption)
-            }
-
-            contentArea
-
-            Spacer()
         }
-        .padding(24)
-        .frame(minWidth: 560, minHeight: 480)
-        .sheet(item: $selectedChain, onDismiss: presentQueuedSendIfNeeded) { chain in
-            let balanceState = balanceStates[chain.id] ?? defaultBalanceState(for: chain.id)
-            let priceState = priceStates[chain.id] ?? defaultPriceState(for: chain.id)
-            ChainDetailSheet(
-                chain: chain,
-                balanceState: balanceState,
-                priceState: priceState,
-                keys: keys,
-                onCopy: { value in
-                    copyToClipboard(value)
-                },
-                onSendRequested: { selectedChain in
-                    pendingSendChain = selectedChain
-                    self.selectedChain = nil
-                }
-            )
-        }
+        .frame(minWidth: 900, minHeight: 600)
+        .background(HawalaTheme.Colors.background)
+        .preferredColorScheme(.dark)
         .sheet(isPresented: $showAllPrivateKeysSheet) {
             if let keys {
                 AllPrivateKeysSheet(chains: keys.chainInfos, onCopy: copySensitiveToClipboard)

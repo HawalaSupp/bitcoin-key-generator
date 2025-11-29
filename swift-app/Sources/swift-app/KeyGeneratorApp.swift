@@ -23,5 +23,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.makeKeyAndOrderFront(nil)
             NSApplication.shared.activate(ignoringOtherApps: true)
         }
+        
+        // Start network services
+        Task { @MainActor in
+            // Start WebSocket for live prices
+            WebSocketPriceService.shared.connect()
+            
+            // Start background sync
+            BackendSyncService.shared.startAutoSync(interval: 60)
+            
+            // Start notification price monitoring
+            NotificationManager.shared.startPriceMonitoring()
+        }
+    }
+    
+    func applicationWillTerminate(_ notification: Notification) {
+        // Clean up network services
+        Task { @MainActor in
+            WebSocketPriceService.shared.disconnect()
+            BackendSyncService.shared.stopAutoSync()
+            NotificationManager.shared.stopPriceMonitoring()
+        }
     }
 }
