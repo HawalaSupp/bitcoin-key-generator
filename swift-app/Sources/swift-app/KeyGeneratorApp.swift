@@ -3,16 +3,60 @@ import SwiftUI
 @main
 struct KeyGeneratorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var passcodeManager = PasscodeManager.shared
     
     init() {
-        print("696969")
-        print("696969")
-        print("696969")
+        print("Hawala Wallet Starting...")
     }
     
     var body: some Scene {
         WindowGroup {
+            AppRootView()
+                .environmentObject(passcodeManager)
+        }
+    }
+}
+
+/// Root view that handles passcode lock/unlock flow
+struct AppRootView: View {
+    @EnvironmentObject var passcodeManager: PasscodeManager
+    @State private var hasCheckedPasscode = false
+    
+    var body: some View {
+        ZStack {
+            // Main app content
             ContentView()
+                .opacity(passcodeManager.isLocked ? 0 : 1)
+            
+            // Passcode setup prompt (first launch)
+            if passcodeManager.showSetupPrompt && hasCheckedPasscode {
+                PasscodeSetupScreen(
+                    onComplete: {
+                        passcodeManager.showSetupPrompt = false
+                    },
+                    onSkip: {
+                        passcodeManager.skipPasscodeSetup()
+                    }
+                )
+                .transition(.opacity)
+                .zIndex(100)
+            }
+            
+            // Passcode lock screen
+            if passcodeManager.isLocked && passcodeManager.hasPasscode && hasCheckedPasscode {
+                PasscodeLockScreen(onUnlock: {})
+                    .transition(.opacity)
+                    .zIndex(101)
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: passcodeManager.isLocked)
+        .animation(.easeInOut(duration: 0.3), value: passcodeManager.showSetupPrompt)
+        .onAppear {
+            // Small delay to let app initialize
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                passcodeManager.checkPasscodeStatus()
+                hasCheckedPasscode = true
+            }
         }
     }
 }

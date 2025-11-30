@@ -7,13 +7,13 @@ enum AppVersion {
     static let major = 2
     
     /// Minor version - new features
-    static let minor = 2
+    static let minor = 3
     
     /// Patch version - bug fixes and small improvements
-    static let patch = 0
+    static let patch = 5
     
     /// Build number - auto-incremented by CI or manual bump
-    static let build = 1
+    static let build = 6
     
     /// Full version string (e.g., "2.2.0")
     static var version: String {

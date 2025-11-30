@@ -8,6 +8,9 @@ struct HawalaMainView: View {
     @Binding var priceStates: [String: ChainPriceState]
     @StateObject var sparklineCache: SparklineCache
     
+    // Settings
+    @AppStorage("showBalances") private var showBalances = true
+    
     // Navigation
     @State private var selectedTab: NavigationTab = .portfolio
     @State private var previousTab: NavigationTab = .portfolio
@@ -425,15 +428,17 @@ struct HawalaMainView: View {
                     let total = calculateTotalBalance()
                     
                     // Animated balance counter
-                    AnimatedCounter(value: total, prefix: selectedFiatSymbol, duration: 1.0)
+                    AnimatedCounter(value: total, prefix: selectedFiatSymbol, duration: 1.0, hideBalance: !showBalances)
                     
                     // P&L indicator (simulated for now - would need purchase history)
-                    ProfitLossIndicator(
-                        currentValue: total,
-                        purchaseValue: total * 0.95, // Simulated 5% gain
-                        currencySymbol: selectedFiatSymbol,
-                        size: .medium
-                    )
+                    if showBalances {
+                        ProfitLossIndicator(
+                            currentValue: total,
+                            purchaseValue: total * 0.95, // Simulated 5% gain
+                            currencySymbol: selectedFiatSymbol,
+                            size: .medium
+                        )
+                    }
                 }
             } else {
                 // No keys state
@@ -560,6 +565,7 @@ struct HawalaMainView: View {
                                     sparklineData: sparklineCache.sparklines[chain.id] ?? [],
                                     isSelected: selectedChain?.id == chain.id,
                                     isDragging: draggedAsset == chain.id,
+                                    hideBalance: !showBalances,
                                     onSelect: {
                                         withAnimation(HawalaTheme.Animation.fast) {
                                             selectedChain = chain
@@ -682,7 +688,8 @@ struct HawalaMainView: View {
                             chain: chain,
                             balance: formatBalance(for: chain.id),
                             fiatValue: formatFiatValue(for: chain.id),
-                            isSelected: selectedChain?.id == chain.id
+                            isSelected: selectedChain?.id == chain.id,
+                            hideBalance: !showBalances
                         ) {
                             selectedChain = chain
                         }
@@ -915,6 +922,7 @@ struct AccountCard: View {
     let balance: String
     let fiatValue: String
     let isSelected: Bool
+    var hideBalance: Bool = false
     let action: () -> Void
     
     @State private var isHovered = false
@@ -947,11 +955,11 @@ struct AccountCard: View {
                         .font(HawalaTheme.Typography.h4)
                         .foregroundColor(HawalaTheme.Colors.textPrimary)
                     
-                    Text(balance)
+                    Text(hideBalance ? "•••••" : balance)
                         .font(HawalaTheme.Typography.mono)
                         .foregroundColor(HawalaTheme.Colors.textSecondary)
                     
-                    Text(fiatValue)
+                    Text(hideBalance ? "•••••" : fiatValue)
                         .font(HawalaTheme.Typography.caption)
                         .foregroundColor(HawalaTheme.Colors.textTertiary)
                 }

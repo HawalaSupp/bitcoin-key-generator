@@ -8,14 +8,16 @@ struct AnimatedCounter: View {
     let value: Double
     let prefix: String
     let duration: Double
+    let hideBalance: Bool
     
     @State private var displayValue: Double = 0
     @State private var hasAnimated = false
     
-    init(value: Double, prefix: String = "$", duration: Double = 1.2) {
+    init(value: Double, prefix: String = "$", duration: Double = 1.2, hideBalance: Bool = false) {
         self.value = value
         self.prefix = prefix
         self.duration = duration
+        self.hideBalance = hideBalance
     }
     
     var body: some View {
@@ -24,19 +26,27 @@ struct AnimatedCounter: View {
                 .font(HawalaTheme.Typography.display(36))
                 .foregroundColor(HawalaTheme.Colors.textSecondary)
             
-            Text(formatNumber(displayValue))
-                .font(HawalaTheme.Typography.display(48))
-                .foregroundColor(HawalaTheme.Colors.textPrimary)
-                .monospacedDigit()
+            if hideBalance {
+                Text("•••••")
+                    .font(HawalaTheme.Typography.display(48))
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+            } else {
+                Text(formatNumber(displayValue))
+                    .font(HawalaTheme.Typography.display(48))
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    .monospacedDigit()
+            }
         }
         .onAppear {
-            if !hasAnimated {
+            if !hasAnimated && !hideBalance {
                 animateValue()
                 hasAnimated = true
             }
         }
         .onChange(of: value) { newValue in
-            animateValue()
+            if !hideBalance {
+                animateValue()
+            }
         }
     }
     
@@ -2228,6 +2238,7 @@ struct DraggableAssetRow: View {
     let sparklineData: [Double]
     let isSelected: Bool
     let isDragging: Bool
+    var hideBalance: Bool = false
     let onSelect: () -> Void
     let onDragStarted: () -> Void
     let onDragEnded: () -> Void
@@ -2289,12 +2300,12 @@ struct DraggableAssetRow: View {
             
             // Balance and value
             VStack(alignment: .trailing, spacing: 2) {
-                Text(balance)
+                Text(hideBalance ? "•••••" : balance)
                     .font(HawalaTheme.Typography.body)
                     .fontWeight(.medium)
                     .foregroundColor(HawalaTheme.Colors.textPrimary)
                 
-                Text(fiatValue)
+                Text(hideBalance ? "•••••" : fiatValue)
                     .font(HawalaTheme.Typography.caption)
                     .foregroundColor(HawalaTheme.Colors.textSecondary)
             }
