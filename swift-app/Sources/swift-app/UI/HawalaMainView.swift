@@ -43,25 +43,30 @@ struct HawalaMainView: View {
     
     enum NavigationTab: String, CaseIterable, Comparable {
         case portfolio = "Portfolio"
-        case accounts = "Accounts"
         case activity = "Activity"
         case discover = "Discover"
         
         var icon: String {
             switch self {
             case .portfolio: return "chart.pie.fill"
-            case .accounts: return "wallet.pass.fill"
             case .activity: return "clock.arrow.circlepath"
             case .discover: return "sparkles"
+            }
+        }
+        
+        // Whether to show text label (activity is icon-only)
+        var showLabel: Bool {
+            switch self {
+            case .activity: return false
+            default: return true
             }
         }
         
         var index: Int {
             switch self {
             case .portfolio: return 0
-            case .accounts: return 1
-            case .activity: return 2
-            case .discover: return 3
+            case .activity: return 1
+            case .discover: return 2
             }
         }
         
@@ -104,7 +109,7 @@ struct HawalaMainView: View {
     // MARK: - Keyboard Shortcut Handlers
     private var keyboardShortcutHandlers: some View {
         Group {
-            // Tab navigation: Cmd+1, Cmd+2, Cmd+3, Cmd+4
+            // Tab navigation: Cmd+1, Cmd+2, Cmd+3
             Button("") {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                     selectedTab = .portfolio
@@ -115,7 +120,7 @@ struct HawalaMainView: View {
             
             Button("") {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                    selectedTab = .accounts
+                    selectedTab = .activity
                 }
             }
             .keyboardShortcut("2", modifiers: .command)
@@ -123,18 +128,10 @@ struct HawalaMainView: View {
             
             Button("") {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                    selectedTab = .activity
-                }
-            }
-            .keyboardShortcut("3", modifiers: .command)
-            .opacity(0)
-            
-            Button("") {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                     selectedTab = .discover
                 }
             }
-            .keyboardShortcut("4", modifiers: .command)
+            .keyboardShortcut("3", modifiers: .command)
             .opacity(0)
             
             // Refresh: Cmd+R
@@ -179,49 +176,40 @@ struct HawalaMainView: View {
     
     // MARK: - Liquid Glass Navigation Bar
     private var liquidGlassNavBar: some View {
-        HStack(spacing: HawalaTheme.Spacing.md) {
-            // Logo
-            HStack(spacing: HawalaTheme.Spacing.sm) {
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [HawalaTheme.Colors.accent, HawalaTheme.Colors.accent.opacity(0.6)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 28, height: 28)
-                    
-                    Text("H")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                }
-                
-                Text("Hawala")
-                    .font(.system(size: 16, weight: .semibold))
+        HStack(spacing: 8) {
+            // Logo - uses custom image with background removed, auto-inverts for dark/light mode
+            if let logoURL = Bundle.module.url(forResource: "HawalaLogo", withExtension: "png"),
+               let nsImage = NSImage(contentsOf: logoURL) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .renderingMode(.template)
                     .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: 16)
             }
             
             // Divider
             Rectangle()
-                .fill(Color.white.opacity(0.15))
-                .frame(width: 1, height: 24)
+                .fill(Color.white.opacity(0.12))
+                .frame(width: 1, height: 18)
             
-            // Navigation tabs
-            HStack(spacing: HawalaTheme.Spacing.xs) {
-                ForEach(NavigationTab.allCases, id: \.self) { tab in
+            // Navigation tabs (Portfolio, Discover)
+            HStack(spacing: 4) {
+                ForEach(NavigationTab.allCases.filter { $0 != .activity }, id: \.self) { tab in
                     liquidGlassTab(tab)
                 }
             }
             
-            // Divider
+            // Divider before right section
             Rectangle()
-                .fill(Color.white.opacity(0.15))
-                .frame(width: 1, height: 24)
+                .fill(Color.white.opacity(0.12))
+                .frame(width: 1, height: 18)
             
-            // Right side actions
-            HStack(spacing: HawalaTheme.Spacing.sm) {
+            // Right side actions with Activity icon (no spacer - compact)
+            HStack(spacing: 6) {
+                // Activity tab (icon only)
+                liquidGlassTab(.activity)
+                
                 // Network status indicator
                 NetworkStatusBar()
                 
@@ -242,8 +230,9 @@ struct HawalaMainView: View {
                 }
             }
         }
-        .padding(.horizontal, HawalaTheme.Spacing.lg)
-        .frame(height: 52)
+        .padding(.horizontal, 12)
+        .frame(height: 36)
+        .fixedSize(horizontal: true, vertical: false) // Prevents stretching
         .background(
             ZStack {
                 // Liquid glass effect
@@ -293,31 +282,33 @@ struct HawalaMainView: View {
                 selectedTab = tab
             }
         }) {
-            HStack(spacing: HawalaTheme.Spacing.xs) {
+            HStack(spacing: tab.showLabel ? 4 : 0) {
                 Image(systemName: tab.icon)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                 
-                Text(tab.rawValue)
-                    .font(.system(size: 13, weight: .medium))
+                if tab.showLabel {
+                    Text(tab.rawValue)
+                        .font(.system(size: 11, weight: .medium))
+                }
             }
             .foregroundColor(isSelected ? HawalaTheme.Colors.textPrimary : HawalaTheme.Colors.textSecondary)
-            .padding(.horizontal, HawalaTheme.Spacing.md)
-            .padding(.vertical, HawalaTheme.Spacing.sm)
+            .padding(.horizontal, tab.showLabel ? 8 : 6)
+            .padding(.vertical, 4)
             .background(
                 ZStack {
                     if isSelected {
                         Capsule()
-                            .fill(Color.white.opacity(0.12))
+                            .fill(Color.white.opacity(0.10))
                         
                         Capsule()
-                            .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
                     } else if isHovered {
                         Capsule()
-                            .fill(Color.white.opacity(0.06))
+                            .fill(Color.white.opacity(0.05))
                     }
                 }
             )
-            .scaleEffect(isSelected ? 1.02 : (isHovered ? 1.01 : 1.0))
+            .scaleEffect(isSelected ? 1.01 : (isHovered ? 1.005 : 1.0))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -332,21 +323,21 @@ struct HawalaMainView: View {
         Button(action: action) {
             ZStack(alignment: .topTrailing) {
                 Image(systemName: icon)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(HawalaTheme.Colors.textSecondary)
-                    .frame(width: 34, height: 34)
+                    .frame(width: 26, height: 26)
                     .background(
                         Circle()
-                            .fill(Color.white.opacity(0.06))
+                            .fill(Color.white.opacity(0.05))
                     )
                 
                 if let badge = badge, badge > 0 {
                     Circle()
                         .fill(HawalaTheme.Colors.accent)
-                        .frame(width: 16, height: 16)
+                        .frame(width: 12, height: 12)
                         .overlay(
                             Text("\(min(badge, 9))")
-                                .font(.system(size: 10, weight: .bold))
+                                .font(.system(size: 8, weight: .bold))
                                 .foregroundColor(.white)
                         )
                         .offset(x: 4, y: -4)
@@ -359,19 +350,17 @@ struct HawalaMainView: View {
         }
     }
     
-    // MARK: - Main Content (with page transitions)
+    // MARK: - Main Content (with Liquid Glass Transitions)
     private var mainContentView: some View {
         VStack(spacing: 0) {
-            // Content based on selected tab with smooth transitions
+            // Content based on selected tab with liquid glass transitions
             ScrollView {
                 ZStack {
-                    // Use transition based on tab direction
+                    // Liquid glass morph transition
                     Group {
                         switch selectedTab {
                         case .portfolio:
                             portfolioView
-                        case .accounts:
-                            accountsView
                         case .activity:
                             activityView
                         case .discover:
@@ -379,16 +368,9 @@ struct HawalaMainView: View {
                         }
                     }
                     .id(selectedTab)
-                    .transition(
-                        .asymmetric(
-                            insertion: .move(edge: selectedTab > previousTab ? .trailing : .leading)
-                                .combined(with: .opacity),
-                            removal: .move(edge: selectedTab > previousTab ? .leading : .trailing)
-                                .combined(with: .opacity)
-                        )
-                    )
+                    .transition(liquidGlassTransition)
                 }
-                .animation(.spring(response: 0.4, dampingFraction: 0.85), value: selectedTab)
+                .animation(liquidGlassAnimation, value: selectedTab)
             }
         }
         .onChange(of: selectedTab) { newTab in
@@ -396,21 +378,179 @@ struct HawalaMainView: View {
         }
     }
     
-    // MARK: - Portfolio View
+    // Liquid glass transition - Apple-style morph effect
+    private var liquidGlassTransition: AnyTransition {
+        .asymmetric(
+            insertion: .modifier(
+                active: LiquidGlassModifier(progress: 0, direction: selectedTab > previousTab ? 1 : -1),
+                identity: LiquidGlassModifier(progress: 1, direction: 0)
+            ),
+            removal: .modifier(
+                active: LiquidGlassModifier(progress: 0, direction: selectedTab > previousTab ? -1 : 1),
+                identity: LiquidGlassModifier(progress: 1, direction: 0)
+            )
+        )
+    }
+    
+    // Liquid glass animation timing
+    private var liquidGlassAnimation: Animation {
+        .spring(response: 0.55, dampingFraction: 0.85, blendDuration: 0.3)
+    }
+    
+    // MARK: - Portfolio View (Redesigned with Bento Grid)
     private var portfolioView: some View {
-        VStack(alignment: .center, spacing: HawalaTheme.Spacing.xl) {
-            // Total balance hero
-            totalBalanceCard
-                .padding(.horizontal, HawalaTheme.Spacing.xl)
+        VStack(alignment: .center, spacing: HawalaTheme.Spacing.xxl) {
+            // Minimalist centered balance
+            minimalistBalanceDisplay
             
-            // Assets list
-            assetsSection
+            // Bento grid assets
+            bentoAssetsGrid
         }
-        .padding(.top, HawalaTheme.Spacing.md)
+        .padding(.top, HawalaTheme.Spacing.xl)
         .padding(.bottom, HawalaTheme.Spacing.xxl)
     }
     
-    // MARK: - Total Balance Card
+    // MARK: - Minimalist Balance Display (No background, centered, modern font)
+    private var minimalistBalanceDisplay: some View {
+        VStack(alignment: .center, spacing: HawalaTheme.Spacing.sm) {
+            if let keys = keys {
+                let isLoading = areAllBalancesLoading(chains: keys.chainInfos)
+                
+                if isLoading {
+                    // Elegant loading animation
+                    Text("$0.00")
+                        .font(.system(size: 56, weight: .light, design: .rounded))
+                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        .opacity(0.5)
+                        .modifier(ShimmerModifier())
+                } else {
+                    let total = calculateTotalBalance()
+                    
+                    // Main balance - large, light weight, no background
+                    if showBalances {
+                        Text(selectedFiatSymbol + formatLargeNumber(total))
+                            .font(.system(size: 56, weight: .light, design: .rounded))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [Color.white, Color.white.opacity(0.85)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .contentTransition(.numericText())
+                            .animation(.spring(response: 0.5, dampingFraction: 0.8), value: total)
+                    } else {
+                        Text("••••••")
+                            .font(.system(size: 56, weight: .light, design: .rounded))
+                            .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    }
+                    
+                    // Subtle P&L indicator
+                    if showBalances {
+                        HStack(spacing: HawalaTheme.Spacing.xs) {
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 12, weight: .medium))
+                            Text("+5.2%")
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                        }
+                        .foregroundColor(HawalaTheme.Colors.success)
+                        .opacity(0.8)
+                    }
+                }
+            } else {
+                // No keys state - minimal
+                VStack(spacing: HawalaTheme.Spacing.lg) {
+                    Text("$0.00")
+                        .font(.system(size: 56, weight: .light, design: .rounded))
+                        .foregroundColor(HawalaTheme.Colors.textTertiary.opacity(0.5))
+                    
+                    HawalaPrimaryButton("Generate Wallet", icon: "key.fill", action: onGenerateKeys)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, HawalaTheme.Spacing.xl)
+    }
+    
+    // MARK: - Bento Assets Grid
+    private var bentoAssetsGrid: some View {
+        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
+            // Section header
+            HStack {
+                Text("Assets")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .textCase(.uppercase)
+                    .tracking(1.2)
+                
+                Spacer()
+                
+                Button(action: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        isRefreshing = true
+                    }
+                    onRefreshBalances()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        withAnimation { isRefreshing = false }
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        if isRefreshing {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                                .frame(width: 12, height: 12)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                    }
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .disabled(isRefreshing)
+            }
+            .padding(.horizontal, HawalaTheme.Spacing.xl)
+            
+            if let keys = keys {
+                let chains = getOrderedChains(keys.chainInfos)
+                
+                // Bento grid layout
+                LazyVGrid(columns: bentGridColumns, spacing: HawalaTheme.Spacing.md) {
+                    ForEach(Array(chains.enumerated()), id: \.element.id) { index, chain in
+                        BentoAssetCard(
+                            chain: chain,
+                            chainSymbol: chainSymbol(for: chain.id),
+                            chainColor: HawalaTheme.Colors.forChain(chain.id),
+                            balance: formatBalance(for: chain.id),
+                            fiatValue: formatFiatValue(for: chain.id),
+                            sparklineData: sparklineCache.sparklines[chain.id] ?? [],
+                            isSelected: selectedChain?.id == chain.id,
+                            hideBalance: !showBalances,
+                            onSelect: {
+                                withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
+                                    selectedChain = chain
+                                }
+                            }
+                        )
+                    }
+                }
+                .padding(.horizontal, HawalaTheme.Spacing.xl)
+            } else {
+                BentoEmptyState(onGenerate: onGenerateKeys)
+                    .padding(.horizontal, HawalaTheme.Spacing.xl)
+            }
+        }
+    }
+    
+    // Bento grid columns - adaptive based on content
+    private var bentGridColumns: [GridItem] {
+        [
+            GridItem(.flexible(), spacing: HawalaTheme.Spacing.md),
+            GridItem(.flexible(), spacing: HawalaTheme.Spacing.md)
+        ]
+    }
+    
+    // MARK: - Total Balance Card (Legacy - kept for reference)
     private var totalBalanceCard: some View {
         VStack(alignment: .center, spacing: HawalaTheme.Spacing.md) {
             Text("Total Balance")
@@ -908,7 +1048,7 @@ struct HawalaMainView: View {
               let priceState = priceStates[chainId],
               case .loaded(let priceStr, _) = priceState,
               let price = Double(priceStr) else {
-            return "\(selectedFiatSymbol)--"
+            return "\(selectedFiatSymbol)0.00"
         }
         
         let value = balance * price * fxMultiplier
@@ -1030,6 +1170,329 @@ struct DiscoverCard: View {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 isHovered = hovering
             }
+        }
+    }
+}
+
+// MARK: - Liquid Glass Transition Modifier
+struct LiquidGlassModifier: ViewModifier {
+    let progress: Double
+    let direction: Int // -1 for left, 0 for center, 1 for right
+    
+    func body(content: Content) -> some View {
+        content
+            .opacity(progress)
+            .blur(radius: (1 - progress) * 8)
+            .scaleEffect(0.92 + (progress * 0.08))
+            .offset(x: CGFloat(direction) * (1 - progress) * 30)
+            .rotation3DEffect(
+                .degrees(Double(direction) * (1 - progress) * 8),
+                axis: (x: 0, y: 1, z: 0),
+                perspective: 0.5
+            )
+    }
+}
+
+// MARK: - Bento Asset Card (Grid Cell)
+struct BentoAssetCard: View {
+    let chain: ChainInfo
+    let chainSymbol: String
+    let chainColor: Color
+    let balance: String
+    let fiatValue: String
+    let sparklineData: [Double]
+    let isSelected: Bool
+    var hideBalance: Bool = false
+    var onSelect: () -> Void
+    
+    @State private var isHovered = false
+    
+    // Price change percentage from sparkline
+    private var priceChange: Double {
+        guard sparklineData.count >= 2 else { return 0 }
+        let first = sparklineData.first ?? 1
+        let last = sparklineData.last ?? 1
+        guard first != 0 else { return 0 }
+        return ((last - first) / first) * 100
+    }
+    
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 0) {
+                // Header: Icon + Name + Price change
+                HStack(spacing: 10) {
+                    // Chain icon - monochrome
+                    ZStack {
+                        Circle()
+                            .fill(Color.white.opacity(0.06))
+                            .frame(width: 36, height: 36)
+                        
+                        Image(systemName: chain.iconName)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(Color.white.opacity(0.5))
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(chain.title)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(HawalaTheme.Colors.textPrimary)
+                        
+                        Text(chainSymbol)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    }
+                    
+                    Spacer()
+                    
+                    // Price change badge - monochrome with subtle tint
+                    if priceChange != 0 {
+                        HStack(spacing: 2) {
+                            Image(systemName: priceChange >= 0 ? "arrow.up.right" : "arrow.down.right")
+                                .font(.system(size: 9, weight: .bold))
+                            Text(String(format: "%.1f%%", abs(priceChange)))
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundColor(Color.white.opacity(priceChange >= 0 ? 0.6 : 0.45))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule()
+                                .fill(Color.white.opacity(0.06))
+                        )
+                    }
+                }
+                
+                Spacer()
+                
+                // Sparkline chart - monochrome
+                if !sparklineData.isEmpty {
+                    BentoSparklineChart(data: sparklineData, color: Color.white.opacity(0.3), isPositive: priceChange >= 0)
+                        .frame(height: 50)
+                        .padding(.vertical, 8)
+                } else {
+                    // Placeholder for no data
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.white.opacity(0.03))
+                        .frame(height: 50)
+                        .overlay(
+                            Text("Loading...")
+                                .font(.system(size: 10))
+                                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        )
+                        .padding(.vertical, 8)
+                }
+                
+                Spacer()
+                
+                // Footer: Balance & Fiat value
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        if hideBalance {
+                            Text("••••••")
+                                .font(.system(size: 18, weight: .bold, design: .rounded))
+                                .foregroundColor(HawalaTheme.Colors.textPrimary)
+                        } else {
+                            Text(fiatValue)
+                                .font(.system(size: 18, weight: .bold, design: .rounded))
+                                .foregroundColor(HawalaTheme.Colors.textPrimary)
+                            
+                            Text("\(balance) \(chainSymbol)")
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        }
+                    }
+                    
+                    Spacer()
+                }
+            }
+            .padding(14)
+            .frame(height: 175)
+            .background(
+                ZStack {
+                    // Clean glass background - monochrome
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .opacity(0.3)
+                    
+                    // Selection indicator - subtle white
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.25), lineWidth: 1.5)
+                    }
+                    
+                    // Border - monochrome
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                        .strokeBorder(
+                            Color.white.opacity(isHovered ? 0.12 : 0.06),
+                            lineWidth: 1
+                        )
+                }
+            )
+            .scaleEffect(isHovered ? 1.01 : 1.0)
+            .shadow(
+                color: Color.black.opacity(isHovered ? 0.12 : 0.06),
+                radius: isHovered ? 8 : 4,
+                y: isHovered ? 3 : 1
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                isHovered = hovering
+            }
+        }
+    }
+}
+
+// MARK: - Shimmer Modifier
+struct ShimmerModifier: ViewModifier {
+    @State private var phase: CGFloat = 0
+    
+    func body(content: Content) -> some View {
+        content
+            .overlay(
+                GeometryReader { geo in
+                    LinearGradient(
+                        colors: [
+                            Color.clear,
+                            Color.white.opacity(0.3),
+                            Color.clear
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: geo.size.width * 2)
+                    .offset(x: -geo.size.width + (geo.size.width * 2 * phase))
+                }
+                .mask(content)
+            )
+            .onAppear {
+                withAnimation(
+                    .linear(duration: 1.5)
+                    .repeatForever(autoreverses: false)
+                ) {
+                    phase = 1
+                }
+            }
+    }
+}
+
+// MARK: - Bento Empty State
+struct BentoEmptyState: View {
+    let onGenerate: () -> Void
+    
+    var body: some View {
+        VStack(spacing: HawalaTheme.Spacing.xl) {
+            ZStack {
+                Circle()
+                    .fill(HawalaTheme.Colors.accent.opacity(0.1))
+                    .frame(width: 80, height: 80)
+                
+                Image(systemName: "wallet.pass")
+                    .font(.system(size: 32, weight: .medium))
+                    .foregroundColor(HawalaTheme.Colors.accent)
+            }
+            
+            VStack(spacing: HawalaTheme.Spacing.sm) {
+                Text("No Wallets Yet")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                
+                Text("Generate your multi-chain wallet to get started")
+                    .font(.system(size: 14))
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+            
+            HawalaPrimaryButton("Generate Wallet", icon: "key.fill", action: onGenerate)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, HawalaTheme.Spacing.xxl)
+    }
+}
+
+// MARK: - Bento Sparkline Chart
+struct BentoSparklineChart: View {
+    let data: [Double]
+    let color: Color
+    let isPositive: Bool
+    
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let height = geometry.size.height
+            
+            let minVal = data.min() ?? 0
+            let maxVal = data.max() ?? 1
+            let range = maxVal - minVal
+            
+            // Create path
+            Path { path in
+                guard data.count > 1, range > 0 else { return }
+                
+                for (index, value) in data.enumerated() {
+                    let x = width * CGFloat(index) / CGFloat(data.count - 1)
+                    let y = height - (height * CGFloat((value - minVal) / range))
+                    
+                    if index == 0 {
+                        path.move(to: CGPoint(x: x, y: y))
+                    } else {
+                        // Smooth curve using quadratic Bezier
+                        let prevIndex = index - 1
+                        let prevX = width * CGFloat(prevIndex) / CGFloat(data.count - 1)
+                        let prevY = height - (height * CGFloat((data[prevIndex] - minVal) / range))
+                        let midX = (prevX + x) / 2
+                        
+                        path.addQuadCurve(
+                            to: CGPoint(x: x, y: y),
+                            control: CGPoint(x: midX, y: prevY)
+                        )
+                    }
+                }
+            }
+            .stroke(
+                Color.white.opacity(0.25),
+                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
+            )
+            
+            // Gradient fill under the line - very subtle
+            Path { path in
+                guard data.count > 1, range > 0 else { return }
+                
+                path.move(to: CGPoint(x: 0, y: height))
+                
+                for (index, value) in data.enumerated() {
+                    let x = width * CGFloat(index) / CGFloat(data.count - 1)
+                    let y = height - (height * CGFloat((value - minVal) / range))
+                    
+                    if index == 0 {
+                        path.addLine(to: CGPoint(x: x, y: y))
+                    } else {
+                        let prevIndex = index - 1
+                        let prevX = width * CGFloat(prevIndex) / CGFloat(data.count - 1)
+                        let prevY = height - (height * CGFloat((data[prevIndex] - minVal) / range))
+                        let midX = (prevX + x) / 2
+                        
+                        path.addQuadCurve(
+                            to: CGPoint(x: x, y: y),
+                            control: CGPoint(x: midX, y: prevY)
+                        )
+                    }
+                }
+                
+                path.addLine(to: CGPoint(x: width, y: height))
+                path.closeSubpath()
+            }
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.04),
+                        Color.white.opacity(0.0)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
         }
     }
 }

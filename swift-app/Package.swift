@@ -26,7 +26,10 @@ let package = Package(
                 .product(name: "P256K", package: "swift-secp256k1"),
                 "RustBridge"
             ],
-            exclude: ["APIKeys.swift.template"]
+            exclude: ["APIKeys.swift.template"],
+            resources: [
+                .copy("Resources/HawalaLogo.png")
+            ]
         ),
         .testTarget(
             name: "swift-appTests",
