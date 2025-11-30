@@ -29,32 +29,34 @@
 - [x] Pull-to-refresh animation
 - [x] Smooth page transitions
 
-### Phase 6: Network & Backend (JUST COMPLETED)
+### Phase 6: Network & Backend
 - [x] WebSocket real-time price updates (Binance integration)
 - [x] Push notifications framework (NotificationManager)
 - [x] Backend sync with caching, retry logic, offline queue
 - [x] Network status indicators in UI
 
+### Phase 7: Security Enhancements (JUST COMPLETED)
+- [x] **Transaction signing confirmation UI** - Modal showing exact amounts, fees, recipient before signing
+- [x] **Address verification screens** - Visual checksum verification, color-coded address chunks, manual entry verification
+
+### Phase 8: Advanced Features (JUST COMPLETED)
+- [x] **Multi-wallet support** - WalletRepository service for multiple seed phrases/wallets
+- [x] **Wallet picker UI** - Create, import, and switch between wallets
+- [x] **Watch-only wallets** - Monitor addresses without private keys
+- [x] **Portfolio analytics** - Charts over time (1D, 1W, 1M, 3M, 1Y views), asset allocation pie chart
+
 ---
 
-## 🔄 IN PROGRESS / NEXT UP
+---
 
-### Phase 7: Security Enhancements (Priority: HIGH)
-- [ ] **Transaction signing confirmation UI** - Modal showing exact amounts, fees, recipient before signing
-- [ ] **Address verification screens** - Visual checksum verification, ENS/domain lookup display
-- [ ] **Passphrase (25th word) support** - Optional extra security for HD wallets
+## � IN PROGRESS / NEXT UP
 
-### Phase 8: Advanced Features (Priority: HIGH)
-- [ ] **Multi-wallet support** - Manage multiple seed phrases/wallets
-- [ ] **Watch-only wallets** - Monitor addresses without private keys
-- [ ] **Portfolio analytics** - Charts over time (1D, 1W, 1M, 1Y views)
+### Phase 9: Export & Utility Features (Priority: HIGH)
 - [ ] **Export transaction history** - CSV/PDF export functionality
+- [ ] **Passphrase (25th word) support** - Optional extra security for HD wallets
+- [ ] **Address labels/tags** - Organize addresses with custom labels
 
----
-
-## 📋 BACKLOG
-
-### Phase 9: UX Improvements (Priority: MEDIUM)
+### Phase 10: UX Improvements (Priority: MEDIUM)
 - [ ] **Onboarding tutorial flow** - First-time user walkthrough
 - [ ] **In-app help/documentation** - Contextual tooltips, FAQ section
 - [ ] **Dark/Light theme toggle** - Currently dark only
