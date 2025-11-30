@@ -182,7 +182,7 @@ extension HawalaTheme.Colors {
     }
 }
 
-// MARK: - Glassmorphism Modifier
+// MARK: - Glassmorphism Modifier (Optimized)
 extension View {
     func glassCard(
         cornerRadius: CGFloat = HawalaTheme.Radius.lg,
@@ -192,37 +192,13 @@ extension View {
         self
             .background(
                 ZStack {
-                    // Base blur layer
+                    // Optimized: Single solid background instead of ultraThinMaterial
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                        .opacity(0.5)
+                        .fill(Color(white: 0.15, opacity: 0.85))
                     
-                    // Gradient overlay for depth
+                    // Simple border
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(opacity * 1.5),
-                                    Color.white.opacity(opacity * 0.5)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                    
-                    // Inner glow
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.3),
-                                    Color.white.opacity(0.05)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
+                        .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
                 }
             )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -235,32 +211,23 @@ extension View {
         self
             .background(
                 ZStack {
-                    // Frosted material
+                    // Optimized: Solid background instead of ultraThinMaterial
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(.ultraThinMaterial)
+                        .fill(Color(white: 0.12, opacity: 0.9))
                     
-                    // Subtle color tint
+                    // Simple border
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(HawalaTheme.Colors.backgroundSecondary.opacity(intensity))
-                    
-                    // Border highlight
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(
-                            Color.white.opacity(0.1),
-                            lineWidth: 0.5
-                        )
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
                 }
             )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 }
 
-// MARK: - Particle Background View
+// MARK: - Optimized Static Background (replaces ParticleBackgroundView)
 struct ParticleBackgroundView: View {
     let particleCount: Int
     let colors: [Color]
-    
-    @State private var particles: [Particle] = []
     
     init(
         particleCount: Int = 30,
@@ -275,125 +242,35 @@ struct ParticleBackgroundView: View {
         self.colors = colors
     }
     
-    struct Particle: Identifiable {
-        let id = UUID()
-        var x: CGFloat
-        var y: CGFloat
-        var size: CGFloat
-        var opacity: Double
-        var color: Color
-        var speed: CGFloat
-        var angle: CGFloat
-    }
-    
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                // Background gradient
-                LinearGradient(
-                    colors: [
-                        HawalaTheme.Colors.background,
-                        HawalaTheme.Colors.backgroundSecondary.opacity(0.5),
-                        HawalaTheme.Colors.background
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                
-                // Floating particles
-                ForEach(particles) { particle in
-                    Circle()
-                        .fill(
-                            RadialGradient(
-                                colors: [
-                                    particle.color,
-                                    particle.color.opacity(0)
-                                ],
-                                center: .center,
-                                startRadius: 0,
-                                endRadius: particle.size / 2
-                            )
-                        )
-                        .frame(width: particle.size, height: particle.size)
-                        .position(x: particle.x, y: particle.y)
-                        .blur(radius: particle.size * 0.3)
-                }
-                
-                // Gradient orbs (larger, slower moving)
-                GradientOrb(
-                    color: HawalaTheme.Colors.accent,
-                    size: 300,
-                    position: CGPoint(x: geometry.size.width * 0.2, y: geometry.size.height * 0.3)
-                )
-                
-                GradientOrb(
-                    color: HawalaTheme.Colors.solana,
-                    size: 250,
-                    position: CGPoint(x: geometry.size.width * 0.8, y: geometry.size.height * 0.7)
-                )
-            }
-            .onAppear {
-                initializeParticles(in: geometry.size)
-                startAnimation(in: geometry.size)
-            }
-        }
+        // Simple static gradient - no animations, no timers
+        LinearGradient(
+            colors: [
+                HawalaTheme.Colors.background,
+                HawalaTheme.Colors.backgroundSecondary.opacity(0.3),
+                HawalaTheme.Colors.background
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
         .ignoresSafeArea()
-    }
-    
-    private func initializeParticles(in size: CGSize) {
-        particles = (0..<particleCount).map { _ in
-            Particle(
-                x: CGFloat.random(in: 0...size.width),
-                y: CGFloat.random(in: 0...size.height),
-                size: CGFloat.random(in: 20...80),
-                opacity: Double.random(in: 0.1...0.4),
-                color: colors.randomElement() ?? .white,
-                speed: CGFloat.random(in: 0.2...0.8),
-                angle: CGFloat.random(in: 0...(2 * .pi))
-            )
-        }
-    }
-    
-    private func startAnimation(in size: CGSize) {
-        Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [self] _ in
-            Task { @MainActor in
-                withAnimation(.linear(duration: 0.05)) {
-                    for i in particles.indices {
-                        // Move particle
-                        particles[i].x += cos(particles[i].angle) * particles[i].speed
-                        particles[i].y += sin(particles[i].angle) * particles[i].speed
-                        
-                        // Wrap around edges
-                        if particles[i].x < -50 { particles[i].x = size.width + 50 }
-                        if particles[i].x > size.width + 50 { particles[i].x = -50 }
-                        if particles[i].y < -50 { particles[i].y = size.height + 50 }
-                        if particles[i].y > size.height + 50 { particles[i].y = -50 }
-                        
-                        // Slight angle drift
-                        particles[i].angle += CGFloat.random(in: -0.02...0.02)
-                    }
-                }
-            }
-        }
     }
 }
 
-// MARK: - Gradient Orb
+// MARK: - Static Gradient Orb (no animations)
 struct GradientOrb: View {
     let color: Color
     let size: CGFloat
     let position: CGPoint
     
-    @State private var offset: CGSize = .zero
-    @State private var scale: CGFloat = 1.0
-    
     var body: some View {
+        // Static orb - no movement, no animations
         Circle()
             .fill(
                 RadialGradient(
                     colors: [
-                        color.opacity(0.4),
-                        color.opacity(0.1),
+                        color.opacity(0.15),
+                        color.opacity(0.05),
                         color.opacity(0)
                     ],
                     center: .center,
@@ -402,28 +279,7 @@ struct GradientOrb: View {
                 )
             )
             .frame(width: size, height: size)
-            .blur(radius: size * 0.2)
-            .position(x: position.x + offset.width, y: position.y + offset.height)
-            .scaleEffect(scale)
-            .onAppear {
-                // Slow, organic movement
-                withAnimation(
-                    Animation.easeInOut(duration: Double.random(in: 8...15))
-                        .repeatForever(autoreverses: true)
-                ) {
-                    offset = CGSize(
-                        width: CGFloat.random(in: -50...50),
-                        height: CGFloat.random(in: -50...50)
-                    )
-                }
-                
-                withAnimation(
-                    Animation.easeInOut(duration: Double.random(in: 5...10))
-                        .repeatForever(autoreverses: true)
-                ) {
-                    scale = CGFloat.random(in: 0.8...1.2)
-                }
-            }
+            .position(position)
     }
 }
 

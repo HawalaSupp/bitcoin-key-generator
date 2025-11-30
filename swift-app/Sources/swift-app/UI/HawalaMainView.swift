@@ -77,13 +77,17 @@ struct HawalaMainView: View {
     
     var body: some View {
         ZStack(alignment: .top) {
-            // Subtle particle background for depth
-            ParticleBackgroundView(particleCount: 15, colors: [
-                HawalaTheme.Colors.accent.opacity(0.15),
-                HawalaTheme.Colors.ethereum.opacity(0.1),
-                Color.white.opacity(0.05)
-            ])
-            .opacity(0.6)
+            // Simple static gradient background (optimized - no animations)
+            LinearGradient(
+                colors: [
+                    HawalaTheme.Colors.background,
+                    HawalaTheme.Colors.backgroundSecondary.opacity(0.3),
+                    HawalaTheme.Colors.background
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
             
             // Main content (full width now)
             mainContentView
@@ -235,41 +239,16 @@ struct HawalaMainView: View {
         .fixedSize(horizontal: true, vertical: false) // Prevents stretching
         .background(
             ZStack {
-                // Liquid glass effect
+                // Optimized glass effect - single layer instead of ultraThinMaterial
                 Capsule()
-                    .fill(.ultraThinMaterial)
+                    .fill(Color(white: 0.15, opacity: 0.85))
                 
-                // Subtle gradient overlay
+                // Simple border
                 Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.08),
-                                Color.white.opacity(0.02)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                
-                // Border glow
-                Capsule()
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.2),
-                                Color.white.opacity(0.05)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
+                    .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
             }
         )
-        .shadow(color: Color.black.opacity(0.3), radius: 20, x: 0, y: 10)
-        .shadow(color: HawalaTheme.Colors.accent.opacity(0.1), radius: 30, x: 0, y: 5)
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isNavBarHovered)
+        .shadow(color: Color.black.opacity(0.25), radius: 12, x: 0, y: 6) // Single optimized shadow
     }
     
     // MARK: - Liquid Glass Tab
@@ -278,7 +257,7 @@ struct HawalaMainView: View {
         let isHovered = hoveredTab == tab
         
         return Button(action: {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+            withAnimation(.easeOut(duration: 0.2)) {
                 selectedTab = tab
             }
         }) {
@@ -295,26 +274,20 @@ struct HawalaMainView: View {
             .padding(.horizontal, tab.showLabel ? 8 : 6)
             .padding(.vertical, 4)
             .background(
-                ZStack {
+                Group {
                     if isSelected {
                         Capsule()
                             .fill(Color.white.opacity(0.10))
-                        
-                        Capsule()
-                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
                     } else if isHovered {
                         Capsule()
                             .fill(Color.white.opacity(0.05))
                     }
                 }
             )
-            .scaleEffect(isSelected ? 1.01 : (isHovered ? 1.005 : 1.0))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                hoveredTab = hovering ? tab : nil
-            }
+            hoveredTab = hovering ? tab : nil // No animation on hover - instant response
         }
     }
     
@@ -345,9 +318,6 @@ struct HawalaMainView: View {
             }
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            // Could add hover effect here
-        }
     }
     
     // MARK: - Main Content (with Liquid Glass Transitions)
@@ -368,33 +338,14 @@ struct HawalaMainView: View {
                         }
                     }
                     .id(selectedTab)
-                    .transition(liquidGlassTransition)
+                    .transition(.opacity.combined(with: .move(edge: selectedTab > previousTab ? .trailing : .leading)))
                 }
-                .animation(liquidGlassAnimation, value: selectedTab)
+                .animation(.easeOut(duration: 0.25), value: selectedTab)
             }
         }
         .onChange(of: selectedTab) { newTab in
             previousTab = selectedTab
         }
-    }
-    
-    // Liquid glass transition - Apple-style morph effect
-    private var liquidGlassTransition: AnyTransition {
-        .asymmetric(
-            insertion: .modifier(
-                active: LiquidGlassModifier(progress: 0, direction: selectedTab > previousTab ? 1 : -1),
-                identity: LiquidGlassModifier(progress: 1, direction: 0)
-            ),
-            removal: .modifier(
-                active: LiquidGlassModifier(progress: 0, direction: selectedTab > previousTab ? -1 : 1),
-                identity: LiquidGlassModifier(progress: 1, direction: 0)
-            )
-        )
-    }
-    
-    // Liquid glass animation timing
-    private var liquidGlassAnimation: Animation {
-        .spring(response: 0.55, dampingFraction: 0.85, blendDuration: 0.3)
     }
     
     // MARK: - Portfolio View (Redesigned with Bento Grid)
@@ -417,12 +368,11 @@ struct HawalaMainView: View {
                 let isLoading = areAllBalancesLoading(chains: keys.chainInfos)
                 
                 if isLoading {
-                    // Elegant loading animation
+                    // Simple loading state - no shimmer animation
                     Text("$0.00")
                         .font(.system(size: 56, weight: .light, design: .rounded))
                         .foregroundColor(HawalaTheme.Colors.textTertiary)
                         .opacity(0.5)
-                        .modifier(ShimmerModifier())
                 } else {
                     let total = calculateTotalBalance()
                     
@@ -430,15 +380,7 @@ struct HawalaMainView: View {
                     if showBalances {
                         Text(selectedFiatSymbol + formatLargeNumber(total))
                             .font(.system(size: 56, weight: .light, design: .rounded))
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [Color.white, Color.white.opacity(0.85)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                            .contentTransition(.numericText())
-                            .animation(.spring(response: 0.5, dampingFraction: 0.8), value: total)
+                            .foregroundColor(.white)
                     } else {
                         Text("••••••")
                             .font(.system(size: 56, weight: .light, design: .rounded))
@@ -1167,29 +1109,8 @@ struct DiscoverCard: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                isHovered = hovering
-            }
+            isHovered = hovering // No animation - instant response
         }
-    }
-}
-
-// MARK: - Liquid Glass Transition Modifier
-struct LiquidGlassModifier: ViewModifier {
-    let progress: Double
-    let direction: Int // -1 for left, 0 for center, 1 for right
-    
-    func body(content: Content) -> some View {
-        content
-            .opacity(progress)
-            .blur(radius: (1 - progress) * 8)
-            .scaleEffect(0.92 + (progress * 0.08))
-            .offset(x: CGFloat(direction) * (1 - progress) * 30)
-            .rotation3DEffect(
-                .degrees(Double(direction) * (1 - progress) * 8),
-                axis: (x: 0, y: 1, z: 0),
-                perspective: 0.5
-            )
     }
 }
 
@@ -1309,42 +1230,28 @@ struct BentoAssetCard: View {
             .frame(height: 175)
             .background(
                 ZStack {
-                    // Clean glass background - monochrome
+                    // Optimized solid background instead of ultraThinMaterial
                     RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                        .opacity(0.3)
+                        .fill(Color(white: 0.12, opacity: 0.9))
                     
-                    // Selection indicator - subtle white
-                    if isSelected {
-                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.25), lineWidth: 1.5)
-                    }
-                    
-                    // Border - monochrome
+                    // Border - simple, no condition checks in rendering
                     RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
                         .strokeBorder(
-                            Color.white.opacity(isHovered ? 0.12 : 0.06),
-                            lineWidth: 1
+                            Color.white.opacity(isSelected ? 0.25 : (isHovered ? 0.12 : 0.06)),
+                            lineWidth: isSelected ? 1.5 : 1
                         )
                 }
             )
-            .scaleEffect(isHovered ? 1.01 : 1.0)
-            .shadow(
-                color: Color.black.opacity(isHovered ? 0.12 : 0.06),
-                radius: isHovered ? 8 : 4,
-                y: isHovered ? 3 : 1
-            )
+            .shadow(color: Color.black.opacity(0.08), radius: 4, y: 2) // Single light shadow
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                isHovered = hovering
-            }
+            isHovered = hovering // No animation - instant response
         }
     }
 }
 
-// MARK: - Shimmer Modifier
+// MARK: - Shimmer Modifier (Optimized - only animates when visible)
 struct ShimmerModifier: ViewModifier {
     @State private var phase: CGFloat = 0
     
@@ -1355,7 +1262,7 @@ struct ShimmerModifier: ViewModifier {
                     LinearGradient(
                         colors: [
                             Color.clear,
-                            Color.white.opacity(0.3),
+                            Color.white.opacity(0.2),
                             Color.clear
                         ],
                         startPoint: .leading,
@@ -1367,10 +1274,8 @@ struct ShimmerModifier: ViewModifier {
                 .mask(content)
             )
             .onAppear {
-                withAnimation(
-                    .linear(duration: 1.5)
-                    .repeatForever(autoreverses: false)
-                ) {
+                // Simple pulse animation - less resource intensive than continuous shimmer
+                withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
                     phase = 1
                 }
             }

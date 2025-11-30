@@ -131,13 +131,7 @@ struct TransactionStatusPill: View {
             Capsule()
                 .strokeBorder(status.color.opacity(0.3), lineWidth: 1)
         )
-        .onAppear {
-            if status == .processing || status == .pending {
-                withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
-                    isAnimating = true
-                }
-            }
-        }
+        // Removed forever animation - status indicators don't need continuous animation
     }
 }
 
@@ -196,11 +190,7 @@ struct EmptyStateView: View {
                     .font(.system(size: 32, weight: .light))
                     .foregroundColor(HawalaTheme.Colors.textTertiary)
             }
-            .onAppear {
-                withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
-                    isAnimating = true
-                }
-            }
+            // Removed forever animation for empty state icon
             
             VStack(spacing: HawalaTheme.Spacing.sm) {
                 Text(title)
@@ -269,7 +259,8 @@ struct SkeletonView: View {
                     .fill(HawalaTheme.Colors.backgroundTertiary)
             )
             .onAppear {
-                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+                // Slower animation, less CPU intensive
+                withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
                     isAnimating = true
                 }
             }
@@ -341,7 +332,8 @@ struct SkeletonAssetRow: View {
                 .frame(width: 100)
                 .offset(x: shimmerOffset)
                 .onAppear {
-                    withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+                    // Slower shimmer animation
+                    withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
                         shimmerOffset = geo.size.width + 100
                     }
                 }
@@ -401,7 +393,8 @@ struct SkeletonBalanceCard: View {
                 .frame(width: 150)
                 .offset(x: shimmerOffset)
                 .onAppear {
-                    withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
+                    // Slower shimmer animation
+                    withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
                         shimmerOffset = geo.size.width + 150
                     }
                 }
@@ -1048,19 +1041,10 @@ struct HawalaTransactionRow: View {
             RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm, style: .continuous)
                 .fill(isHovered ? HawalaTheme.Colors.backgroundHover : Color.clear)
         )
-        .scaleEffect(isHovered ? 1.005 : 1.0)
         .onHover { hovering in
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                isHovered = hovering
-            }
+            isHovered = hovering // No animation - instant response
         }
-        .onAppear {
-            if status == .processing || status == .pending {
-                withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
-                    isAnimating = true
-                }
-            }
-        }
+        // Removed forever animation for transaction status
     }
 }
 
@@ -1288,20 +1272,11 @@ struct FloatingActionButton: View {
                     Circle()
                         .fill(HawalaTheme.Colors.accent.opacity(0.3))
                         .frame(width: 64, height: 64)
-                        .blur(radius: isExpanded ? 12 : 8)
-                        .scaleEffect(isHovered ? 1.2 : 1.0)
-                    
-                    // Button
+                    // Button - simplified, no blur
                     Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [HawalaTheme.Colors.accent, HawalaTheme.Colors.accent.opacity(0.8)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
+                        .fill(HawalaTheme.Colors.accent)
                         .frame(width: 56, height: 56)
-                        .shadow(color: HawalaTheme.Colors.accent.opacity(0.4), radius: 12, x: 0, y: 6)
+                        .shadow(color: HawalaTheme.Colors.accent.opacity(0.3), radius: 8, x: 0, y: 4)
                     
                     // Icon
                     Image(systemName: "plus")
@@ -1311,11 +1286,8 @@ struct FloatingActionButton: View {
                 }
             }
             .buttonStyle(.plain)
-            .scaleEffect(isHovered ? 1.05 : 1.0)
             .onHover { hovering in
-                withAnimation(.easeOut(duration: 0.2)) {
-                    isHovered = hovering
-                }
+                isHovered = hovering // No animation
             }
         }
     }
@@ -1411,7 +1383,8 @@ struct HawalaPullToRefresh: View {
         .frame(height: isRefreshing ? 60 : 0)
         .onChange(of: isRefreshing) { refreshing in
             if refreshing {
-                withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) {
+                // Slower refresh animation
+                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
                     isAnimating = true
                 }
             } else {
@@ -1503,7 +1476,8 @@ struct RefreshButton: View {
         .disabled(isRefreshing)
         .onChange(of: isRefreshing) { refreshing in
             if refreshing {
-                withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) {
+                // Slower rotation animation
+                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
                     rotation = 360
                 }
             } else {
