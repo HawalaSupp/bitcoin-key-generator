@@ -42,36 +42,12 @@ struct WebSocketStatusPill: View {
     let state: WebSocketState
     let lastUpdate: Date?
     
-    @State private var isPulsing: Bool = false
-    
     var body: some View {
         HStack(spacing: 6) {
-            // Status indicator dot
+            // Status indicator dot - static, no animation
             Circle()
                 .fill(statusColor)
                 .frame(width: 8, height: 8)
-                .overlay(
-                    Circle()
-                        .stroke(statusColor.opacity(0.5), lineWidth: 2)
-                        .scaleEffect(isPulsing ? 1.5 : 1.0)
-                        .opacity(isPulsing ? 0 : 0.5)
-                )
-                .onAppear {
-                    if state.isConnected {
-                        withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: false)) {
-                            isPulsing = true
-                        }
-                    }
-                }
-                .onChange(of: state.isConnected) { connected in
-                    if connected {
-                        withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: false)) {
-                            isPulsing = true
-                        }
-                    } else {
-                        isPulsing = false
-                    }
-                }
             
             // Status text
             Text(state.isConnected ? "Live" : state.statusText)

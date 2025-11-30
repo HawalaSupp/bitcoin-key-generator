@@ -1,5 +1,5 @@
 import SwiftUI
-import AVFoundation
+@preconcurrency import AVFoundation
 #if canImport(AppKit)
 import AppKit
 #endif

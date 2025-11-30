@@ -167,19 +167,28 @@ struct AddressValidator {
             return .invalid("Bech32 checksum failed")
         }
 
+        // Remove checksum (last 6 values)
         let payload = Array(values.dropLast(6))
-        guard let decoded = convertBits(data: payload, fromBits: 5, toBits: 8, pad: false) else {
-            return .invalid("Unable to decode Bech32 payload")
-        }
-        guard let version = decoded.first else {
+        
+        // The first value is the witness version (0-16)
+        guard let witnessVersion = payload.first else {
             return .invalid("Missing witness version")
         }
-        let witnessProgram = decoded.dropFirst()
-        guard version == 0 else {
-            return .invalid("Unsupported witness version")
+        
+        // Only version 0 uses Bech32, versions 1+ use Bech32m
+        guard witnessVersion == 0 else {
+            return .invalid("Unsupported witness version for Bech32 (use Bech32m for v1+)")
         }
+        
+        // Convert the remaining payload from 5-bit to 8-bit
+        let programData = Array(payload.dropFirst())
+        guard let witnessProgram = convertBits(data: programData, fromBits: 5, toBits: 8, pad: false) else {
+            return .invalid("Unable to decode Bech32 payload")
+        }
+        
+        // P2WPKH has 20-byte program, P2WSH has 32-byte program
         guard witnessProgram.count == 20 || witnessProgram.count == 32 else {
-            return .invalid("Unexpected witness program length")
+            return .invalid("Unexpected witness program length: \(witnessProgram.count)")
         }
 
         return .valid

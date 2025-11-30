@@ -14,6 +14,7 @@ const char* prepare_ethereum_transaction_ffi(const char* json_input);
 const char* restore_wallet_ffi(const char* mnemonic);
 bool validate_mnemonic_ffi(const char* mnemonic);
 bool validate_ethereum_address_ffi(const char* address);
+void keccak256_ffi(const uint8_t* data, size_t len, uint8_t* output);
 // Frees a string allocated by Rust.
 void free_string(char* s);
 

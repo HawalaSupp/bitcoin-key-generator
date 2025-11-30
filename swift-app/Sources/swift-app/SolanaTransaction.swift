@@ -141,7 +141,7 @@ enum SolanaError: Error {
 // Since we used Base58 in BitcoinTransaction, we can reuse or adapt.
 
 struct Base58 {
-    static let alphabet = "123456789ABCDEFGHJKLMNjmikaioh dPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    static let alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
     
     static func decode(_ string: String) -> Data? {
         var result: [UInt8] = [0]

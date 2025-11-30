@@ -72,7 +72,7 @@ enum BiometricAuthHelper {
     /// - Parameters:
     ///   - reason: The reason shown to the user for why authentication is needed
     ///   - completion: Called with the authentication result
-    static func authenticate(reason: String, completion: @escaping (AuthResult) -> Void) {
+    static func authenticate(reason: String, completion: @escaping @Sendable (AuthResult) -> Void) {
         let context = LAContext()
         context.localizedFallbackTitle = "" // Hide "Enter Password" fallback
         context.localizedCancelTitle = "Cancel"

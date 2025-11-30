@@ -6,3 +6,8 @@
 
 # API Keys (sensitive - do not commit)
 **/APIKeys.swift
+**/Config/APIKeys.swift
+swift-app/Sources/swift-app/Config/APIKeys.swift
+
+# Keep the template
+!**/APIKeys.swift.template

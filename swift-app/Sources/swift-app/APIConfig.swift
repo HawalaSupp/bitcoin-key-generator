@@ -11,6 +11,10 @@ struct APIConfig {
         "https://eth-mainnet.g.alchemy.com/v2/\(alchemyAPIKey)"
     }
     
+    static var alchemySepoliaURL: String {
+        "https://eth-sepolia.g.alchemy.com/v2/\(alchemyAPIKey)"
+    }
+    
     // MARK: - RPC Configuration
     private static let xrplPrimaryURL = "https://xrplcluster.com"
     private static let xrplSecondaryURL = "https://xrpl.ws"

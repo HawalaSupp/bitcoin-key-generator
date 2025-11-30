@@ -620,9 +620,13 @@ pub extern "C" fn prepare_transaction_ffi(json_input: *const c_char) -> *mut c_c
 #[derive(Deserialize)]
 struct EthTransactionRequest {
     recipient: String,
-    amount_eth: String,
+    amount: String, // Wei (hex or decimal)
     chain_id: u64,
     sender_key_hex: String,
+    nonce: u64,
+    gas_limit: u64,
+    gas_price: String, // Wei (hex or decimal)
+    data: Option<String>,
 }
 
 #[unsafe(no_mangle)]
@@ -639,20 +643,26 @@ pub extern "C" fn prepare_ethereum_transaction_ffi(json_input: *const c_char) ->
 
     let request: EthTransactionRequest = match serde_json::from_str(json_str) {
         Ok(r) => r,
-        Err(_) => {
-            return CString::new("{\"error\": \"Invalid JSON\"}")
+        Err(e) => {
+            return CString::new(format!("{{\"error\": \"Invalid JSON: {}\"}}", e))
                 .unwrap()
                 .into_raw();
         }
     };
 
+    let data = request.data.unwrap_or_else(|| "0x".to_string());
+
     // Block on async function for FFI (simplest for now)
     let rt = tokio::runtime::Runtime::new().unwrap();
     match rt.block_on(prepare_ethereum_transaction(
         &request.recipient,
-        &request.amount_eth,
+        &request.amount,
         request.chain_id,
         &request.sender_key_hex,
+        request.nonce,
+        request.gas_limit,
+        &request.gas_price,
+        &data,
     )) {
         Ok(hex) => CString::new(format!("{{\"success\": true, \"tx_hex\": \"0x{}\"}}", hex))
             .unwrap()
@@ -723,4 +733,13 @@ fn encode_monero_block(block: &[u8]) -> String {
     }
 
     chars.into_iter().collect()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn keccak256_ffi(data: *const u8, len: usize, output: *mut u8) {
+    let slice = unsafe { std::slice::from_raw_parts(data, len) };
+    let hash = keccak256(slice);
+    unsafe {
+        std::ptr::copy_nonoverlapping(hash.as_ptr(), output, 32);
+    }
 }

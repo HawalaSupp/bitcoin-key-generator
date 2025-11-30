@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 // MARK: - Main App Shell (Modern Glass Design)
 struct HawalaMainView: View {
@@ -10,6 +13,7 @@ struct HawalaMainView: View {
     
     // Settings
     @AppStorage("showBalances") private var showBalances = true
+    @AppStorage("showTestnets") private var showTestnets = false
     
     // Navigation
     @State private var selectedTab: NavigationTab = .portfolio
@@ -40,6 +44,11 @@ struct HawalaMainView: View {
     var selectedFiatSymbol: String
     var fxRates: [String: Double]
     var selectedFiatCurrency: String
+    
+    // Chains that support sending
+    private let sendEnabledChainIDs: Set<String> = [
+        "bitcoin", "bitcoin-testnet", "litecoin", "ethereum", "ethereum-sepolia", "bnb", "solana"
+    ]
     
     enum NavigationTab: String, CaseIterable, Comparable {
         case portfolio = "Portfolio"
@@ -323,10 +332,9 @@ struct HawalaMainView: View {
     // MARK: - Main Content (with Liquid Glass Transitions)
     private var mainContentView: some View {
         VStack(spacing: 0) {
-            // Content based on selected tab with liquid glass transitions
-            ScrollView {
-                ZStack {
-                    // Liquid glass morph transition
+            // Content based on selected tab with smooth scrolling
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 0) {
                     Group {
                         switch selectedTab {
                         case .portfolio:
@@ -338,14 +346,33 @@ struct HawalaMainView: View {
                         }
                     }
                     .id(selectedTab)
-                    .transition(.opacity.combined(with: .move(edge: selectedTab > previousTab ? .trailing : .leading)))
+                    .transition(.opacity)
                 }
-                .animation(.easeOut(duration: 0.25), value: selectedTab)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .scrollIndicators(.hidden)
+            .refreshable {
+                // Pull-to-refresh triggers balance reload
+                await refreshData()
             }
         }
         .onChange(of: selectedTab) { newTab in
             previousTab = selectedTab
         }
+    }
+    
+    // Async refresh handler for pull-to-refresh
+    private func refreshData() async {
+        // Trigger haptic feedback
+        #if os(macOS)
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        #endif
+        
+        // Refresh balances
+        onRefreshBalances()
+        
+        // Wait a short time for visual feedback
+        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
     }
     
     // MARK: - Portfolio View (Redesigned with Bento Grid)
@@ -472,7 +499,18 @@ struct HawalaMainView: View {
                                 withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
                                     selectedChain = chain
                                 }
-                            }
+                            },
+                            onSend: {
+                                // Quick send action - show send sheet
+                                selectedChain = chain
+                                showSendPicker = true
+                            },
+                            onReceive: {
+                                // Quick receive action - show receive sheet  
+                                selectedChain = chain
+                                showReceiveSheet = true
+                            },
+                            canSend: sendEnabledChainIDs.contains(chain.id)
                         )
                     }
                 }
@@ -942,13 +980,25 @@ struct HawalaMainView: View {
     }
     
     private func filterChains(_ chains: [ChainInfo]) -> [ChainInfo] {
-        if searchText.isEmpty {
-            return chains
+        // Testnet chain IDs to filter out when showTestnets is false
+        let testnetChainIds = ["bitcoin-testnet", "ethereum-sepolia"]
+        
+        var filtered = chains
+        
+        // Filter out testnets if toggle is off
+        if !showTestnets {
+            filtered = filtered.filter { !testnetChainIds.contains($0.id) }
         }
-        return chains.filter { 
-            $0.title.localizedCaseInsensitiveContains(searchText) ||
-            $0.id.localizedCaseInsensitiveContains(searchText)
+        
+        // Apply search filter
+        if !searchText.isEmpty {
+            filtered = filtered.filter { 
+                $0.title.localizedCaseInsensitiveContains(searchText) ||
+                $0.id.localizedCaseInsensitiveContains(searchText)
+            }
         }
+        
+        return filtered
     }
     
     private func chainSymbol(for chainId: String) -> String {
@@ -1105,7 +1155,6 @@ struct DiscoverCard: View {
             }
             .padding(HawalaTheme.Spacing.lg)
             .frostedGlass(cornerRadius: HawalaTheme.Radius.lg, intensity: isHovered ? 0.25 : 0.15)
-            .scaleEffect(isHovered ? 1.02 : 1.0)
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -1125,6 +1174,9 @@ struct BentoAssetCard: View {
     let isSelected: Bool
     var hideBalance: Bool = false
     var onSelect: () -> Void
+    var onSend: (() -> Void)? = nil
+    var onReceive: (() -> Void)? = nil
+    var canSend: Bool = true
     
     @State private var isHovered = false
     
@@ -1138,7 +1190,13 @@ struct BentoAssetCard: View {
     }
     
     var body: some View {
-        Button(action: onSelect) {
+        Button(action: {
+            // Haptic feedback on selection
+            #if os(macOS)
+            NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+            #endif
+            onSelect()
+        }) {
             VStack(alignment: .leading, spacing: 0) {
                 // Header: Icon + Name + Price change
                 HStack(spacing: 10) {
@@ -1243,40 +1301,67 @@ struct BentoAssetCard: View {
                 }
             )
             .shadow(color: Color.black.opacity(0.08), radius: 4, y: 2) // Single light shadow
+            .drawingGroup() // GPU-accelerated rendering for smooth scrolling
         }
         .buttonStyle(.plain)
         .onHover { hovering in
             isHovered = hovering // No animation - instant response
         }
+        .contextMenu {
+            // Quick actions context menu
+            if canSend, let send = onSend {
+                Button(action: {
+                    #if os(macOS)
+                    NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                    #endif
+                    send()
+                }) {
+                    Label("Send \(chainSymbol)", systemImage: "arrow.up.circle.fill")
+                }
+            }
+            
+            if let receive = onReceive {
+                Button(action: {
+                    #if os(macOS)
+                    NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                    #endif
+                    receive()
+                }) {
+                    Label("Receive \(chainSymbol)", systemImage: "arrow.down.circle.fill")
+                }
+            }
+            
+            Divider()
+            
+            Button(action: {
+                #if os(macOS)
+                NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                #endif
+                // Copy address to clipboard
+                if let address = chain.receiveAddress {
+                    #if os(macOS)
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(address, forType: .string)
+                    #endif
+                }
+            }) {
+                Label("Copy Address", systemImage: "doc.on.doc")
+            }
+        }
     }
 }
 
-// MARK: - Shimmer Modifier (Optimized - only animates when visible)
+// MARK: - Shimmer Modifier (Optimized - simple opacity pulse, no GeometryReader)
 struct ShimmerModifier: ViewModifier {
-    @State private var phase: CGFloat = 0
+    @State private var opacity: Double = 0.4
     
     func body(content: Content) -> some View {
         content
-            .overlay(
-                GeometryReader { geo in
-                    LinearGradient(
-                        colors: [
-                            Color.clear,
-                            Color.white.opacity(0.2),
-                            Color.clear
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .frame(width: geo.size.width * 2)
-                    .offset(x: -geo.size.width + (geo.size.width * 2 * phase))
-                }
-                .mask(content)
-            )
+            .opacity(opacity)
             .onAppear {
-                // Simple pulse animation - less resource intensive than continuous shimmer
-                withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
-                    phase = 1
+                // Simple opacity pulse - very lightweight
+                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                    opacity = 1.0
                 }
             }
     }
@@ -1316,86 +1401,57 @@ struct BentoEmptyState: View {
     }
 }
 
-// MARK: - Bento Sparkline Chart
+// MARK: - Bento Sparkline Chart (Optimized with drawingGroup)
 struct BentoSparklineChart: View {
     let data: [Double]
     let color: Color
     let isPositive: Bool
     
     var body: some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            let height = geometry.size.height
+        Canvas { context, size in
+            guard data.count > 1 else { return }
+            
+            let width = size.width
+            let height = size.height
             
             let minVal = data.min() ?? 0
             let maxVal = data.max() ?? 1
-            let range = maxVal - minVal
+            let range = max(maxVal - minVal, 0.0001) // Prevent division by zero
             
-            // Create path
-            Path { path in
-                guard data.count > 1, range > 0 else { return }
+            // Create the line path
+            var linePath = Path()
+            
+            for (index, value) in data.enumerated() {
+                let x = width * CGFloat(index) / CGFloat(data.count - 1)
+                let y = height - (height * CGFloat((value - minVal) / range))
                 
-                for (index, value) in data.enumerated() {
-                    let x = width * CGFloat(index) / CGFloat(data.count - 1)
-                    let y = height - (height * CGFloat((value - minVal) / range))
-                    
-                    if index == 0 {
-                        path.move(to: CGPoint(x: x, y: y))
-                    } else {
-                        // Smooth curve using quadratic Bezier
-                        let prevIndex = index - 1
-                        let prevX = width * CGFloat(prevIndex) / CGFloat(data.count - 1)
-                        let prevY = height - (height * CGFloat((data[prevIndex] - minVal) / range))
-                        let midX = (prevX + x) / 2
-                        
-                        path.addQuadCurve(
-                            to: CGPoint(x: x, y: y),
-                            control: CGPoint(x: midX, y: prevY)
-                        )
-                    }
+                if index == 0 {
+                    linePath.move(to: CGPoint(x: x, y: y))
+                } else {
+                    linePath.addLine(to: CGPoint(x: x, y: y))
                 }
             }
-            .stroke(
-                Color.white.opacity(0.25),
+            
+            // Draw the line
+            context.stroke(
+                linePath,
+                with: .color(Color.white.opacity(0.25)),
                 style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
             )
             
-            // Gradient fill under the line - very subtle
-            Path { path in
-                guard data.count > 1, range > 0 else { return }
-                
-                path.move(to: CGPoint(x: 0, y: height))
-                
-                for (index, value) in data.enumerated() {
-                    let x = width * CGFloat(index) / CGFloat(data.count - 1)
-                    let y = height - (height * CGFloat((value - minVal) / range))
-                    
-                    if index == 0 {
-                        path.addLine(to: CGPoint(x: x, y: y))
-                    } else {
-                        let prevIndex = index - 1
-                        let prevX = width * CGFloat(prevIndex) / CGFloat(data.count - 1)
-                        let prevY = height - (height * CGFloat((data[prevIndex] - minVal) / range))
-                        let midX = (prevX + x) / 2
-                        
-                        path.addQuadCurve(
-                            to: CGPoint(x: x, y: y),
-                            control: CGPoint(x: midX, y: prevY)
-                        )
-                    }
-                }
-                
-                path.addLine(to: CGPoint(x: width, y: height))
-                path.closeSubpath()
-            }
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.04),
-                        Color.white.opacity(0.0)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
+            // Create fill path
+            var fillPath = linePath
+            fillPath.addLine(to: CGPoint(x: width, y: height))
+            fillPath.addLine(to: CGPoint(x: 0, y: height))
+            fillPath.closeSubpath()
+            
+            // Draw gradient fill
+            context.fill(
+                fillPath,
+                with: .linearGradient(
+                    Gradient(colors: [Color.white.opacity(0.04), Color.white.opacity(0.0)]),
+                    startPoint: CGPoint(x: 0, y: 0),
+                    endPoint: CGPoint(x: 0, y: height)
                 )
             )
         }

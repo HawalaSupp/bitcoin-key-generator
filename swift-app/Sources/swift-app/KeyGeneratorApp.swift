@@ -63,6 +63,9 @@ struct AppRootView: View {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // CRITICAL: Set activation policy to regular to appear in dock and receive keyboard input
+        NSApplication.shared.setActivationPolicy(.regular)
+        
         if let window = NSApplication.shared.windows.first {
             window.makeKeyAndOrderFront(nil)
             NSApplication.shared.activate(ignoringOtherApps: true)

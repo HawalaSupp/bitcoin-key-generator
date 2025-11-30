@@ -1,46 +1,57 @@
-use ethers_core::types::{Address, Eip1559TransactionRequest, U256};
-use ethers_core::utils::parse_ether;
+use ethers_core::types::{Address, TransactionRequest, U256};
 use ethers_signers::{LocalWallet, Signer};
 use std::error::Error;
 use std::str::FromStr;
 
 pub async fn prepare_ethereum_transaction(
     recipient: &str,
-    amount_eth: &str,
+    amount_wei: &str,
     chain_id: u64,
     sender_key_hex: &str,
+    nonce: u64,
+    gas_limit: u64,
+    gas_price_wei: &str,
+    data_hex: &str,
 ) -> Result<String, Box<dyn Error>> {
     // 1. Create Wallet
     let wallet = LocalWallet::from_str(sender_key_hex)?.with_chain_id(chain_id);
 
-    // 2. Parse Amount
-    let value = parse_ether(amount_eth)?;
+    // 2. Parse Params
+    // Handle both hex (0x...) and decimal strings
+    let value = if amount_wei.starts_with("0x") {
+        U256::from_str_radix(amount_wei.trim_start_matches("0x"), 16)?
+    } else {
+        U256::from_dec_str(amount_wei)?
+    };
+    
     let to_address = Address::from_str(recipient)?;
+    
+    let gas_price = if gas_price_wei.starts_with("0x") {
+        U256::from_str_radix(gas_price_wei.trim_start_matches("0x"), 16)?
+    } else {
+        U256::from_dec_str(gas_price_wei)?
+    };
 
-    // 3. Fetch Gas Params (Mocked for FFI demo, in real app we'd fetch via RPC)
-    // We assume the Swift side passes current gas params or we fetch them here.
-    // For simplicity, we'll fetch them here if we had an RPC client, but to keep it pure logic:
-    // We'll use hardcoded reasonable defaults for the demo or fetch via reqwest if needed.
-    // Let's fetch via reqwest to be "World Class"
+    let data = if data_hex.starts_with("0x") {
+        hex::decode(data_hex.trim_start_matches("0x"))?
+    } else {
+        hex::decode(data_hex)?
+    };
 
-    let (max_fee, max_priority) =
-        fetch_gas_price().unwrap_or((U256::from(20_000_000_000u64), U256::from(1_500_000_000u64)));
-    let nonce = fetch_nonce(&format!("{:?}", wallet.address())).unwrap_or(U256::zero());
-
-    // 4. Build EIP-1559 Transaction
-    let tx = Eip1559TransactionRequest::new()
+    // 3. Build Legacy Transaction (EIP-155)
+    let tx = TransactionRequest::new()
         .to(to_address)
         .value(value)
-        .gas(21000) // Standard transfer gas
-        .max_fee_per_gas(max_fee)
-        .max_priority_fee_per_gas(max_priority)
+        .gas(gas_limit)
+        .gas_price(gas_price)
         .chain_id(chain_id)
-        .nonce(nonce);
+        .nonce(nonce)
+        .data(data);
 
-    // 5. Sign
-    let typed_tx = tx.clone().into();
+    // 4. Sign
+    let typed_tx: ethers_core::types::transaction::eip2718::TypedTransaction = tx.into();
     let signature = wallet.sign_transaction(&typed_tx).await?;
-    let signed_tx = tx.rlp_signed(&signature);
+    let signed_tx = typed_tx.rlp_signed(&signature);
 
     Ok(hex::encode(signed_tx))
 }

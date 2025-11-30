@@ -1,8 +1,6 @@
 import Foundation
 import CryptoKit
-
-// NOTE: This implementation uses P256 as a placeholder for secp256k1
-// For production Ethereum transactions, proper secp256k1 signing is required
+import P256K
 
 // MARK: - Ethereum Transaction Builder
 
@@ -20,32 +18,42 @@ struct EthereumTransaction {
         data: String = "0x" // For ETH transfers, empty. For ERC-20, encoded function call
     ) throws -> String {
         
-        // Validate recipient address
-        guard recipient.hasPrefix("0x"), recipient.count == 42 else {
-            throw EthereumError.invalidAddress
+        // Construct JSON for Rust FFI
+        let request: [String: Any] = [
+            "recipient": recipient,
+            "amount": value,
+            "chain_id": chainId,
+            "sender_key_hex": privateKeyHex,
+            "nonce": nonce,
+            "gas_limit": gasLimit,
+            "gas_price": gasPrice,
+            "data": data
+        ]
+        
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: request),
+              let jsonString = String(data: jsonData, encoding: .utf8) else {
+            throw EthereumError.encodingFailed
         }
         
-        // Parse value
-        let valueWei = try parseWei(value)
+        // Call Rust FFI
+        let resultJson = RustService.shared.prepareEthereumTransaction(jsonInput: jsonString)
         
-        // Parse gas price
-        let gasPriceWei = try parseWei(gasPrice)
+        // Parse result
+        guard let data = resultJson.data(using: .utf8),
+              let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw EthereumError.encodingFailed
+        }
         
-        // Build RLP-encoded transaction
-        let txData = try buildTransactionData(
-            nonce: nonce,
-            gasPrice: gasPriceWei,
-            gasLimit: gasLimit,
-            to: recipient,
-            value: valueWei,
-            data: data,
-            chainId: chainId
-        )
+        if let error = response["error"] as? String {
+            print("Rust Error: \(error)")
+            throw EthereumError.signingFailed
+        }
         
-        // Sign transaction
-        let signedTx = try signTransaction(txData: txData, privateKeyHex: privateKeyHex, chainId: chainId)
+        if let signedTx = response["tx_hex"] as? String {
+            return signedTx
+        }
         
-        return signedTx
+        throw EthereumError.signingFailed
     }
     
     // Build and sign ERC-20 token transfer
@@ -120,7 +128,7 @@ struct EthereumTransaction {
     ) throws -> Data {
         
         // For EIP-155 (replay protection), we include chainId, 0, 0 in the signing hash
-        var items: [RLPItem] = [
+        let items: [RLPItem] = [
             .uint(UInt64(nonce)),
             .uint(gasPrice),
             .uint(UInt64(gasLimit)),
@@ -164,11 +172,12 @@ struct EthereumTransaction {
         let v = UInt64(chainId * 2 + 35) // Simplified - assume recovery ID 0
         
         // Build final signed transaction with r, s, v
-        let signedItems: [RLPItem] = [
-            .uint(UInt64(txData.count)), // nonce (placeholder, need to extract from txData)
-            .data("0x" + String(v, radix: 16)),
-            .data("0x" + r.hexString),
-            .data("0x" + s.hexString)
+        // Note: signedItems is computed for future use when full RLP encoding is implemented
+        _ = [
+            RLPItem.uint(UInt64(txData.count)), // nonce (placeholder, need to extract from txData)
+            RLPItem.data("0x" + String(v, radix: 16)),
+            RLPItem.data("0x" + r.hexString),
+            RLPItem.data("0x" + s.hexString)
         ]
         
         // For now, return hex-encoded signature components
@@ -321,6 +330,7 @@ enum EthereumError: LocalizedError {
     case invalidAmount
     case invalidPrivateKey
     case invalidHex
+    case encodingFailed
     case signingFailed
     case insufficientBalance
     case gasEstimationFailed
@@ -336,6 +346,8 @@ enum EthereumError: LocalizedError {
             return "Invalid private key"
         case .invalidHex:
             return "Invalid hexadecimal string"
+        case .encodingFailed:
+            return "Failed to encode transaction data"
         case .signingFailed:
             return "Failed to sign transaction"
         case .insufficientBalance:

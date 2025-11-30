@@ -17,11 +17,11 @@ final class SparklineCache: ObservableObject {
     /// Last fetch time per chain (for cache invalidation)
     private var lastFetchTime: [String: Date] = [:]
     
-    /// Cache duration - 5 minutes
-    private let cacheDuration: TimeInterval = 300
+    /// Cache duration - 15 minutes (increased to reduce API calls)
+    private let cacheDuration: TimeInterval = 900
     
-    /// Delay between API calls to respect rate limits (3 seconds for free tier)
-    private let requestDelay: UInt64 = 3_000_000_000
+    /// Delay between API calls to respect rate limits (5 seconds for free tier)
+    private let requestDelay: UInt64 = 5_000_000_000
     
     /// Current fetch task
     private var fetchTask: Task<Void, Never>?
@@ -56,6 +56,10 @@ final class SparklineCache: ObservableObject {
             
             await MainActor.run { self.isFetching = true }
             
+            print("📊 Starting sparkline fetch (force=\(force))...")
+            var fetchedCount = 0
+            var skippedCount = 0
+            
             for (chainId, coinId) in coinMappings {
                 // Check if cancelled
                 if Task.isCancelled { break }
@@ -64,17 +68,21 @@ final class SparklineCache: ObservableObject {
                 if !force, let lastFetch = lastFetchTime[chainId],
                    Date().timeIntervalSince(lastFetch) < cacheDuration,
                    sparklines[chainId] != nil {
+                    skippedCount += 1
                     continue
                 }
                 
                 // Fetch with retry
                 await fetchSparkline(chainId: chainId, coinId: coinId)
+                fetchedCount += 1
                 
                 // Delay between requests
                 if !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: requestDelay)
                 }
             }
+            
+            print("📊 Sparkline fetch complete: \(fetchedCount) fetched, \(skippedCount) cached")
             
             await MainActor.run { 
                 self.isFetching = false
@@ -101,66 +109,30 @@ final class SparklineCache: ObservableObject {
     // MARK: - Private Fetching
     
     private func fetchSparkline(chainId: String, coinId: String) async {
-        let baseURL: String
-        if let apiKey = apiKey, !apiKey.isEmpty {
-            baseURL = "https://pro-api.coingecko.com/api/v3/coins/\(coinId)/market_chart?vs_currency=usd&days=1&x_cg_pro_api_key=\(apiKey)"
-        } else {
-            baseURL = "https://api.coingecko.com/api/v3/coins/\(coinId)/market_chart?vs_currency=usd&days=1"
-        }
-        
-        guard let url = URL(string: baseURL) else { return }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("HawalaApp/2.0", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 30 // Longer timeout
-        
+        // Use MultiProviderAPI with automatic fallbacks
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let points = try await MultiProviderAPI.shared.fetchSparkline(for: chainId)
             
-            guard let httpResponse = response as? HTTPURLResponse else { return }
-            
-            // Handle rate limiting - wait and retry once
-            if httpResponse.statusCode == 429 {
-                print("Rate limited on \(chainId), waiting 10s...")
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                // Don't retry here - let next cycle handle it
-                return
-            }
-            
-            guard httpResponse.statusCode == 200 else { return }
-            
-            // Parse response
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let prices = json["prices"] as? [[Any]] else {
-                return
-            }
-            
-            // Extract prices and downsample
-            let allPrices = prices.compactMap { $0.last as? Double }
-            guard !allPrices.isEmpty else { return }
-            
+            // Downsample if needed
             let targetPoints = 24
-            let points: [Double]
-            if allPrices.count <= targetPoints {
-                points = allPrices
+            let finalPoints: [Double]
+            if points.count <= targetPoints {
+                finalPoints = points
             } else {
-                let step = max(1, allPrices.count / targetPoints)
-                points = stride(from: 0, to: allPrices.count, by: step).map { allPrices[$0] }
+                let step = max(1, points.count / targetPoints)
+                finalPoints = stride(from: 0, to: points.count, by: step).map { points[$0] }
             }
+            
+            print("📊 Fetched \(finalPoints.count) sparkline points for \(chainId)")
             
             await MainActor.run {
-                self.sparklines[chainId] = points
+                self.sparklines[chainId] = finalPoints
                 self.lastFetchTime[chainId] = Date()
             }
-            
         } catch is CancellationError {
             // Silently ignore cancellation
         } catch {
-            // Only log actual errors, not cancellations
-            if (error as NSError).code != NSURLErrorCancelled {
-                print("Sparkline fetch error for \(chainId): \(error.localizedDescription)")
-            }
+            print("⚠️ Sparkline fetch error for \(chainId): \(error.localizedDescription)")
         }
     }
     
@@ -188,11 +160,13 @@ final class SparklineCache: ObservableObject {
         guard let url = cacheFileURL,
               let data = try? Data(contentsOf: url),
               let cacheData = try? JSONDecoder().decode(CacheData.self, from: data) else {
+            print("📊 No cached sparkline data found on disk")
             return
         }
         
         sparklines = cacheData.sparklines
         lastFetchTime = cacheData.lastFetchTimes.mapValues { Date(timeIntervalSince1970: $0) }
+        print("📊 Loaded \(sparklines.count) sparklines from disk cache")
     }
     
     private struct CacheData: Codable {

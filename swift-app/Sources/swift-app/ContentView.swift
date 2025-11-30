@@ -249,6 +249,7 @@ struct ContentView: View {
     @State private var priceBackoffTracker = BackoffTracker()
     @State private var priceUpdateTask: Task<Void, Never>?
     @StateObject private var sparklineCache = SparklineCache.shared
+    @StateObject private var assetCache = AssetCache.shared
     @State private var showAllPrivateKeysSheet = false
     @State private var showSettingsPanel = false
     @State private var showContactsSheet = false
@@ -398,6 +399,9 @@ struct ContentView: View {
             balanceBackoff.removeAll()
             priceBackoffTracker = BackoffTracker()
             hasResetOnboardingState = true
+            
+            // Load cached asset data for instant display
+            loadCachedAssetData()
             
             // Try to load existing keys from Keychain
             loadKeysFromKeychain()
@@ -3077,6 +3081,57 @@ struct ContentView: View {
             print("⚠️ Failed to load keys from Keychain: \(error)")
         }
     }
+    
+    /// Load cached balances and prices for instant display on app startup
+    private func loadCachedAssetData() {
+        // Load from persistent cache
+        for (chainId, cached) in assetCache.cachedBalances {
+            // Use stale state if cache is old, otherwise show as loaded
+            let age = Date().timeIntervalSince(cached.lastUpdated)
+            if age < 300 { // 5 minutes
+                cachedBalances[chainId] = CachedBalance(value: cached.balance, lastUpdated: cached.lastUpdated)
+                balanceStates[chainId] = .loaded(value: cached.balance, lastUpdated: cached.lastUpdated)
+            } else {
+                cachedBalances[chainId] = CachedBalance(value: cached.balance, lastUpdated: cached.lastUpdated)
+                balanceStates[chainId] = .stale(value: cached.balance, lastUpdated: cached.lastUpdated, message: "Updating...")
+            }
+        }
+        
+        for (chainId, cached) in assetCache.cachedPrices {
+            let age = Date().timeIntervalSince(cached.lastUpdated)
+            if age < 300 {
+                cachedPrices[chainId] = CachedPrice(value: cached.price, lastUpdated: cached.lastUpdated)
+                priceStates[chainId] = .loaded(value: cached.price, lastUpdated: cached.lastUpdated)
+            } else {
+                cachedPrices[chainId] = CachedPrice(value: cached.price, lastUpdated: cached.lastUpdated)
+                priceStates[chainId] = .stale(value: cached.price, lastUpdated: cached.lastUpdated, message: "Updating...")
+            }
+        }
+        
+        if !assetCache.cachedBalances.isEmpty {
+            print("📦 Loaded \(assetCache.cachedBalances.count) cached balances, \(assetCache.cachedPrices.count) cached prices")
+        }
+    }
+    
+    /// Save balance to persistent cache
+    private func saveBalanceToCache(chainId: String, balance: String) {
+        // Extract numeric value from balance string (e.g., "0.001 BTC" -> 0.001)
+        let numericValue = extractNumericValue(from: balance)
+        assetCache.cacheBalance(chainId: chainId, balance: balance, numericValue: numericValue)
+    }
+    
+    /// Save price to persistent cache
+    private func savePriceToCache(chainId: String, price: String, numericValue: Double, change24h: Double? = nil) {
+        assetCache.cachePrice(chainId: chainId, price: price, numericValue: numericValue, change24h: change24h)
+    }
+    
+    /// Extract numeric value from a formatted balance string
+    private func extractNumericValue(from balance: String) -> Double {
+        // Remove currency symbols and extract number
+        let cleaned = balance.components(separatedBy: CharacterSet.decimalDigits.inverted.subtracting(CharacterSet(charactersIn: ".")))
+            .joined()
+        return Double(cleaned) ?? 0
+    }
 
     private func runGenerator() async {
         guard hasAcknowledgedSecurityNotice, canAccessSensitiveData else { return }
@@ -3696,6 +3751,8 @@ struct ContentView: View {
             if let staticDisplay = staticPriceDisplay(for: chainId) {
                 cachedPrices[chainId] = CachedPrice(value: staticDisplay, lastUpdated: timestamp)
                 priceStates[chainId] = .loaded(value: staticDisplay, lastUpdated: timestamp)
+                // Save static prices to persistent cache
+                savePriceToCache(chainId: chainId, price: staticDisplay, numericValue: 0)
                 continue
             }
 
@@ -3712,6 +3769,8 @@ struct ContentView: View {
             let display = formatFiatAmountInSelectedCurrency(priceValue)
             cachedPrices[chainId] = CachedPrice(value: display, lastUpdated: timestamp)
             priceStates[chainId] = .loaded(value: display, lastUpdated: timestamp)
+            // Save to persistent cache
+            savePriceToCache(chainId: chainId, price: display, numericValue: priceValue)
         }
     }
 
@@ -3739,50 +3798,13 @@ struct ContentView: View {
     }
 
     private func fetchPriceSnapshot() async throws -> [String: Double] {
-        // Use CoinGecko Pro API endpoint if API key is provided, otherwise use free endpoint
-        let baseURL: String
-        if let apiKey = coingeckoAPIKey, !apiKey.isEmpty {
-            baseURL = "https://pro-api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,litecoin,monero,solana,ripple,binancecoin&vs_currencies=usd&x_cg_pro_api_key=\(apiKey)"
-        } else {
-            baseURL = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,litecoin,monero,solana,ripple,binancecoin&vs_currencies=usd"
-        }
-        
-        guard let url = URL(string: baseURL) else {
-            throw BalanceFetchError.invalidRequest
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("HawalaApp/\(AppVersion.displayVersion)", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 15
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.invalidResponse
-        }
-
-        // Handle rate limiting with specific error
-        if httpResponse.statusCode == 429 {
+        // Use MultiProviderAPI with automatic fallbacks (CoinCap -> CryptoCompare -> CoinGecko)
+        do {
+            return try await MultiProviderAPI.shared.fetchPrices()
+        } catch {
+            // If all providers fail, throw rate limited error to trigger retry
             throw BalanceFetchError.rateLimited
         }
-        
-        guard httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
-        }
-
-        let object = try JSONSerialization.jsonObject(with: data, options: [])
-        guard let dictionary = object as? [String: Any] else {
-            throw BalanceFetchError.invalidPayload
-        }
-
-        var snapshot: [String: Double] = [:]
-        for (key, value) in dictionary {
-            if let entry = value as? [String: Any], let usd = entry["usd"] as? NSNumber {
-                snapshot[key] = usd.doubleValue
-            }
-        }
-
-        return snapshot
     }
 
     /// Fetches FX rates relative to USD from CoinGecko Exchange Rates API
@@ -3902,6 +3924,10 @@ struct ContentView: View {
     private func startEthereumAndTokenBalanceFetch(address: String) {
         scheduleBalanceFetch(for: "ethereum") {
             try await fetchEthereumBalanceViaInfura(address: address)
+        }
+
+        scheduleBalanceFetch(for: "ethereum-sepolia", delay: 0.3) {
+            try await fetchEthereumSepoliaBalance(address: address)
         }
 
         scheduleBalanceFetch(for: "usdt-erc20", delay: 0.7) {
@@ -4089,6 +4115,8 @@ struct ContentView: View {
                 cachedBalances[chainId] = CachedBalance(value: displayValue, lastUpdated: now)
                 balanceStates[chainId] = .loaded(value: displayValue, lastUpdated: now)
                 balanceBackoff[chainId] = nil
+                // Save to persistent cache
+                saveBalanceToCache(chainId: chainId, balance: displayValue)
             }
             return true
         } catch {
@@ -4152,71 +4180,14 @@ struct ContentView: View {
     private func fetchBitcoinBalance(address: String, isTestnet: Bool = false) async throws -> String {
         let symbol = isTestnet ? "tBTC" : "BTC"
         
-        // Try BlockCypher first - more generous rate limits
+        // Use MultiProviderAPI with automatic fallbacks
         do {
-            let baseURL = isTestnet ? "https://api.blockcypher.com/v1/btc/test3" : "https://api.blockcypher.com/v1/btc/main"
-            guard let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-                let url = URL(string: "\(baseURL)/addrs/\(encodedAddress)/balance") else {
-                throw BalanceFetchError.invalidRequest
-            }
-
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
-
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw BalanceFetchError.invalidResponse
-            }
-
-            if httpResponse.statusCode == 200 {
-                let jsonObject = try JSONSerialization.jsonObject(with: data, options: [])
-                if let dictionary = jsonObject as? [String: Any],
-                   let balance = dictionary["balance"] as? NSNumber {
-                    let btc = balance.doubleValue / 100_000_000.0
-                    return formatCryptoAmount(btc, symbol: symbol, maxFractionDigits: 8)
-                }
-            }
+            let btc = try await MultiProviderAPI.shared.fetchBitcoinBalance(address: address, isTestnet: isTestnet)
+            return formatCryptoAmount(btc, symbol: symbol, maxFractionDigits: 8)
         } catch {
-            print("⚠️ BlockCypher failed, falling back to mempool.space: \(error)")
+            print("⚠️ All Bitcoin balance providers failed: \(error.localizedDescription)")
+            throw error
         }
-        
-        // Fallback to mempool.space
-        let baseURL = isTestnet ? "https://mempool.space/testnet/api" : "https://mempool.space/api"
-        guard let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-            let url = URL(string: "\(baseURL)/address/\(encodedAddress)") else {
-            throw BalanceFetchError.invalidRequest
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.invalidResponse
-        }
-        
-        if httpResponse.statusCode == 404 {
-            return formatCryptoAmount(0.0, symbol: symbol, maxFractionDigits: 8)
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
-        }
-
-        let jsonObject = try JSONSerialization.jsonObject(with: data, options: [])
-        guard let dictionary = jsonObject as? [String: Any],
-              let chainStats = dictionary["chain_stats"] as? [String: Any] else {
-            throw BalanceFetchError.invalidPayload
-        }
-
-        let funded = (chainStats["funded_txo_sum"] as? NSNumber)?.doubleValue ?? 0
-        let spent = (chainStats["spent_txo_sum"] as? NSNumber)?.doubleValue ?? 0
-        let balanceInSats = max(0, funded - spent)
-        let btc = balanceInSats / 100_000_000.0
-        
-        return formatCryptoAmount(btc, symbol: symbol, maxFractionDigits: 8)
     }
 
     private func fetchLitecoinBalance(address: String) async throws -> String {
@@ -4256,39 +4227,25 @@ struct ContentView: View {
     }
 
     private func fetchSolanaBalance(address: String) async throws -> String {
-        guard let url = URL(string: "https://api.mainnet-beta.solana.com") else {
-            throw BalanceFetchError.invalidRequest
+        // Try Alchemy FIRST if configured (most reliable)
+        if APIConfig.isAlchemyConfigured() {
+            do {
+                print("📡 Trying Alchemy for SOL balance...")
+                let sol = try await MultiProviderAPI.shared.fetchSolanaBalanceViaAlchemy(address: address)
+                return formatCryptoAmount(sol, symbol: "SOL", maxFractionDigits: 6)
+            } catch {
+                print("⚠️ Alchemy SOL failed: \(error.localizedDescription)")
+            }
         }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
-
-        let payload: [String: Any] = [
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "getBalance",
-            "params": [address]
-        ]
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.invalidResponse
+        
+        // Use MultiProviderAPI with automatic fallbacks across multiple RPC endpoints
+        do {
+            let sol = try await MultiProviderAPI.shared.fetchSolanaBalance(address: address)
+            return formatCryptoAmount(sol, symbol: "SOL", maxFractionDigits: 6)
+        } catch {
+            print("⚠️ All Solana balance providers failed: \(error.localizedDescription)")
+            throw error
         }
-
-        let jsonObject = try JSONSerialization.jsonObject(with: data, options: [])
-        guard let dictionary = jsonObject as? [String: Any],
-              let result = dictionary["result"] as? [String: Any],
-              let lamportsNumber = result["value"] as? NSNumber else {
-            throw BalanceFetchError.invalidPayload
-        }
-
-        let lamports = lamportsNumber.doubleValue
-        let sol = lamports / 1_000_000_000.0
-        return formatCryptoAmount(sol, symbol: "SOL", maxFractionDigits: 6)
     }
 
     private func fetchXrpBalanceViaRippleDataAPI(address: String) async throws -> String {
@@ -4515,10 +4472,22 @@ struct ContentView: View {
     }
 
     private func fetchEthereumBalanceViaInfura(address: String) async throws -> String {
-        // Use Alchemy if configured, otherwise fallback to Blockchair
+        // Try Alchemy FIRST if configured (most reliable)
         if APIConfig.isAlchemyConfigured() {
-            return try await fetchEthereumBalanceViaAlchemy(address: address)
-        } else {
+            do {
+                print("📡 Trying Alchemy for ETH balance...")
+                return try await fetchEthereumBalanceViaAlchemy(address: address)
+            } catch {
+                print("⚠️ Alchemy ETH failed: \(error.localizedDescription)")
+            }
+        }
+        
+        // Use MultiProviderAPI with automatic fallbacks across multiple RPC endpoints
+        do {
+            let eth = try await MultiProviderAPI.shared.fetchEthereumBalance(address: address)
+            return formatCryptoAmount(eth, symbol: "ETH", maxFractionDigits: 6)
+        } catch {
+            // If all providers fail, try Blockchair as last resort
             return try await fetchEthereumBalanceViaBlockchair(address: address)
         }
     }
@@ -4752,6 +4721,37 @@ struct ContentView: View {
         let payload = try await fetchEthplorerAccount(address: address)
         let balance = payload.eth.balance
         return formatCryptoAmount(balance, symbol: "ETH", maxFractionDigits: 6)
+    }
+
+    private func fetchEthereumSepoliaBalance(address: String) async throws -> String {
+        guard let url = URL(string: APIConfig.alchemySepoliaURL) else {
+            throw BalanceFetchError.invalidRequest
+        }
+        
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getBalance",
+            "params": [address, "latest"],
+            "id": 1
+        ]
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BalanceFetchError.invalidResponse
+        }
+        
+        guard httpResponse.statusCode == 200 else {
+            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
+        }
+        
+        let ethDecimal = try BalanceResponseParser.parseAlchemyETHBalance(from: responseData)
+        let eth = NSDecimalNumber(decimal: ethDecimal).doubleValue
+        return formatCryptoAmount(eth, symbol: "ETH", maxFractionDigits: 6)
     }
 
     private func formatCryptoAmount(_ amount: Double, symbol: String, maxFractionDigits: Int) -> String {
@@ -5403,12 +5403,13 @@ private struct BitcoinSendView: View {
     
     @Environment(\.dismiss) private var dismiss
     @State private var recipientAddress = ""
-    @State private var amountBTC = ""
+    @State private var amountCrypto = ""
     @State private var selectedFeeRate: BitcoinSendSheet.FeeRate = .medium
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var feeEstimates: BitcoinFeeEstimates?
     @State private var availableBalance: Int64 = 0
+    @State private var balanceLoaded = false  // Track if balance fetch completed (even if 0)
     @State private var estimatedFee: Int64 = 0
     @State private var showConfirmation = false
     @State private var amountValidation: AmountValidationResult = .empty
@@ -5416,13 +5417,27 @@ private struct BitcoinSendView: View {
     @State private var biometricFailed = false
     @State private var showCameraScanner = false
     @State private var showContactPicker = false
+    @State private var pendingConfirmation: TransactionConfirmation?
+    
+    // Chain detection properties
+    private var isLitecoin: Bool {
+        chain.id == "litecoin"
+    }
     
     private var isTestnet: Bool {
         chain.id == "bitcoin-testnet"
     }
     
     private var baseURL: String {
-        isTestnet ? "https://mempool.space/testnet/api" : "https://mempool.space/api"
+        if isLitecoin {
+            return "https://api.blockchair.com/litecoin"
+        }
+        return isTestnet ? "https://mempool.space/testnet/api" : "https://mempool.space/api"
+    }
+    
+    private var ticker: String {
+        if isLitecoin { return "LTC" }
+        return isTestnet ? "tBTC" : "BTC"
     }
     
     var body: some View {
@@ -5435,13 +5450,13 @@ private struct BitcoinSendView: View {
                     .textCase(.uppercase)
                 
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    TextField("0", text: $amountBTC)
+                    TextField("0", text: $amountCrypto)
                         .font(.system(size: 48, weight: .medium, design: .rounded))
                         .multilineTextAlignment(.center)
                         .frame(minWidth: 100)
                         .fixedSize(horizontal: true, vertical: false)
-                        .onChange(of: amountBTC) { _ in validateAmount() }
-                    Text("BTC")
+                        .onChange(of: amountCrypto) { _ in validateAmount() }
+                    Text(ticker)
                         .font(.title2)
                         .fontWeight(.medium)
                         .foregroundStyle(.secondary)
@@ -5591,9 +5606,9 @@ private struct BitcoinSendView: View {
 
             Spacer()
 
-            // Send Button
+            // Send Button - shows confirmation sheet first
             Button {
-                Task { await sendTransaction() }
+                prepareConfirmation()
             } label: {
                 HStack {
                     if isLoading {
@@ -5610,6 +5625,18 @@ private struct BitcoinSendView: View {
             }
             .disabled(isLoading || !isValidForm)
             .padding()
+        }
+        .sheet(item: $pendingConfirmation) { confirmation in
+            TransactionConfirmationSheet(
+                confirmation: confirmation,
+                onConfirm: {
+                    pendingConfirmation = nil
+                    Task { await sendTransaction() }
+                },
+                onCancel: {
+                    pendingConfirmation = nil
+                }
+            )
         }
         .navigationTitle("Send \(chain.title)")
         .toolbar {
@@ -5657,8 +5684,8 @@ private struct BitcoinSendView: View {
     }
     
     private var isValidForm: Bool {
-        !amountBTC.isEmpty &&
-        Double(amountBTC) ?? 0 > 0 &&
+        !amountCrypto.isEmpty &&
+        Double(amountCrypto) ?? 0 > 0 &&
         feeEstimates != nil &&
         addressValidation == .valid &&
         amountValidation == .valid
@@ -5684,14 +5711,14 @@ private struct BitcoinSendView: View {
     
     private func formatSatoshis(_ sats: Int64) -> String {
         let btc = Double(sats) / 100_000_000.0
-        return String(format: "%.8f BTC", btc)
+        return String(format: "%.8f \(ticker)", btc)
     }
     
     private func sendMax() {
         // Reserve estimated fee (assume 1 input, 1 output = ~140 vBytes)
         let estimatedTxFee = Int64(feeEstimates.map { feeRateForSelection($0) * 140 } ?? 5000)
         let maxSendable = max(0, availableBalance - estimatedTxFee)
-        amountBTC = String(format: "%.8f", Double(maxSendable) / 100_000_000.0)
+        amountCrypto = String(format: "%.8f", Double(maxSendable) / 100_000_000.0)
         updateFeeEstimate()
         validateAmount()
     }
@@ -5708,28 +5735,76 @@ private struct BitcoinSendView: View {
     private func loadBalanceAndFees() async {
         isLoading = true
         errorMessage = nil
+        balanceLoaded = false
         
         do {
-            // Get address
-            let address = isTestnet ? keys.bitcoinTestnet.address : keys.bitcoin.address
+            // Get address based on chain type
+            let address: String
+            if isLitecoin {
+                address = keys.litecoin.address
+            } else if isTestnet {
+                address = keys.bitcoinTestnet.address
+            } else {
+                address = keys.bitcoin.address
+            }
             
-            // Fetch UTXOs
-            let utxos = try await fetchUTXOs(for: address)
-            availableBalance = utxos.filter { $0.status.confirmed }.reduce(0) { $0 + $1.value }
+            // Fetch UTXOs using MultiProviderAPI with fallbacks
+            print("📡 Loading balance for \(address.prefix(10))...")
+            let utxos = try await MultiProviderAPI.shared.fetchBitcoinUTXOs(
+                address: address,
+                isTestnet: isTestnet,
+                isLitecoin: isLitecoin
+            )
+            
+            // Convert to our internal format and calculate balance
+            // Include unconfirmed UTXOs to allow spending change immediately
+            let totalBalance = utxos.reduce(0) { $0 + $1.value }
+            availableBalance = totalBalance
+            balanceLoaded = true  // Mark as loaded even if balance is 0
+            print("✅ Loaded \(utxos.count) UTXOs, balance: \(totalBalance) sats (including unconfirmed)")
             validateAmount()
             
             // Fetch fee estimates
             feeEstimates = try await fetchFeeEstimates()
             updateFeeEstimate()
             
+            isLoading = false
         } catch {
-            errorMessage = "Failed to load data: \(error.localizedDescription)"
+            print("❌ Failed to load balance: \(error.localizedDescription)")
+            errorMessage = "Failed to load balance. Tap to retry."
+            balanceLoaded = false
+            isLoading = false
         }
     }
     
     private func fetchUTXOs(for address: String) async throws -> [BitcoinUTXO] {
-        guard let encoded = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "\(baseURL)/address/\(encoded)/utxo") else {
+        // Use MultiProviderAPI with automatic fallbacks
+        let utxos = try await MultiProviderAPI.shared.fetchBitcoinUTXOs(
+            address: address,
+            isTestnet: isTestnet,
+            isLitecoin: isLitecoin
+        )
+        
+        // Convert to BitcoinUTXO format
+        return utxos.map { utxo in
+            BitcoinUTXO(
+                txid: utxo.txid,
+                vout: utxo.vout,
+                value: utxo.value,
+                scriptpubkey: utxo.scriptPubKey,
+                status: BitcoinUTXO.UTXOStatus(
+                    confirmed: utxo.confirmed,
+                    blockHeight: utxo.blockHeight,
+                    blockHash: nil,
+                    blockTime: nil
+                )
+            )
+        }
+    }
+    
+    private func fetchLitecoinUTXOs(for address: String) async throws -> [BitcoinUTXO] {
+        // Use Blockchair API for Litecoin
+        guard let url = URL(string: "https://api.blockchair.com/litecoin/dashboards/address/\(address)?limit=100") else {
             throw BitcoinSendError.networkError("Invalid URL")
         }
         
@@ -5739,19 +5814,47 @@ private struct BitcoinSendView: View {
         
         let (data, response) = try await URLSession.shared.data(for: request)
         
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BitcoinSendError.networkError("Invalid response")
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw BitcoinSendError.networkError("Failed to fetch Litecoin UTXOs")
         }
         
-        guard httpResponse.statusCode == 200 else {
-            throw BitcoinSendError.networkError("HTTP \(httpResponse.statusCode)")
+        // Parse Blockchair response format
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataDict = json["data"] as? [String: Any],
+              let addressData = dataDict[address] as? [String: Any],
+              let utxosArray = addressData["utxo"] as? [[String: Any]] else {
+            return []
         }
         
-        let utxos = try JSONDecoder().decode([BitcoinUTXO].self, from: data)
-        return utxos
+        // Convert Blockchair format to our BitcoinUTXO format
+        return utxosArray.compactMap { utxo -> BitcoinUTXO? in
+            guard let txid = utxo["transaction_hash"] as? String,
+                  let vout = utxo["index"] as? Int,
+                  let value = utxo["value"] as? Int64 else {
+                return nil
+            }
+            
+            let scriptPubKey = utxo["script_hex"] as? String ?? ""
+            let blockId = utxo["block_id"] as? Int ?? 0
+            
+            return BitcoinUTXO(
+                txid: txid,
+                vout: vout,
+                value: value,
+                scriptpubkey: scriptPubKey,
+                status: BitcoinUTXO.UTXOStatus(confirmed: blockId > 0, blockHeight: blockId > 0 ? blockId : nil, blockHash: nil, blockTime: nil)
+            )
+        }
     }
     
     private func fetchFeeEstimates() async throws -> BitcoinFeeEstimates {
+        if isLitecoin {
+            // Fetch Litecoin fee estimates from Blockchair
+            return try await fetchLitecoinFeeEstimates()
+        }
+        
+        // Use mempool.space for Bitcoin fees
         guard let url = URL(string: "\(baseURL)/v1/fees/recommended") else {
             throw BitcoinSendError.networkError("Invalid URL")
         }
@@ -5771,10 +5874,22 @@ private struct BitcoinSendView: View {
         return estimates
     }
     
+    private func fetchLitecoinFeeEstimates() async throws -> BitcoinFeeEstimates {
+        // Litecoin fees are much lower than Bitcoin - use defaults
+        // In production, you would fetch from an API like Blockchair
+        return BitcoinFeeEstimates(
+            fastestFee: 20,    // ~10 min
+            halfHourFee: 10,   // ~30 min
+            hourFee: 5,        // ~1 hour
+            economyFee: 2,     // Economy
+            minimumFee: 1      // Minimum
+        )
+    }
+    
     private func sendTransaction() async {
         // Check biometric authentication first if required
         if BiometricAuthHelper.shouldRequireBiometric(settingEnabled: requireBiometric) {
-            let result = await BiometricAuthHelper.authenticate(reason: "Authenticate to send Bitcoin")
+            let result = await BiometricAuthHelper.authenticate(reason: "Authenticate to send \(ticker)")
             switch result {
             case .success:
                 break // Continue with transaction
@@ -5809,10 +5924,10 @@ private struct BitcoinSendView: View {
             }
             
             // Parse amount
-            guard let btcAmount = Double(amountBTC) else {
+            guard let cryptoAmount = Double(amountCrypto) else {
                 throw BitcoinSendError.amountTooLow
             }
-            let satoshis = Int64(btcAmount * 100_000_000)
+            let satoshis = Int64(cryptoAmount * 100_000_000)
             
             guard satoshis >= 546 else { // Dust limit
                 throw BitcoinSendError.amountTooLow
@@ -5822,19 +5937,62 @@ private struct BitcoinSendView: View {
                 throw BitcoinSendError.insufficientFunds
             }
             
-            // Get keys and fetch UTXOs
-            let address = isTestnet ? keys.bitcoinTestnet.address : keys.bitcoin.address
-            let privateWIF = isTestnet ? keys.bitcoinTestnet.privateWif : keys.bitcoin.privateWif
+            // Get keys and fetch UTXOs based on chain type
+            let address: String
+            let privateWIF: String
+            
+            if isLitecoin {
+                address = keys.litecoin.address
+                privateWIF = keys.litecoin.privateWif
+            } else if isTestnet {
+                address = keys.bitcoinTestnet.address
+                privateWIF = keys.bitcoinTestnet.privateWif
+            } else {
+                address = keys.bitcoin.address
+                privateWIF = keys.bitcoin.privateWif
+            }
             
             let utxos = try await fetchUTXOs(for: address)
-            let confirmedUTXOs = utxos.filter { $0.status.confirmed }
+            // Use all UTXOs including unconfirmed ones
+            let availableUTXOs = utxos
             
-            guard !confirmedUTXOs.isEmpty else {
+            guard !availableUTXOs.isEmpty else {
                 throw BitcoinSendError.insufficientFunds
             }
             
-            // Convert UTXOs to Input format for BitcoinTransactionBuilder
-            let inputs = try confirmedUTXOs.map { utxo -> BitcoinTransactionBuilder.Input in
+            // Select UTXOs using greedy algorithm (largest first)
+            // This minimizes the number of inputs needed
+            let sortedUTXOs = availableUTXOs.sorted { $0.value > $1.value }
+            var selectedUTXOs: [BitcoinUTXO] = []
+            var totalInputValue: Int64 = 0
+            let targetAmount = satoshis + estimatedFee
+            
+            for utxo in sortedUTXOs {
+                selectedUTXOs.append(utxo)
+                totalInputValue += utxo.value
+                if totalInputValue >= targetAmount {
+                    break
+                }
+            }
+            
+            guard totalInputValue >= targetAmount else {
+                throw BitcoinSendError.insufficientFunds
+            }
+            
+            // Calculate change (input - output - fee)
+            // Use accurate fee based on actual transaction size
+            let inputCount = selectedUTXOs.count
+            let outputCount = 2 // recipient + change (may adjust later)
+            let estimatedVSize = inputCount * 68 + outputCount * 31 + 10 // P2WPKH sizes
+            let feeRate = feeEstimates.map { feeRateForSelection($0) } ?? 10
+            // Add +2 sat buffer to ensure we always meet minimum relay fee
+            let actualFee = Int64(estimatedVSize * feeRate) + 2
+            
+            let change = totalInputValue - satoshis - actualFee
+            let dustLimit: Int64 = 546
+            
+            // Convert selected UTXOs to Input format
+            let inputs = try selectedUTXOs.map { utxo -> BitcoinTransactionBuilder.Input in
                 guard let scriptData = Data(hex: utxo.scriptpubkey) else {
                     throw BitcoinSendError.networkError("Invalid scriptPubKey format")
                 }
@@ -5846,13 +6004,22 @@ private struct BitcoinSendView: View {
                 )
             }
             
-            // Create outputs
-            let outputs: [BitcoinTransactionBuilder.Output] = [
+            // Create outputs - recipient first, then change if above dust
+            var outputs: [BitcoinTransactionBuilder.Output] = [
                 BitcoinTransactionBuilder.Output(
                     address: recipient,
-                    value: Int64(satoshis)
+                    value: satoshis
                 )
             ]
+            
+            // Add change output if above dust limit
+            if change > dustLimit {
+                outputs.append(BitcoinTransactionBuilder.Output(
+                    address: address, // Send change back to ourselves
+                    value: change
+                ))
+            }
+            // If change is below dust, it goes to miners as extra fee
             
             // Build and sign transaction
             let signedTx = try BitcoinTransactionBuilder.buildAndSign(
@@ -5864,42 +6031,67 @@ private struct BitcoinSendView: View {
             
             let rawTxHex = signedTx.rawHex
             
-            // Broadcast transaction
-            let baseURL = isTestnet ? "https://mempool.space/testnet/api" : "https://mempool.space/api"
-            guard let url = URL(string: "\(baseURL)/tx") else {
-                throw BitcoinSendError.networkError("Invalid broadcast URL")
-            }
+            // DEBUG: Log the raw transaction
+            print("🔴 BITCOIN BROADCAST DEBUG 🔴")
+            print("📝 Raw Transaction Hex (\(rawTxHex.count) chars):")
+            print(rawTxHex)
+            print("🔴 END RAW TX 🔴")
             
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.httpBody = rawTxHex.data(using: String.Encoding.utf8)
-            request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+            // Broadcast transaction based on chain type
+            var txid: String
             
-            let (data, response) = try await URLSession.shared.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw BitcoinSendError.networkError("Invalid response")
-            }
-            
-            if httpResponse.statusCode == 200 {
-                // Success! Get txid from response
-                let txid = String(data: data, encoding: .utf8) ?? "Unknown"
-                
-                await MainActor.run {
-                    isLoading = false
-                    let result = TransactionBroadcastResult(
-                        txid: txid,
-                        chainId: chain.id,
-                        chainName: chain.title,
-                        amount: "\(btcAmount) \(isTestnet ? "tBTC" : "BTC")",
-                        recipient: recipient
-                    )
-                    onSuccess(result)
-                    dismiss()
-                }
+            if isLitecoin {
+                // Use TransactionBroadcaster for Litecoin
+                txid = try await TransactionBroadcaster.shared.broadcastLitecoin(rawTxHex: rawTxHex)
             } else {
-                let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown error"
-                throw BitcoinSendError.broadcastFailed(errorMsg)
+                // Use mempool.space for Bitcoin
+                let broadcastURL = isTestnet ? "https://mempool.space/testnet/api" : "https://mempool.space/api"
+                let fullURL = "\(broadcastURL)/tx"
+                print("📡 Broadcasting to: \(fullURL)")
+                
+                guard let url = URL(string: fullURL) else {
+                    throw BitcoinSendError.networkError("Invalid broadcast URL")
+                }
+                
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.httpBody = rawTxHex.data(using: String.Encoding.utf8)
+                request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+                
+                print("📤 Sending POST request...")
+                let (data, response) = try await URLSession.shared.data(for: request)
+                print("📥 Received response")
+                
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    print("❌ Invalid response type")
+                    throw BitcoinSendError.networkError("Invalid response")
+                }
+                
+                print("📊 HTTP Status Code: \(httpResponse.statusCode)")
+                let responseBody = String(data: data, encoding: .utf8) ?? "Unknown"
+                print("📄 Response Body: \(responseBody)")
+                
+                guard httpResponse.statusCode == 200 else {
+                    print("❌ Broadcast failed with status \(httpResponse.statusCode)")
+                    throw BitcoinSendError.broadcastFailed(responseBody)
+                }
+                
+                txid = responseBody
+                print("✅ Broadcast successful! TXID: \(txid)")
+            }
+            
+            // Success!
+            await MainActor.run {
+                isLoading = false
+                let result = TransactionBroadcastResult(
+                    txid: txid,
+                    chainId: chain.id,
+                    chainName: chain.title,
+                    amount: "\(cryptoAmount) \(ticker)",
+                    recipient: recipient
+                )
+                onSuccess(result)
+                dismiss()
             }
             
         } catch let error as BitcoinSendError {
@@ -5915,6 +6107,77 @@ private struct BitcoinSendView: View {
         }
     }
 
+    private func prepareConfirmation() {
+        // Get the sender address
+        let fromAddress: String
+        if isLitecoin {
+            fromAddress = keys.litecoin.address
+        } else if isTestnet {
+            fromAddress = keys.bitcoinTestnet.address
+        } else {
+            fromAddress = keys.bitcoin.address
+        }
+        
+        // Parse amounts
+        guard let cryptoAmount = Double(amountCrypto) else { return }
+        let feeSats = estimatedFee
+        let feeInCrypto = Double(feeSats) / 100_000_000.0
+        let totalCrypto = cryptoAmount + feeInCrypto
+        
+        // Format for display
+        let formattedAmount = String(format: "%.8f %@", cryptoAmount, ticker)
+        let formattedFee = String(format: "%.8f %@ (%d sats)", feeInCrypto, ticker, feeSats)
+        let formattedTotal = String(format: "%.8f %@", totalCrypto, ticker)
+        
+        // Determine chain type
+        let chainType: TransactionConfirmation.ChainType = isLitecoin ? .litecoin : .bitcoin
+        
+        // Determine network name
+        let networkName: String
+        if isLitecoin {
+            networkName = "Litecoin Mainnet"
+        } else if isTestnet {
+            networkName = "Bitcoin Testnet"
+        } else {
+            networkName = "Bitcoin Mainnet"
+        }
+        
+        // Get estimated confirmation time based on fee rate
+        let estimatedTime: String
+        switch selectedFeeRate {
+        case .fast:
+            estimatedTime = "~10 minutes"
+        case .medium:
+            estimatedTime = "~30 minutes"
+        case .slow:
+            estimatedTime = "~1 hour"
+        case .economy:
+            estimatedTime = "~2+ hours"
+        }
+        
+        // Create confirmation object
+        pendingConfirmation = TransactionConfirmation(
+            chainType: chainType,
+            fromAddress: fromAddress,
+            toAddress: recipientAddress.trimmingCharacters(in: .whitespacesAndNewlines),
+            amount: formattedAmount,
+            amountFiat: nil, // Could add fiat conversion here
+            fee: formattedFee,
+            feeFiat: nil,
+            total: formattedTotal,
+            totalFiat: nil,
+            memo: nil,
+            contractAddress: nil,
+            tokenSymbol: nil,
+            nonce: nil,
+            gasLimit: nil,
+            gasPrice: nil,
+            networkName: networkName,
+            isTestnet: isTestnet,
+            estimatedTime: estimatedTime
+        )
+    }
+
     private func validateRecipientAddress() {
         guard let network = bitcoinNetwork else {
             addressValidation = recipientAddress.isEmpty ? .empty : .valid
@@ -5925,9 +6188,10 @@ private struct BitcoinSendView: View {
 
     private func validateAmount() {
         amountValidation = AmountValidator.validateBitcoin(
-            amountString: amountBTC,
+            amountString: amountCrypto,
             availableSats: availableBalance,
-            estimatedFeeSats: estimatedFee
+            estimatedFeeSats: estimatedFee,
+            balanceLoaded: balanceLoaded
         )
     }
 
@@ -5958,7 +6222,7 @@ private struct BitcoinSendView: View {
                 recipientAddress = uri.target
             }
             if let amountValue = uri.queryValue("amount"), !amountValue.isEmpty {
-                amountBTC = amountValue
+                amountCrypto = amountValue
             }
         } else {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6093,17 +6357,32 @@ private struct EthereumSendSheet: View {
     @State private var gasEstimates: EthGasEstimates?
     @State private var showCameraScanner = false
     @State private var showContactPicker = false
+    @State private var pendingConfirmation: TransactionConfirmation?
     
     private var isTestnet: Bool {
         chain.id == "ethereum-sepolia"
     }
     
     private var rpcURL: String {
-        isTestnet ? "https://sepolia.infura.io/v3/YOUR_KEY" : "https://ethereum.publicnode.com"
+        isTestnet ? APIConfig.alchemySepoliaURL : APIConfig.alchemyMainnetURL
     }
     
     private var chainId: Int {
         isTestnet ? 11155111 : 1
+    }
+    
+    private var availableTokens: [TokenType] {
+        if isTestnet {
+            return [.eth]
+        }
+        return TokenType.allCases
+    }
+    
+    private func tokenDisplayName(_ token: TokenType) -> String {
+        if isTestnet && token == .eth {
+            return "Sepolia ETH"
+        }
+        return token.rawValue
     }
     
     enum TokenType: String, CaseIterable {
@@ -6137,8 +6416,8 @@ private struct EthereumSendSheet: View {
                 // Token Selector & Amount
                 VStack(spacing: 16) {
                     Picker("Token", selection: $selectedToken) {
-                        ForEach(TokenType.allCases, id: \.self) { token in
-                            Text(token.rawValue).tag(token)
+                        ForEach(availableTokens, id: \.self) { token in
+                            Text(tokenDisplayName(token)).tag(token)
                         }
                     }
                     .pickerStyle(.segmented)
@@ -6158,7 +6437,7 @@ private struct EthereumSendSheet: View {
                                 updateGasEstimate()
                                 validateAmount()
                             }
-                        Text(selectedToken.rawValue)
+                        Text(tokenDisplayName(selectedToken))
                             .font(.title2)
                             .fontWeight(.medium)
                             .foregroundStyle(.secondary)
@@ -6361,9 +6640,9 @@ private struct EthereumSendSheet: View {
 
                 Spacer()
 
-                // Send Button
+                // Send Button - shows confirmation sheet first
                 Button {
-                    Task { await sendTransaction() }
+                    prepareEthConfirmation()
                 } label: {
                     HStack {
                         if isLoading {
@@ -6380,6 +6659,18 @@ private struct EthereumSendSheet: View {
                 }
                 .disabled(!isValidForm || isLoading)
                 .padding()
+            }
+            .sheet(item: $pendingConfirmation) { confirmation in
+                TransactionConfirmationSheet(
+                    confirmation: confirmation,
+                    onConfirm: {
+                        pendingConfirmation = nil
+                        Task { await sendTransaction() }
+                    },
+                    onCancel: {
+                        pendingConfirmation = nil
+                    }
+                )
             }
             .navigationTitle("Send Ethereum")
             .toolbar {
@@ -6692,15 +6983,8 @@ private struct EthereumSendSheet: View {
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
             
             let (data, _) = try await URLSession.shared.data(for: request)
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             
-            guard let resultHex = json?["result"] as? String else {
-                return "0 ETH"
-            }
-            
-            let cleaned = resultHex.hasPrefix("0x") ? String(resultHex.dropFirst(2)) : resultHex
-            let weiValue = Decimal(string: cleaned, locale: nil) ?? 0
-            let ethValue = weiValue / Decimal(string: "1000000000000000000")!
+            let ethValue = try BalanceResponseParser.parseAlchemyETHBalance(from: data)
             
             return String(format: "%.6f ETH", NSDecimalNumber(decimal: ethValue).doubleValue)
         } else {
@@ -6726,6 +7010,61 @@ private struct EthereumSendSheet: View {
         case .failure(let error):
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func prepareEthConfirmation() {
+        // Parse amount
+        guard let amount = Double(amountInput) else { return }
+        
+        // Get addresses
+        let fromAddress = keys.ethereum.address
+        let toAddress = effectiveRecipientAddress
+        
+        // Format amounts
+        let formattedAmount = String(format: "%.8f %@", amount, selectedToken.rawValue)
+        let formattedFee = estimatedGasFee.isEmpty ? "Calculating..." : "\(estimatedGasFee) ETH"
+        let totalAmount = selectedToken == .eth ? amount + (Double(estimatedGasFee) ?? 0) : amount
+        let formattedTotal = selectedToken == .eth 
+            ? String(format: "%.8f ETH", totalAmount)
+            : "\(formattedAmount) + \(formattedFee)"
+        
+        // Network info
+        let networkName = isTestnet ? "Ethereum Sepolia (Testnet)" : "Ethereum Mainnet"
+        
+        // Estimated time based on gas speed
+        let estimatedTime: String
+        switch selectedGasSpeed {
+        case .instant:
+            estimatedTime = "~10 seconds"
+        case .fast:
+            estimatedTime = "~15 seconds"
+        case .standard:
+            estimatedTime = "~30 seconds"
+        case .slow:
+            estimatedTime = "~2 minutes"
+        }
+        
+        // Create confirmation
+        pendingConfirmation = TransactionConfirmation(
+            chainType: .ethereum,
+            fromAddress: fromAddress,
+            toAddress: toAddress,
+            amount: formattedAmount,
+            amountFiat: nil,
+            fee: formattedFee,
+            feeFiat: nil,
+            total: formattedTotal,
+            totalFiat: nil,
+            memo: nil,
+            contractAddress: selectedToken.contractAddress,
+            tokenSymbol: selectedToken == .eth ? nil : selectedToken.rawValue,
+            nonce: nonce,
+            gasLimit: 21000,
+            gasPrice: gasPrice.isEmpty ? nil : "\(gasPrice) Gwei",
+            networkName: networkName,
+            isTestnet: isTestnet,
+            estimatedTime: estimatedTime
+        )
     }
 
     private func validateRecipientAddressWithENS() {
@@ -6924,6 +7263,7 @@ private struct BnbSendSheet: View {
     @State private var biometricFailed = false
     @State private var showCameraScanner = false
     @State private var showContactPicker = false
+    @State private var pendingConfirmation: TransactionConfirmation?
     
     private let rpcURL = "https://bsc-dataseed.binance.org/"
     private let chainId = 56
@@ -7034,7 +7374,7 @@ private struct BnbSendSheet: View {
                 
                 Section {
                     Button {
-                        Task { await sendTransaction() }
+                        prepareBnbConfirmation()
                     } label: {
                         HStack {
                             if isLoading { ProgressView().controlSize(.small).tint(.white) }
@@ -7046,6 +7386,18 @@ private struct BnbSendSheet: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!isValidForm || isLoading)
                 }
+            }
+            .sheet(item: $pendingConfirmation) { confirmation in
+                TransactionConfirmationSheet(
+                    confirmation: confirmation,
+                    onConfirm: {
+                        pendingConfirmation = nil
+                        Task { await sendTransaction() }
+                    },
+                    onCancel: {
+                        pendingConfirmation = nil
+                    }
+                )
             }
             .navigationTitle("Send BNB")
             .toolbar {
@@ -7270,6 +7622,48 @@ private struct BnbSendSheet: View {
         return String(format: "%.6f BNB", bnb)
     }
     
+    private func prepareBnbConfirmation() {
+        // Parse amount
+        guard let amount = Double(amountInput) else { return }
+        
+        // Get addresses
+        let fromAddress = keys.bnb.address
+        let toAddress = recipientAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Calculate fee (gas limit * gas price)
+        let gasLimit: UInt64 = 21000
+        let gasPriceWei = (Double(gasPriceGwei) ?? 5) * 1_000_000_000
+        let feeWei = Double(gasLimit) * gasPriceWei
+        let feeBnb = feeWei / 1_000_000_000_000_000_000.0
+        
+        // Format amounts
+        let formattedAmount = String(format: "%.8f BNB", amount)
+        let formattedFee = String(format: "%.8f BNB", feeBnb)
+        let formattedTotal = String(format: "%.8f BNB", amount + feeBnb)
+        
+        // Create confirmation
+        pendingConfirmation = TransactionConfirmation(
+            chainType: .bnb,
+            fromAddress: fromAddress,
+            toAddress: toAddress,
+            amount: formattedAmount,
+            amountFiat: nil,
+            fee: formattedFee,
+            feeFiat: nil,
+            total: formattedTotal,
+            totalFiat: nil,
+            memo: nil,
+            contractAddress: nil,
+            tokenSymbol: nil,
+            nonce: nonce,
+            gasLimit: 21000,
+            gasPrice: "\(gasPriceGwei) Gwei",
+            networkName: "BNB Smart Chain",
+            isTestnet: false,
+            estimatedTime: "~3 seconds"
+        )
+    }
+    
     private func sendTransaction() async {
         // Check biometric authentication first if required
         if BiometricAuthHelper.shouldRequireBiometric(settingEnabled: requireBiometric) {
@@ -7387,6 +7781,7 @@ private struct SolanaSendSheet: View {
     @State private var biometricFailed = false
     @State private var showCameraScanner = false
     @State private var showContactPicker = false
+    @State private var pendingConfirmation: TransactionConfirmation?
     
     private let rpcURL = "https://api.mainnet-beta.solana.com"
     
@@ -7559,9 +7954,9 @@ private struct SolanaSendSheet: View {
 
                 Spacer()
 
-                // Send Button
+                // Send Button - shows confirmation sheet first
                 Button {
-                    Task { await sendTransaction() }
+                    prepareSolConfirmation()
                 } label: {
                     HStack {
                         if isLoading {
@@ -7578,6 +7973,18 @@ private struct SolanaSendSheet: View {
                 }
                 .disabled(!isValidForm || isLoading)
                 .padding()
+            }
+            .sheet(item: $pendingConfirmation) { confirmation in
+                TransactionConfirmationSheet(
+                    confirmation: confirmation,
+                    onConfirm: {
+                        pendingConfirmation = nil
+                        Task { await sendTransaction() }
+                    },
+                    onCancel: {
+                        pendingConfirmation = nil
+                    }
+                )
             }
             .navigationTitle("Send Solana")
             .toolbar {
@@ -7797,6 +8204,46 @@ private struct SolanaSendSheet: View {
             throw SolanaSendError.networkFailure("Malformed RPC response")
         }
         return result
+    }
+    
+    private func prepareSolConfirmation() {
+        // Parse amount
+        guard let amount = Double(amountSOL) else { return }
+        
+        // Get addresses - Solana uses publicKeyBase58 as address
+        let fromAddress = keys.solana.publicKeyBase58
+        let toAddress = resolvedSNSName ?? recipientAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Solana fees are very small (~0.000005 SOL per signature)
+        let estimatedFeeSol = 0.000005
+        let totalSol = amount + estimatedFeeSol
+        
+        // Format amounts
+        let formattedAmount = String(format: "%.9f SOL", amount)
+        let formattedFee = String(format: "%.9f SOL (~0.00001 USD)", estimatedFeeSol)
+        let formattedTotal = String(format: "%.9f SOL", totalSol)
+        
+        // Create confirmation
+        pendingConfirmation = TransactionConfirmation(
+            chainType: .solana,
+            fromAddress: fromAddress,
+            toAddress: toAddress,
+            amount: formattedAmount,
+            amountFiat: nil,
+            fee: formattedFee,
+            feeFiat: nil,
+            total: formattedTotal,
+            totalFiat: nil,
+            memo: nil,
+            contractAddress: nil,
+            tokenSymbol: nil,
+            nonce: nil,
+            gasLimit: nil,
+            gasPrice: nil,
+            networkName: "Solana Mainnet",
+            isTestnet: false,
+            estimatedTime: "~400ms"
+        )
     }
     
     private func sendTransaction() async {

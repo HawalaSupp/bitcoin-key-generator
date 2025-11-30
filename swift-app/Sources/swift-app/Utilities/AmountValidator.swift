@@ -12,7 +12,8 @@ struct AmountValidator {
     static func validateBitcoin(amountString: String,
                                 availableSats: Int64,
                                 estimatedFeeSats: Int64,
-                                dustLimit: Int64 = 546) -> AmountValidationResult {
+                                dustLimit: Int64 = 546,
+                                balanceLoaded: Bool = true) -> AmountValidationResult {
         let trimmed = amountString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .empty }
 
@@ -35,8 +36,13 @@ struct AmountValidator {
             return .invalid("Amount must be at least 546 sats")
         }
 
+        // Only check balance if it has been loaded
+        guard balanceLoaded else {
+            return .invalid("Loading balance...")
+        }
+        
         guard availableSats > 0 else {
-            return .invalid("Balance not loaded yet")
+            return .invalid("Wallet has no funds to send")
         }
 
         guard satoshis + max(estimatedFeeSats, 0) <= availableSats else {

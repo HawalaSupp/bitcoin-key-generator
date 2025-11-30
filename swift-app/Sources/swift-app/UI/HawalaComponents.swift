@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Hawala UI Components
 // Reusable components following the design system
 
-// MARK: - Animated Counter
+// MARK: - Animated Counter (Optimized - no repeated withAnimation calls)
 struct AnimatedCounter: View {
     let value: Double
     let prefix: String
@@ -13,7 +13,7 @@ struct AnimatedCounter: View {
     @State private var displayValue: Double = 0
     @State private var hasAnimated = false
     
-    init(value: Double, prefix: String = "$", duration: Double = 1.2, hideBalance: Bool = false) {
+    init(value: Double, prefix: String = "$", duration: Double = 0.5, hideBalance: Bool = false) {
         self.value = value
         self.prefix = prefix
         self.duration = duration
@@ -39,35 +39,19 @@ struct AnimatedCounter: View {
         }
         .onAppear {
             if !hasAnimated && !hideBalance {
-                animateValue()
+                // Just set the value directly on appear - no animation
+                displayValue = value
                 hasAnimated = true
             }
         }
         .onChange(of: value) { newValue in
             if !hideBalance {
-                animateValue()
-            }
-        }
-    }
-    
-    private func animateValue() {
-        let startValue = displayValue
-        let difference = value - startValue
-        let steps = 60
-        let stepDuration = duration / Double(steps)
-        
-        for step in 0...steps {
-            DispatchQueue.main.asyncAfter(deadline: .now() + stepDuration * Double(step)) {
-                let progress = easeOutCubic(Double(step) / Double(steps))
-                withAnimation(.easeOut(duration: 0.05)) {
-                    displayValue = startValue + (difference * progress)
+                // Simple single animation instead of 60 calls
+                withAnimation(.easeOut(duration: duration)) {
+                    displayValue = newValue
                 }
             }
         }
-    }
-    
-    private func easeOutCubic(_ t: Double) -> Double {
-        return 1 - pow(1 - t, 3)
     }
     
     private func formatNumber(_ num: Double) -> String {
@@ -155,9 +139,9 @@ struct EmptyStateView: View {
     
     var body: some View {
         VStack(spacing: HawalaTheme.Spacing.lg) {
-            // Animated icon
+            // Static icon - no animation
             ZStack {
-                // Outer ring
+                // Outer ring - static
                 Circle()
                     .stroke(
                         LinearGradient(
@@ -168,8 +152,6 @@ struct EmptyStateView: View {
                         lineWidth: 2
                     )
                     .frame(width: 100, height: 100)
-                    .scaleEffect(isAnimating ? 1.1 : 1.0)
-                    .opacity(isAnimating ? 0.5 : 1.0)
                 
                 // Inner circle
                 Circle()
@@ -190,7 +172,6 @@ struct EmptyStateView: View {
                     .font(.system(size: 32, weight: .light))
                     .foregroundColor(HawalaTheme.Colors.textTertiary)
             }
-            // Removed forever animation for empty state icon
             
             VStack(spacing: HawalaTheme.Spacing.sm) {
                 Text(title)
@@ -213,12 +194,12 @@ struct EmptyStateView: View {
     }
 }
 
-// MARK: - Skeleton Loading View
+// MARK: - Skeleton Loading View (Optimized - simple opacity animation)
 struct SkeletonView: View {
     let width: CGFloat?
     let height: CGFloat
     
-    @State private var isAnimating = false
+    @State private var opacity: Double = 0.5
     
     init(width: CGFloat? = nil, height: CGFloat = 20) {
         self.width = width
@@ -227,49 +208,20 @@ struct SkeletonView: View {
     
     var body: some View {
         RoundedRectangle(cornerRadius: height / 4)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        HawalaTheme.Colors.backgroundTertiary,
-                        HawalaTheme.Colors.backgroundSecondary,
-                        HawalaTheme.Colors.backgroundTertiary
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
+            .fill(HawalaTheme.Colors.backgroundTertiary)
             .frame(width: width, height: height)
-            .mask(
-                Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.clear,
-                                Color.white.opacity(0.5),
-                                Color.clear
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .offset(x: isAnimating ? 300 : -300)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: height / 4)
-                    .fill(HawalaTheme.Colors.backgroundTertiary)
-            )
+            .opacity(opacity)
             .onAppear {
-                // Slower animation, less CPU intensive
-                withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
-                    isAnimating = true
+                withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
+                    opacity = 0.8
                 }
             }
     }
 }
 
-// MARK: - Skeleton Asset Row
+// MARK: - Skeleton Asset Row (Optimized - no GeometryReader)
 struct SkeletonAssetRow: View {
-    @State private var shimmerOffset: CGFloat = -200
+    @State private var opacity: Double = 0.5
     
     var body: some View {
         HStack(spacing: HawalaTheme.Spacing.md) {
@@ -309,41 +261,18 @@ struct SkeletonAssetRow: View {
         }
         .padding(.horizontal, HawalaTheme.Spacing.lg)
         .padding(.vertical, HawalaTheme.Spacing.md)
-        .overlay(
-            shimmerOverlay
-        )
-        .clipped()
-    }
-    
-    private var shimmerOverlay: some View {
-        GeometryReader { geo in
-            Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.clear,
-                            Color.white.opacity(0.05),
-                            Color.clear
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .frame(width: 100)
-                .offset(x: shimmerOffset)
-                .onAppear {
-                    // Slower shimmer animation
-                    withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
-                        shimmerOffset = geo.size.width + 100
-                    }
-                }
+        .opacity(opacity)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
+                opacity = 0.8
+            }
         }
     }
 }
 
-// MARK: - Skeleton Balance Card
+// MARK: - Skeleton Balance Card (Optimized - no GeometryReader)
 struct SkeletonBalanceCard: View {
-    @State private var shimmerOffset: CGFloat = -200
+    @State private var opacity: Double = 0.5
     
     var body: some View {
         VStack(alignment: .center, spacing: HawalaTheme.Spacing.md) {
@@ -372,34 +301,12 @@ struct SkeletonBalanceCard: View {
             RoundedRectangle(cornerRadius: HawalaTheme.Radius.xl, style: .continuous)
                 .strokeBorder(HawalaTheme.Colors.border, lineWidth: 1)
         )
-        .overlay(shimmerOverlay)
-        .clipped()
-    }
-    
-    private var shimmerOverlay: some View {
-        GeometryReader { geo in
-            Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.clear,
-                            Color.white.opacity(0.03),
-                            Color.clear
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .frame(width: 150)
-                .offset(x: shimmerOffset)
-                .onAppear {
-                    // Slower shimmer animation
-                    withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
-                        shimmerOffset = geo.size.width + 150
-                    }
-                }
+        .opacity(opacity)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                opacity = 0.8
+            }
         }
-        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.xl, style: .continuous))
     }
 }
 
@@ -566,16 +473,8 @@ struct HawalaAssetRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: HawalaTheme.Spacing.md) {
-                // Chain icon with glow on hover
+                // Chain icon - simplified, no blur
                 ZStack {
-                    // Glow effect
-                    if isHovered {
-                        Circle()
-                            .fill(chainColor.opacity(0.3))
-                            .frame(width: 52, height: 52)
-                            .blur(radius: 8)
-                    }
-                    
                     Circle()
                         .fill(chainColor.opacity(isHovered ? 0.25 : 0.15))
                         .frame(width: 42, height: 42)
@@ -584,7 +483,6 @@ struct HawalaAssetRow: View {
                         .font(.system(size: 18, weight: .medium))
                         .foregroundColor(chainColor)
                 }
-                .animation(.easeOut(duration: 0.2), value: isHovered)
                 
                 // Name and symbol
                 VStack(alignment: .leading, spacing: 2) {
@@ -600,12 +498,11 @@ struct HawalaAssetRow: View {
                 
                 Spacer()
                 
-                // Mini sparkline (enhanced)
+                // Mini sparkline (simplified - no hover effect)
                 if !sparklineData.isEmpty {
-                    EnhancedSparkline(
+                    MiniSparkline(
                         data: sparklineData, 
-                        color: (priceChange ?? 0) >= 0 ? HawalaTheme.Colors.success : HawalaTheme.Colors.error,
-                        showGradient: isHovered
+                        color: (priceChange ?? 0) >= 0 ? HawalaTheme.Colors.success : HawalaTheme.Colors.error
                     )
                     .frame(width: 60, height: 28)
                 }
@@ -635,37 +532,21 @@ struct HawalaAssetRow: View {
                     }
                 }
                 
-                // Chevron with animation
+                // Chevron - instant color change, no offset animation
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(isHovered ? HawalaTheme.Colors.textSecondary : HawalaTheme.Colors.textTertiary)
-                    .offset(x: isHovered ? 2 : 0)
-                    .animation(.easeOut(duration: 0.15), value: isHovered)
             }
             .padding(.horizontal, HawalaTheme.Spacing.lg)
             .padding(.vertical, HawalaTheme.Spacing.md)
             .background(
-                ZStack {
-                    // Background
-                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous)
-                        .fill(isSelected ? HawalaTheme.Colors.accentSubtle : (isHovered ? HawalaTheme.Colors.backgroundHover : Color.clear))
-                    
-                    // Subtle border on hover
-                    if isHovered && !isSelected {
-                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous)
-                            .strokeBorder(chainColor.opacity(0.2), lineWidth: 1)
-                    }
-                }
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous)
+                    .fill(isSelected ? HawalaTheme.Colors.accentSubtle : (isHovered ? HawalaTheme.Colors.backgroundHover : Color.clear))
             )
-            // Lift effect
-            .scaleEffect(isHovered ? 1.01 : 1.0)
-            .shadow(color: isHovered ? chainColor.opacity(0.15) : Color.clear, radius: 8, x: 0, y: 4)
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                isHovered = hovering
-            }
+            isHovered = hovering // No animation - instant response
         }
         .contextMenu {
             // Copy Address
@@ -961,15 +842,8 @@ struct HawalaTransactionRow: View {
     
     var body: some View {
         HStack(spacing: HawalaTheme.Spacing.md) {
-            // Type icon with hover glow
+            // Type icon - simplified, no blur
             ZStack {
-                if isHovered {
-                    Circle()
-                        .fill(type.color.opacity(0.2))
-                        .frame(width: 46, height: 46)
-                        .blur(radius: 6)
-                }
-                
                 Circle()
                     .fill(type.color.opacity(isHovered ? 0.18 : 0.12))
                     .frame(width: 38, height: 38)
@@ -1327,11 +1201,8 @@ struct FABMenuItem: View {
             }
         }
         .buttonStyle(.plain)
-        .scaleEffect(isHovered ? 1.05 : 1.0)
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.15)) {
-                isHovered = hovering
-            }
+            isHovered = hovering // Instant response, no animation
         }
     }
 }
@@ -1458,7 +1329,7 @@ struct AnimatedTabView<Content: View>: View {
     }
 }
 
-// MARK: - Refresh Button with Animation
+// MARK: - Refresh Button with Animation (Optimized)
 struct RefreshButton: View {
     let isRefreshing: Bool
     let action: () -> Void
@@ -1476,14 +1347,11 @@ struct RefreshButton: View {
         .disabled(isRefreshing)
         .onChange(of: isRefreshing) { refreshing in
             if refreshing {
-                // Slower rotation animation
-                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+                withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) {
                     rotation = 360
                 }
             } else {
-                withAnimation(.easeOut(duration: 0.3)) {
-                    rotation = 0
-                }
+                rotation = 0
             }
         }
     }
@@ -2229,15 +2097,8 @@ struct DraggableAssetRow: View {
                 .foregroundColor(isHovered ? HawalaTheme.Colors.textSecondary : HawalaTheme.Colors.textTertiary)
                 .frame(width: 20)
             
-            // Chain icon with glow on hover
+            // Chain icon - simplified, no blur
             ZStack {
-                if isHovered {
-                    Circle()
-                        .fill(chainColor.opacity(0.3))
-                        .frame(width: 52, height: 52)
-                        .blur(radius: 8)
-                }
-                
                 Circle()
                     .fill(chainColor.opacity(isHovered ? 0.25 : 0.15))
                     .frame(width: 42, height: 42)
@@ -2246,7 +2107,6 @@ struct DraggableAssetRow: View {
                     .font(.system(size: 18, weight: .medium))
                     .foregroundColor(chainColor)
             }
-            .animation(.easeOut(duration: 0.2), value: isHovered)
             
             // Name and symbol
             VStack(alignment: .leading, spacing: 2) {
@@ -2262,12 +2122,11 @@ struct DraggableAssetRow: View {
             
             Spacer()
             
-            // Mini sparkline
+            // Mini sparkline - simplified, no hover effect
             if !sparklineData.isEmpty {
-                EnhancedSparkline(
+                MiniSparkline(
                     data: sparklineData,
-                    color: HawalaTheme.Colors.success,
-                    showGradient: isHovered
+                    color: HawalaTheme.Colors.success
                 )
                 .frame(width: 60, height: 28)
             }
@@ -2546,7 +2405,7 @@ struct ToastView: View {
         .padding(HawalaTheme.Spacing.md)
         .background(
             RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(Color(white: 0.12, opacity: 0.95))
                 .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 10)
         )
         .overlay(
@@ -2660,17 +2519,10 @@ struct BiometricLockScreen: View {
     
     var body: some View {
         ZStack {
-            // Blurred background
+            // Simple background
             Rectangle()
-                .fill(.ultraThinMaterial)
+                .fill(Color(white: 0.08, opacity: 0.98))
                 .ignoresSafeArea()
-            
-            // Animated particles (subtle)
-            ParticleBackgroundView(particleCount: 10, colors: [
-                HawalaTheme.Colors.accent.opacity(0.1),
-                Color.white.opacity(0.05)
-            ])
-            .opacity(0.4)
             
             VStack(spacing: HawalaTheme.Spacing.xxl) {
                 Spacer()
@@ -3194,7 +3046,7 @@ struct LoadingOverlay: View {
             .padding(HawalaTheme.Spacing.xxl)
             .background(
                 RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                    .fill(.ultraThinMaterial)
+                    .fill(Color(white: 0.15, opacity: 0.95))
             )
         }
     }
@@ -3375,7 +3227,7 @@ struct SmoothTabSwitcher<Content: View>: View {
     }
 }
 
-// MARK: - Refresh Indicator
+// MARK: - Refresh Indicator (Optimized - only animates when actively refreshing)
 struct RefreshIndicator: View {
     @Binding var isRefreshing: Bool
     
@@ -3393,15 +3245,19 @@ struct RefreshIndicator: View {
                     .stroke(HawalaTheme.Colors.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .frame(width: 24, height: 24)
                     .rotationEffect(.degrees(rotation))
-                    .onAppear {
-                        withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) {
-                            rotation = 360
-                        }
-                    }
             } else {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(HawalaTheme.Colors.accent)
+            }
+        }
+        .onChange(of: isRefreshing) { refreshing in
+            if refreshing {
+                withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) {
+                    rotation = 360
+                }
+            } else {
+                rotation = 0
             }
         }
     }

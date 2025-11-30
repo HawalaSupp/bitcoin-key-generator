@@ -18,6 +18,7 @@ struct SettingsView: View {
     @AppStorage("hapticFeedback") private var hapticFeedback = true
     @AppStorage("hawala.selectedFiatCurrency") private var currency = "USD"
     @AppStorage("theme") private var theme = "dark"
+    @AppStorage("showTestnets") private var showTestnets = false
     
     @State private var showAbout = false
     @State private var showBackupSheet = false
@@ -30,6 +31,11 @@ struct SettingsView: View {
     @State private var showTermsSheet = false
     @State private var showPrivacySheet = false
     @State private var showSupportSheet = false
+    @State private var showDebugConsole = false
+    @State private var isForceSyncing = false
+    
+    // Debug/Developer info
+    @StateObject private var debugLogger = DebugLogger.shared
     
     // Computed color scheme based on theme
     private var selectedColorScheme: ColorScheme? {
@@ -65,6 +71,9 @@ struct SettingsView: View {
                     
                     // General Section
                     generalSection
+                    
+                    // Developer Section
+                    developerSection
                     
                     // About Section
                     aboutSection
@@ -104,6 +113,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showSupportSheet) {
             HelpSupportSheet()
+        }
+        .sheet(isPresented: $showDebugConsole) {
+            DebugConsoleSheet()
         }
         .alert("Reset Wallet", isPresented: $showResetConfirm) {
             Button("Cancel", role: .cancel) { }
@@ -407,6 +419,180 @@ struct SettingsView: View {
                 triggerHaptic()
                 showExportSheet = true
             }
+        }
+    }
+    
+    // MARK: - Developer Section
+    private var developerSection: some View {
+        SettingsSection("Developer") {
+            SettingsToggleRow(
+                icon: "testtube.2",
+                iconColor: HawalaTheme.Colors.warning,
+                title: "Show Testnets",
+                subtitle: "Display Bitcoin Testnet & Ethereum Sepolia",
+                isOn: $showTestnets
+            )
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
+            // Debug Console
+            SettingsRow(
+                icon: "terminal.fill",
+                iconColor: HawalaTheme.Colors.accent,
+                title: "Debug Console",
+                subtitle: "\(debugLogger.entries.count) log entries"
+            ) {
+                triggerHaptic()
+                showDebugConsole = true
+            }
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
+            // Network Latency
+            HStack {
+                ZStack {
+                    Circle()
+                        .fill(HawalaTheme.Colors.info.opacity(0.15))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(HawalaTheme.Colors.info)
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Network Latency")
+                        .font(HawalaTheme.Typography.body)
+                        .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    Text(debugLogger.latencyDescription)
+                        .font(HawalaTheme.Typography.caption)
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                }
+                
+                Spacer()
+                
+                // Latency indicator
+                Circle()
+                    .fill(latencyIndicatorColor)
+                    .frame(width: 8, height: 8)
+            }
+            .padding(.horizontal, HawalaTheme.Spacing.md)
+            .padding(.vertical, HawalaTheme.Spacing.sm)
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
+            // WebSocket Status
+            HStack {
+                ZStack {
+                    Circle()
+                        .fill(HawalaTheme.Colors.success.opacity(0.15))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(HawalaTheme.Colors.success)
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("WebSocket")
+                        .font(HawalaTheme.Typography.body)
+                        .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    Text(debugLogger.webSocketStatus)
+                        .font(HawalaTheme.Typography.caption)
+                        .foregroundColor(debugLogger.webSocketStatus == "Connected" ? HawalaTheme.Colors.success : HawalaTheme.Colors.textSecondary)
+                }
+                
+                Spacer()
+                
+                // Force Sync button
+                Button(action: {
+                    triggerHaptic()
+                    forceSyncWebSocket()
+                }) {
+                    HStack(spacing: 4) {
+                        if isForceSyncing {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .frame(width: 14, height: 14)
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        Text("Sync")
+                            .font(HawalaTheme.Typography.caption)
+                    }
+                    .foregroundColor(HawalaTheme.Colors.accent)
+                    .padding(.horizontal, HawalaTheme.Spacing.sm)
+                    .padding(.vertical, 4)
+                    .background(HawalaTheme.Colors.accent.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .disabled(isForceSyncing)
+            }
+            .padding(.horizontal, HawalaTheme.Spacing.md)
+            .padding(.vertical, HawalaTheme.Spacing.sm)
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
+            // Clear Cache
+            SettingsRow(
+                icon: "trash.fill",
+                iconColor: HawalaTheme.Colors.error,
+                title: "Clear App Cache",
+                subtitle: "Removes cached data"
+            ) {
+                triggerHaptic()
+                clearAppCache()
+            }
+        }
+    }
+    
+    // Latency indicator color based on average latency
+    private var latencyIndicatorColor: Color {
+        guard let avg = debugLogger.averageLatency else { return .gray }
+        if avg < 0.2 { return HawalaTheme.Colors.success }
+        if avg < 0.5 { return HawalaTheme.Colors.warning }
+        return HawalaTheme.Colors.error
+    }
+    
+    // Force sync WebSocket
+    private func forceSyncWebSocket() {
+        isForceSyncing = true
+        debugLogger.log("Force sync requested", level: .info, category: .network)
+        
+        // Post notification to trigger WebSocket reconnection
+        NotificationCenter.default.post(name: NSNotification.Name("ForceWebSocketReconnect"), object: nil)
+        
+        // Reset after delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            isForceSyncing = false
+        }
+    }
+    
+    // Clear app cache
+    private func clearAppCache() {
+        // Clear asset cache
+        AssetCache.shared.clearCache()
+        
+        // Clear sparkline cache and refetch
+        SparklineCache.shared.sparklines.removeAll()
+        
+        // Clear debug logs
+        debugLogger.clear()
+        
+        ToastManager.shared.success("Cache cleared")
+        
+        // Trigger sparkline refetch after a short delay
+        Task {
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s delay
+            SparklineCache.shared.fetchAllSparklines(force: true)
         }
     }
     
@@ -2250,6 +2436,156 @@ struct FAQItem: View {
             RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
                 .stroke(HawalaTheme.Colors.border, lineWidth: 1)
         )
+    }
+}
+
+// MARK: - Debug Console Sheet
+struct DebugConsoleSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var logger = DebugLogger.shared
+    @State private var filterCategory: LogCategory? = nil
+    @State private var filterLevel: LogLevel? = nil
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Debug Console")
+                    .font(HawalaTheme.Typography.h2)
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                
+                Spacer()
+                
+                // Filter buttons
+                Menu {
+                    Button("All Categories") { filterCategory = nil }
+                    Divider()
+                    ForEach([LogCategory.general, .network, .wallet, .transaction, .security], id: \.self) { cat in
+                        Button(cat.rawValue.capitalized) { filterCategory = cat }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                        Text(filterCategory?.rawValue.capitalized ?? "All")
+                    }
+                    .font(HawalaTheme.Typography.caption)
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                }
+                .buttonStyle(.plain)
+                
+                Button(action: { logger.clear() }) {
+                    Image(systemName: "trash")
+                        .foregroundColor(HawalaTheme.Colors.error)
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, HawalaTheme.Spacing.sm)
+                
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, HawalaTheme.Spacing.sm)
+            }
+            .padding(HawalaTheme.Spacing.lg)
+            .background(HawalaTheme.Colors.backgroundSecondary)
+            
+            // Stats bar
+            HStack(spacing: HawalaTheme.Spacing.lg) {
+                DebugStatBadge(title: "Entries", value: "\(logger.entries.count)")
+                DebugStatBadge(title: "Network Latency", value: logger.latencyDescription)
+                DebugStatBadge(title: "WebSocket", value: logger.webSocketStatus)
+                Spacer()
+            }
+            .padding(.horizontal, HawalaTheme.Spacing.lg)
+            .padding(.vertical, HawalaTheme.Spacing.sm)
+            .background(HawalaTheme.Colors.backgroundTertiary.opacity(0.5))
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+            
+            // Log entries
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(filteredEntries) { entry in
+                        LogEntryRow(entry: entry)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .frame(minWidth: 600, minHeight: 400)
+        .background(HawalaTheme.Colors.background)
+    }
+    
+    private var filteredEntries: [LogEntry] {
+        var result = logger.entries
+        if let cat = filterCategory {
+            result = result.filter { $0.category == cat }
+        }
+        if let level = filterLevel {
+            result = result.filter { $0.level == level }
+        }
+        return result.reversed() // Most recent first
+    }
+}
+
+// Log entry row
+private struct LogEntryRow: View {
+    let entry: LogEntry
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: HawalaTheme.Spacing.sm) {
+            Text(entry.timeString)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                .frame(width: 80, alignment: .leading)
+            
+            Text(entry.level.rawValue.uppercased())
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(levelColor(entry.level))
+                .frame(width: 50, alignment: .leading)
+            
+            Text(entry.category.rawValue)
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundColor(HawalaTheme.Colors.textSecondary)
+                .frame(width: 70, alignment: .leading)
+            
+            Text(entry.message)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(HawalaTheme.Colors.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, HawalaTheme.Spacing.md)
+        .padding(.vertical, 4)
+        .background(entry.level == .error ? HawalaTheme.Colors.error.opacity(0.05) : Color.clear)
+    }
+    
+    private func levelColor(_ level: LogLevel) -> Color {
+        switch level {
+        case .debug: return HawalaTheme.Colors.textTertiary
+        case .info: return HawalaTheme.Colors.accent
+        case .warning: return HawalaTheme.Colors.warning
+        case .error: return HawalaTheme.Colors.error
+        }
+    }
+}
+
+// Debug stat badge
+private struct DebugStatBadge: View {
+    let title: String
+    let value: String
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(HawalaTheme.Colors.textTertiary)
+            Text(value)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundColor(HawalaTheme.Colors.textPrimary)
+        }
     }
 }
 
