@@ -6,8 +6,26 @@ import Foundation
 /// Check if we're running in a proper app bundle context
 private var canUseUserNotifications: Bool {
     // UNUserNotificationCenter crashes if not running in a proper bundle
-    // Check if we have a valid bundle identifier
-    return Bundle.main.bundleIdentifier != nil
+    
+    // 1. Check for XCTest environment
+    if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+        return false
+    }
+    if NSClassFromString("XCTest") != nil {
+        return false
+    }
+    
+    // 2. Check for valid bundle identifier
+    guard let bundleID = Bundle.main.bundleIdentifier else {
+        return false
+    }
+    
+    // 3. Check if bundle ID looks like a system tool (e.g. com.apple.dt.xctest.tool)
+    if bundleID.contains("xctest") || bundleID.contains("com.apple.dt") {
+        return false
+    }
+    
+    return true
 }
 
 // MARK: - Notification Models

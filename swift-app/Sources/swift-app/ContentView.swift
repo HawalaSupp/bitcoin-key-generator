@@ -65,7 +65,7 @@ private enum FiatCurrency: String, CaseIterable, Identifiable {
     }
 }
 
-private enum AppearanceMode: String, CaseIterable, Identifiable {
+enum AppearanceMode: String, CaseIterable, Identifiable {
     case system
     case light
     case dark

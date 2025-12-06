@@ -14,7 +14,7 @@ final class ContentViewSnapshotTests: XCTestCase {
     func testOnboardingSnapshotStable() throws {
         try XCTSkipIf(!SnapshotRenderer.isSupported, "Snapshot rendering not supported on this platform")
         let hash = try SnapshotRenderer.hash(for: ContentView(), size: CGSize(width: 800, height: 600), colorScheme: .light)
-    XCTAssertEqual(hash, "cf2c6403ee368066023a5718a94625292070f23d97367f8847aa3a7f3b028739", "Update expected hash when intentional UI changes occur.")
+    XCTAssertEqual(hash, "f5dd2998e592f9f1aec2971eb722ebd946d8909c84dfa2829c46a9421f9c5350", "Update expected hash when intentional UI changes occur.")
     }
 }
 

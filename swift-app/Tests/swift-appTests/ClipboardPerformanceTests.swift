@@ -1,6 +1,7 @@
 import XCTest
 @testable import swift_app
 
+@MainActor
 final class ClipboardPerformanceTests: XCTestCase {
     func testClipboardCopyRoundTripPerformance() throws {
 #if canImport(AppKit)

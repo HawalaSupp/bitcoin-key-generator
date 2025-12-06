@@ -45,7 +45,7 @@ struct EthereumTransaction {
         }
         
         if let error = response["error"] as? String {
-            print("Rust Error: \(error)")
+            // print("Rust Error: \(error)") // Debug logging removed
             throw EthereumError.signingFailed
         }
         

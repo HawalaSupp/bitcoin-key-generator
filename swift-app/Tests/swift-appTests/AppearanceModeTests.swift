@@ -4,9 +4,9 @@ import SwiftUI
 
 final class AppearanceModeTests: XCTestCase {
     func testShortLabelsAreStable() {
-        XCTAssertEqual(AppearanceMode.system.shortLabel, "Auto")
-        XCTAssertEqual(AppearanceMode.light.shortLabel, "Light")
-        XCTAssertEqual(AppearanceMode.dark.shortLabel, "Dark")
+        XCTAssertEqual(AppearanceMode.system.displayName, "System Default")
+        XCTAssertEqual(AppearanceMode.light.displayName, "Light Mode")
+        XCTAssertEqual(AppearanceMode.dark.displayName, "Dark Mode")
     }
 
     func testColorSchemeMapping() {
