@@ -913,12 +913,15 @@ struct SendView: View {
                 
                 // 3. Sign & Broadcast based on chain
                 let txId: String
+                var capturedFeeRate: Int? = nil
+                var capturedNonce: Int? = nil
                 
                 switch selectedChain {
                 case .bitcoin:
                     // Assuming Testnet for now as per picker
                     let amountSats = UInt64((Double(amount) ?? 0) * 100_000_000)
                     let fee = effectiveBitcoinFeeRate // Use dynamic fee from selector
+                    capturedFeeRate = Int(fee)
                     
                     let signedHex = try RustCLIBridge.shared.signBitcoin(
                         recipient: recipientAddress,
@@ -936,9 +939,11 @@ struct SendView: View {
                     let gwei = effectiveGasPrice // Use dynamic gas price from selector
                     let gasPriceWei = String(gwei * 1_000_000_000)
                     let limit = UInt64(gasLimit) ?? 21000
+                    capturedFeeRate = Int(gwei)
                     
                     // Fetch nonce from RPC
                     let nonce = try await broadcaster.getEthereumNonce(address: keys.ethereum.address, isTestnet: true)
+                    capturedNonce = Int(nonce)
                     
                     let signedHex = try RustCLIBridge.shared.signEthereum(
                         recipient: recipientAddress,
@@ -994,7 +999,10 @@ struct SendView: View {
                         chainId: selectedChain.id,
                         chainName: selectedChain.rawValue.capitalized,
                         amount: amount,
-                        recipient: recipientAddress
+                        recipient: recipientAddress,
+                        isRBFEnabled: selectedChain == .bitcoin, // Bitcoin has RBF enabled
+                        feeRate: capturedFeeRate,
+                        nonce: capturedNonce
                     )
                     onSuccess?(result)
                 }

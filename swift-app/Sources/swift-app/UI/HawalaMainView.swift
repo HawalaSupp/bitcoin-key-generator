@@ -41,9 +41,18 @@ struct HawalaMainView: View {
     // Actions
     var onGenerateKeys: () -> Void
     var onRefreshBalances: () -> Void
+    var onRefreshHistory: () -> Void
     var selectedFiatSymbol: String
     var fxRates: [String: Double]
     var selectedFiatCurrency: String
+    
+    // Transaction history
+    @Binding var historyEntries: [HawalaTransactionEntry]
+    @Binding var isHistoryLoading: Bool
+    @Binding var historyError: String?
+    
+    // Transaction detail sheet
+    @State private var selectedTransaction: HawalaTransactionEntry?
     
     // Chains that support sending
     private let sendEnabledChainIDs: Set<String> = [
@@ -116,6 +125,9 @@ struct HawalaMainView: View {
         .sheet(isPresented: $showSettingsPanel) {
             SettingsView()
                 .frame(minWidth: 500, minHeight: 700)
+        }
+        .sheet(item: $selectedTransaction) { transaction in
+            TransactionDetailSheet(transaction: transaction)
         }
     }
     
@@ -834,70 +846,171 @@ struct HawalaMainView: View {
     // MARK: - Activity View
     private var activityView: some View {
         VStack(alignment: .leading, spacing: HawalaTheme.Spacing.xl) {
-            Text("Recent Activity")
-                .font(HawalaTheme.Typography.h2)
-                .foregroundColor(HawalaTheme.Colors.textPrimary)
-                .padding(.horizontal, HawalaTheme.Spacing.xl)
+            HStack {
+                Text("Recent Activity")
+                    .font(HawalaTheme.Typography.h2)
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                
+                Spacer()
+                
+                if isHistoryLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                
+                Button {
+                    onRefreshHistory()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.body)
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(isHistoryLoading)
+            }
+            .padding(.horizontal, HawalaTheme.Spacing.xl)
             
-            // Placeholder transactions
+            // Transaction list or empty/error state
             VStack(spacing: 0) {
-                HawalaTransactionRow(
-                    type: .receive,
-                    amount: "0.0523",
-                    symbol: "BTC",
-                    fiatValue: "$4,892.32",
-                    date: "Today",
-                    status: .confirmed,
-                    counterparty: "bc1q...x4f2"
-                )
-                
-                Divider()
-                    .background(HawalaTheme.Colors.divider)
-                    .padding(.horizontal, HawalaTheme.Spacing.md)
-                
-                HawalaTransactionRow(
-                    type: .send,
-                    amount: "1.25",
-                    symbol: "ETH",
-                    fiatValue: "$4,125.00",
-                    date: "Yesterday",
-                    status: .processing,
-                    counterparty: "0x742d...4F6a"
-                )
-                
-                Divider()
-                    .background(HawalaTheme.Colors.divider)
-                    .padding(.horizontal, HawalaTheme.Spacing.md)
-                
-                HawalaTransactionRow(
-                    type: .receive,
-                    amount: "250.00",
-                    symbol: "SOL",
-                    fiatValue: "$45,000.00",
-                    date: "Nov 24",
-                    status: .pending,
-                    counterparty: "7xKX...9Hm2"
-                )
-                
-                Divider()
-                    .background(HawalaTheme.Colors.divider)
-                    .padding(.horizontal, HawalaTheme.Spacing.md)
-                
-                HawalaTransactionRow(
-                    type: .swap,
-                    amount: "500",
-                    symbol: "USDC",
-                    fiatValue: "$500.00",
-                    date: "Nov 23",
-                    status: .failed,
-                    counterparty: nil
-                )
+                if let error = historyError {
+                    // Error state
+                    VStack(spacing: HawalaTheme.Spacing.md) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 32))
+                            .foregroundColor(HawalaTheme.Colors.warning)
+                        
+                        Text("Unable to load transactions")
+                            .font(HawalaTheme.Typography.body)
+                            .foregroundColor(HawalaTheme.Colors.textPrimary)
+                        
+                        Text(error)
+                            .font(HawalaTheme.Typography.caption)
+                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                            .multilineTextAlignment(.center)
+                        
+                        Button("Try Again") {
+                            onRefreshHistory()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, HawalaTheme.Spacing.xxl)
+                } else if isHistoryLoading && historyEntries.isEmpty {
+                    // Loading state
+                    VStack(spacing: HawalaTheme.Spacing.md) {
+                        ProgressView()
+                            .controlSize(.large)
+                        
+                        Text("Loading transactions...")
+                            .font(HawalaTheme.Typography.caption)
+                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, HawalaTheme.Spacing.xxl)
+                } else if historyEntries.isEmpty {
+                    // Empty state
+                    VStack(spacing: HawalaTheme.Spacing.md) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 32))
+                            .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        
+                        Text("No transactions yet")
+                            .font(HawalaTheme.Typography.body)
+                            .foregroundColor(HawalaTheme.Colors.textPrimary)
+                        
+                        Text("Your activity will appear here once you make your first transaction.")
+                            .font(HawalaTheme.Typography.caption)
+                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, HawalaTheme.Spacing.xxl)
+                } else {
+                    // Real transaction list
+                    ForEach(historyEntries.prefix(10)) { entry in
+                        Button {
+                            selectedTransaction = entry
+                        } label: {
+                            HawalaTransactionRow(
+                                type: transactionType(from: entry.type),
+                                amount: formatAmountOnly(entry.amountDisplay),
+                                symbol: symbolFromAsset(entry.asset),
+                                fiatValue: "", // Fiat value not available from API
+                                date: entry.timestamp,
+                                status: transactionStatus(from: entry.status),
+                                counterparty: entry.counterparty ?? shortenHash(entry.txHash)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        
+                        if entry.id != historyEntries.prefix(10).last?.id {
+                            Divider()
+                                .background(HawalaTheme.Colors.divider)
+                                .padding(.horizontal, HawalaTheme.Spacing.md)
+                        }
+                    }
+                }
             }
             .padding(HawalaTheme.Spacing.sm)
             .frostedGlass(cornerRadius: HawalaTheme.Radius.lg, intensity: 0.2)
             .padding(.horizontal, HawalaTheme.Spacing.xl)
         }
         .padding(.vertical, HawalaTheme.Spacing.lg)
+    }
+    
+    // MARK: - Transaction Helpers
+    
+    private func transactionType(from typeString: String) -> HawalaTransactionRow.TransactionType {
+        switch typeString.lowercased() {
+        case "receive": return .receive
+        case "send": return .send
+        case "swap": return .swap
+        default: return .receive
+        }
+    }
+    
+    private func transactionStatus(from statusString: String) -> HawalaTransactionRow.TxStatus {
+        switch statusString.lowercased() {
+        case "confirmed": return .confirmed
+        case "pending": return .pending
+        case "processing": return .processing
+        case "failed": return .failed
+        default: return .pending
+        }
+    }
+    
+    private func formatAmountOnly(_ display: String) -> String {
+        // Remove +/- prefix and symbol to get just the number
+        var result = display
+        if result.hasPrefix("+") || result.hasPrefix("-") {
+            result = String(result.dropFirst())
+        }
+        // Remove trailing symbol (BTC, ETH, etc.)
+        let parts = result.split(separator: " ")
+        if let firstPart = parts.first {
+            return String(firstPart)
+        }
+        return result
+    }
+    
+    private func symbolFromAsset(_ asset: String) -> String {
+        switch asset.lowercased() {
+        case "bitcoin": return "BTC"
+        case "bitcoin testnet": return "tBTC"
+        case "litecoin": return "LTC"
+        case "ethereum": return "ETH"
+        case "ethereum sepolia": return "ETH"
+        case "bnb chain", "bnb": return "BNB"
+        case "solana": return "SOL"
+        case "xrp ledger", "xrp": return "XRP"
+        default: return asset
+        }
+    }
+    
+    private func shortenHash(_ hash: String?) -> String? {
+        guard let hash = hash, hash.count > 12 else { return hash }
+        return "\(hash.prefix(6))...\(hash.suffix(4))"
     }
     
     // MARK: - Discover View
