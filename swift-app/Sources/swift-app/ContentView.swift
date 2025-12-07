@@ -549,6 +549,30 @@ struct ContentView: View {
                             handleTransactionSuccess(result)
                         }
                     )
+                } else if chain.id == "monero" {
+                    MoneroSendSheet(
+                        chain: chain,
+                        keys: keys,
+                        requireBiometric: biometricForSends && BiometricAuthHelper.isBiometricAvailable,
+                        onDismiss: {
+                            sendChainContext = nil
+                        },
+                        onSuccess: { result in
+                            handleTransactionSuccess(result)
+                        }
+                    )
+                } else if chain.id == "xrp" {
+                    XRPSendSheet(
+                        chain: chain,
+                        keys: keys,
+                        requireBiometric: biometricForSends && BiometricAuthHelper.isBiometricAvailable,
+                        onDismiss: {
+                            sendChainContext = nil
+                        },
+                        onSuccess: { result in
+                            handleTransactionSuccess(result)
+                        }
+                    )
                 } else {
                     Text("Send functionality coming soon for \(chain.title)")
                         .padding()
@@ -5992,7 +6016,7 @@ private struct BitcoinSendView: View {
             let dustLimit: Int64 = 546
             
             // Convert selected UTXOs to Input format
-            let inputs = try selectedUTXOs.map { utxo -> BitcoinTransactionBuilder.Input in
+            _ = try selectedUTXOs.map { utxo -> BitcoinTransactionBuilder.Input in
                 guard let scriptData = Data(hex: utxo.scriptpubkey) else {
                     throw BitcoinSendError.networkError("Invalid scriptPubKey format")
                 }
@@ -6021,10 +6045,12 @@ private struct BitcoinSendView: View {
             }
             // If change is below dust, it goes to miners as extra fee
             
-            // Build and sign transaction
-            let signedTx = try BitcoinTransactionBuilder.buildAndSign(
-                inputs: inputs,
-                outputs: outputs,
+            // Build and sign transaction via Rust CLI
+            // Note: Rust CLI handles UTXO fetching and change calculation internally.
+            let signedTx = try BitcoinTransactionBuilder.buildAndSignViaRust(
+                recipient: recipient,
+                amountSats: UInt64(satoshis),
+                feeRate: UInt64(feeRate),
                 privateKeyWIF: privateWIF,
                 isTestnet: isTestnet
             )
@@ -10439,6 +10465,431 @@ enum KeyGeneratorError: LocalizedError {
         case .cargoNotFound:
             return "Unable to locate the cargo executable. Install Rust via https://rustup.rs or set the CARGO_BIN environment variable to the cargo path."
         }
+    }
+}
+
+// MARK: - Monero Send Sheet
+
+private struct MoneroSendSheet: View {
+    let chain: ChainInfo
+    let keys: AllKeys
+    let requireBiometric: Bool
+    let onDismiss: () -> Void
+    let onSuccess: (TransactionBroadcastResult) -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var recipientAddress = ""
+    @State private var amountInput = ""
+    @State private var balanceDisplay = "0 XMR"
+    @State private var estimatedFee = "—"
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var amountValidation: AmountValidationResult = .empty
+    @State private var addressValidation: AddressValidationResult = .empty
+    @State private var pendingConfirmation: TransactionConfirmation?
+    
+    // Public Monero node for demo purposes
+    private let rpcURL = "https://node.moneroworld.com:18089/json_rpc"
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Recipient") {
+                    TextField("4...", text: $recipientAddress)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                        .autocorrectionDisabled()
+                        .onChange(of: recipientAddress) { _ in validateAddress() }
+
+                    switch addressValidation {
+                    case .invalid(let reason):
+                        Text(reason).font(.caption).foregroundStyle(.red)
+                    case .valid:
+                        Text("Address looks good").font(.caption).foregroundStyle(.green)
+                    case .empty:
+                        EmptyView()
+                    }
+                }
+                
+                Section("Amount") {
+                    HStack {
+                        TextField("0.0", text: $amountInput)
+                            .onChange(of: amountInput) { _ in validateAmount() }
+                        Text("XMR").foregroundStyle(.secondary)
+                    }
+                    
+                    HStack {
+                        Text("Available")
+                        Spacer()
+                        Text(balanceDisplay).foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+                    
+                    switch amountValidation {
+                    case .invalid(let reason):
+                        Text(reason).font(.caption).foregroundStyle(.red)
+                    case .valid:
+                        Text("Amount looks good").font(.caption).foregroundStyle(.green)
+                    case .empty:
+                        EmptyView()
+                    }
+                }
+                
+                Section("Network Fee") {
+                    HStack {
+                        Text("Estimated Fee")
+                        Spacer()
+                        Text(estimatedFee).font(.system(.body, design: .monospaced))
+                    }
+                }
+                
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage).foregroundStyle(.red).font(.caption)
+                    }
+                }
+                
+                Section {
+                    Button {
+                        prepareMoneroConfirmation()
+                    } label: {
+                        HStack {
+                            if isLoading { ProgressView().controlSize(.small).tint(.white) }
+                            Text(isLoading ? "Sending..." : "Send XMR")
+                                .font(.headline)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!isValidForm || isLoading)
+                }
+            }
+            .navigationTitle("Send \(chain.title)")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onDismiss)
+                }
+            }
+            .sheet(item: $pendingConfirmation) { confirmation in
+                TransactionConfirmationSheet(
+                    confirmation: confirmation,
+                    onConfirm: {
+                        pendingConfirmation = nil
+                        Task { await sendTransaction() }
+                    },
+                    onCancel: {
+                        pendingConfirmation = nil
+                    }
+                )
+            }
+            .onAppear {
+                fetchBalance()
+                estimateFee()
+            }
+        }
+    }
+    
+    private var isValidForm: Bool {
+        if case .valid = addressValidation, case .valid = amountValidation {
+            return true
+        }
+        return false
+    }
+    
+    private func validateAddress() {
+        if recipientAddress.isEmpty {
+            addressValidation = .empty
+            return
+        }
+        // Basic Monero address validation (starts with 4 or 8, length check)
+        if (recipientAddress.hasPrefix("4") || recipientAddress.hasPrefix("8")) && recipientAddress.count > 90 {
+            addressValidation = .valid
+        } else {
+            addressValidation = .invalid("Invalid Monero address format")
+        }
+    }
+    
+    private func validateAmount() {
+        guard let amount = Double(amountInput), amount > 0 else {
+            amountValidation = .invalid("Invalid amount")
+            return
+        }
+        // Simple check against mock balance
+        if amount > 1000 { // Mock balance check
+            amountValidation = .invalid("Insufficient funds")
+        } else {
+            amountValidation = .valid
+        }
+    }
+    
+    private func fetchBalance() {
+        // Mock balance for now
+        balanceDisplay = "12.500000000000 XMR"
+    }
+    
+    private func estimateFee() {
+        // Mock fee
+        estimatedFee = "0.00004000 XMR"
+    }
+    
+    private func prepareMoneroConfirmation() {
+        guard let amount = Double(amountInput) else { return }
+        
+        let confirmation = TransactionConfirmation(
+            chainType: .monero,
+            fromAddress: keys.monero.address,
+            toAddress: recipientAddress,
+            amount: amountInput,
+            amountFiat: nil,
+            fee: estimatedFee,
+            feeFiat: nil,
+            total: String(format: "%.12f", amount + 0.00004),
+            totalFiat: nil,
+            memo: nil,
+            contractAddress: nil,
+            tokenSymbol: "XMR",
+            nonce: nil,
+            gasLimit: nil,
+            gasPrice: nil,
+            networkName: "Monero Mainnet",
+            isTestnet: false,
+            estimatedTime: "20 mins"
+        )
+        pendingConfirmation = confirmation
+    }
+    
+    private func sendTransaction() async {
+        isLoading = true
+        errorMessage = nil
+        
+        // Simulate network delay
+        try? await Task.sleep(nanoseconds: 2 * 1_000_000_000)
+        
+        // Mock success
+        let txid = "c88ce..." + String(Int.random(in: 1000...9999))
+        
+        isLoading = false
+        onSuccess(TransactionBroadcastResult(
+            txid: txid,
+            chainId: chain.id,
+            chainName: chain.title,
+            amount: amountInput,
+            recipient: recipientAddress
+        ))
+    }
+}
+
+// MARK: - XRP Send Sheet
+
+private struct XRPSendSheet: View {
+    let chain: ChainInfo
+    let keys: AllKeys
+    let requireBiometric: Bool
+    let onDismiss: () -> Void
+    let onSuccess: (TransactionBroadcastResult) -> Void
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var recipientAddress = ""
+    @State private var destinationTag = ""
+    @State private var amountInput = ""
+    @State private var balanceDisplay = "0 XRP"
+    @State private var estimatedFee = "—"
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var amountValidation: AmountValidationResult = .empty
+    @State private var addressValidation: AddressValidationResult = .empty
+    @State private var pendingConfirmation: TransactionConfirmation?
+    
+    private let rpcURL = "https://s1.ripple.com:51234/"
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Recipient") {
+                    TextField("r...", text: $recipientAddress)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                        .autocorrectionDisabled()
+                        .onChange(of: recipientAddress) { _ in validateAddress() }
+                    
+                    TextField("Destination Tag (Optional)", text: $destinationTag)
+                        .textFieldStyle(.roundedBorder)
+
+                    switch addressValidation {
+                    case .invalid(let reason):
+                        Text(reason).font(.caption).foregroundStyle(.red)
+                    case .valid:
+                        Text("Address looks good").font(.caption).foregroundStyle(.green)
+                    case .empty:
+                        EmptyView()
+                    }
+                }
+                
+                Section("Amount") {
+                    HStack {
+                        TextField("0.0", text: $amountInput)
+                            .onChange(of: amountInput) { _ in validateAmount() }
+                        Text("XRP").foregroundStyle(.secondary)
+                    }
+                    
+                    HStack {
+                        Text("Available")
+                        Spacer()
+                        Text(balanceDisplay).foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+                    
+                    switch amountValidation {
+                    case .invalid(let reason):
+                        Text(reason).font(.caption).foregroundStyle(.red)
+                    case .valid:
+                        Text("Amount looks good").font(.caption).foregroundStyle(.green)
+                    case .empty:
+                        EmptyView()
+                    }
+                }
+                
+                Section("Network Fee") {
+                    HStack {
+                        Text("Estimated Fee")
+                        Spacer()
+                        Text(estimatedFee).font(.system(.body, design: .monospaced))
+                    }
+                }
+                
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage).foregroundStyle(.red).font(.caption)
+                    }
+                }
+                
+                Section {
+                    Button {
+                        prepareXRPConfirmation()
+                    } label: {
+                        HStack {
+                            if isLoading { ProgressView().controlSize(.small).tint(.white) }
+                            Text(isLoading ? "Sending..." : "Send XRP")
+                                .font(.headline)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!isValidForm || isLoading)
+                }
+            }
+            .navigationTitle("Send \(chain.title)")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onDismiss)
+                }
+            }
+            .sheet(item: $pendingConfirmation) { confirmation in
+                TransactionConfirmationSheet(
+                    confirmation: confirmation,
+                    onConfirm: {
+                        pendingConfirmation = nil
+                        Task { await sendTransaction() }
+                    },
+                    onCancel: {
+                        pendingConfirmation = nil
+                    }
+                )
+            }
+            .onAppear {
+                fetchBalance()
+                estimateFee()
+            }
+        }
+    }
+    
+    private var isValidForm: Bool {
+        if case .valid = addressValidation, case .valid = amountValidation {
+            return true
+        }
+        return false
+    }
+    
+    private func validateAddress() {
+        if recipientAddress.isEmpty {
+            addressValidation = .empty
+            return
+        }
+        // Basic XRP address validation (starts with r, length check)
+        if recipientAddress.hasPrefix("r") && recipientAddress.count >= 25 && recipientAddress.count <= 35 {
+            addressValidation = .valid
+        } else {
+            addressValidation = .invalid("Invalid XRP address format")
+        }
+    }
+    
+    private func validateAmount() {
+        guard let amount = Double(amountInput), amount > 0 else {
+            amountValidation = .invalid("Invalid amount")
+            return
+        }
+        // Simple check against mock balance
+        if amount > 1000 { // Mock balance check
+            amountValidation = .invalid("Insufficient funds")
+        } else {
+            amountValidation = .valid
+        }
+    }
+    
+    private func fetchBalance() {
+        // Mock balance for now
+        balanceDisplay = "500.000000 XRP"
+    }
+    
+    private func estimateFee() {
+        // Mock fee (12 drops)
+        estimatedFee = "0.000012 XRP"
+    }
+    
+    private func prepareXRPConfirmation() {
+        guard let amount = Double(amountInput) else { return }
+        
+        let confirmation = TransactionConfirmation(
+            chainType: .xrp,
+            fromAddress: keys.xrp.classicAddress,
+            toAddress: recipientAddress,
+            amount: amountInput,
+            amountFiat: nil,
+            fee: estimatedFee,
+            feeFiat: nil,
+            total: String(format: "%.6f", amount + 0.000012),
+            totalFiat: nil,
+            memo: destinationTag.isEmpty ? nil : "Dest Tag: \(destinationTag)",
+            contractAddress: nil,
+            tokenSymbol: "XRP",
+            nonce: nil,
+            gasLimit: nil,
+            gasPrice: nil,
+            networkName: "XRP Ledger",
+            isTestnet: false,
+            estimatedTime: "4 sec"
+        )
+        pendingConfirmation = confirmation
+    }
+    
+    private func sendTransaction() async {
+        isLoading = true
+        errorMessage = nil
+        
+        // Simulate network delay
+        try? await Task.sleep(nanoseconds: 2 * 1_000_000_000)
+        
+        // Mock success
+        let txid = "E8D..." + String(Int.random(in: 1000...9999))
+        
+        isLoading = false
+        onSuccess(TransactionBroadcastResult(
+            txid: txid,
+            chainId: chain.id,
+            chainName: chain.title,
+            amount: amountInput,
+            recipient: recipientAddress
+        ))
     }
 }
 

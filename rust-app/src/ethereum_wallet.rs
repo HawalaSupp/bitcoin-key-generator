@@ -53,56 +53,7 @@ pub async fn prepare_ethereum_transaction(
     let signature = wallet.sign_transaction(&typed_tx).await?;
     let signed_tx = typed_tx.rlp_signed(&signature);
 
-    Ok(hex::encode(signed_tx))
+    Ok(format!("0x{}", hex::encode(signed_tx)))
 }
 
-// Helper to fetch gas via Cloudflare (simple JSON-RPC)
-fn fetch_gas_price() -> Result<(U256, U256), Box<dyn Error>> {
-    let client = reqwest::blocking::Client::new();
-    let payload = serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "eth_gasPrice",
-        "params": [],
-        "id": 1
-    });
 
-    let resp = client
-        .post("https://cloudflare-eth.com")
-        .json(&payload)
-        .send()?
-        .json::<serde_json::Value>()?;
-
-    if let Some(hex) = resp["result"].as_str() {
-        let gas_price = U256::from_str_radix(hex.trim_start_matches("0x"), 16)?;
-        // EIP-1559 heuristic: max_fee = 2 * base_fee + priority
-        // We'll just use gas_price as a proxy for base_fee for this demo
-        let priority = U256::from(1_500_000_000u64); // 1.5 gwei
-        let max_fee = (gas_price * 2) + priority;
-        Ok((max_fee, priority))
-    } else {
-        Err("Failed to fetch gas".into())
-    }
-}
-
-fn fetch_nonce(address: &str) -> Result<U256, Box<dyn Error>> {
-    let client = reqwest::blocking::Client::new();
-    let payload = serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "eth_getTransactionCount",
-        "params": [address, "latest"],
-        "id": 1
-    });
-
-    let resp = client
-        .post("https://cloudflare-eth.com")
-        .json(&payload)
-        .send()?
-        .json::<serde_json::Value>()?;
-
-    if let Some(hex) = resp["result"].as_str() {
-        let nonce = U256::from_str_radix(hex.trim_start_matches("0x"), 16)?;
-        Ok(nonce)
-    } else {
-        Err("Failed to fetch nonce".into())
-    }
-}

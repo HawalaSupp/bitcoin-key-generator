@@ -31,29 +31,23 @@ struct EthereumTransaction {
         ]
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: request),
-              let jsonString = String(data: jsonData, encoding: .utf8) else {
+              let _ = String(data: jsonData, encoding: .utf8) else {
             throw EthereumError.encodingFailed
         }
         
-        // Call Rust FFI
-        let resultJson = RustService.shared.prepareEthereumTransaction(jsonInput: jsonString)
+        // Call Rust CLI
+        let signedHex = try RustCLIBridge.shared.signEthereum(
+            recipient: recipient,
+            amountWei: value,
+            chainId: UInt64(chainId),
+            senderKey: privateKeyHex,
+            nonce: UInt64(nonce),
+            gasLimit: UInt64(gasLimit),
+            gasPrice: gasPrice,
+            data: data
+        )
         
-        // Parse result
-        guard let data = resultJson.data(using: .utf8),
-              let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw EthereumError.encodingFailed
-        }
-        
-        if let error = response["error"] as? String {
-            // print("Rust Error: \(error)") // Debug logging removed
-            throw EthereumError.signingFailed
-        }
-        
-        if let signedTx = response["tx_hex"] as? String {
-            return signedTx
-        }
-        
-        throw EthereumError.signingFailed
+        return signedHex
     }
     
     // Build and sign ERC-20 token transfer

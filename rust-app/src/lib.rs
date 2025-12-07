@@ -1,7 +1,7 @@
 use bech32::{self, Variant};
 use bitcoin::hashes::{Hash, hash160, sha256d};
 use bitcoin::key::{CompressedPublicKey, PublicKey as BitcoinPublicKey};
-use bitcoin::secp256k1::{self, PublicKey as SecpPublicKey, Secp256k1, SecretKey};
+use bitcoin::secp256k1::{self, Secp256k1, SecretKey};
 use bitcoin::{Address, Network, PrivateKey};
 use bs58::Alphabet;
 use curve25519_dalek::edwards::EdwardsPoint;
@@ -16,17 +16,24 @@ use std::error::Error;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use bip39::Mnemonic;
-use bitcoin::bip32::{ExtendedPrivKey, DerivationPath, ChildNumber};
+use bitcoin::bip32::DerivationPath;
 use std::str::FromStr;
+use monero::{Network as MoneroNetwork, Address as MoneroAddress, PublicKey as MoneroPublicKey};
 
-mod balances;
-mod bitcoin_wallet;
-mod ethereum_wallet;
-mod history;
-use balances::{fetch_bitcoin_balance, fetch_ethereum_balance};
-use bitcoin_wallet::prepare_transaction;
-use ethereum_wallet::prepare_ethereum_transaction;
-use history::fetch_bitcoin_history;
+pub mod balances;
+pub mod bitcoin_wallet;
+pub mod ethereum_wallet;
+pub mod solana_wallet;
+pub mod monero_wallet;
+pub mod xrp_wallet;
+pub mod history;
+pub use balances::{fetch_bitcoin_balance, fetch_ethereum_balance};
+pub use bitcoin_wallet::prepare_transaction;
+pub use ethereum_wallet::prepare_ethereum_transaction;
+pub use solana_wallet::prepare_solana_transaction;
+pub use monero_wallet::prepare_monero_transaction;
+pub use xrp_wallet::prepare_xrp_transaction;
+pub use history::fetch_bitcoin_history;
 use tiny_keccak::{Hasher, Keccak};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -213,24 +220,19 @@ fn derive_monero_keys(seed: &[u8]) -> Result<MoneroKeys, Box<dyn Error>> {
 
     let spend_point = EdwardsPoint::mul_base(&spend_scalar);
     let view_point = EdwardsPoint::mul_base(&view_scalar);
-    let public_spend = spend_point.compress().to_bytes();
-    let public_view = view_point.compress().to_bytes();
+    let public_spend_bytes = spend_point.compress().to_bytes();
+    let public_view_bytes = view_point.compress().to_bytes();
 
-    let mut data = Vec::with_capacity(1 + 32 + 32 + 4);
-    data.push(0x12);
-    data.extend_from_slice(&public_spend);
-    data.extend_from_slice(&public_view);
-    let checksum = keccak256(&data);
-    data.extend_from_slice(&checksum[..4]);
-
-    let address = monero_base58_encode(&data);
+    let public_spend_key = MoneroPublicKey::from_slice(&public_spend_bytes)?;
+    let public_view_key = MoneroPublicKey::from_slice(&public_view_bytes)?;
+    let address = MoneroAddress::standard(MoneroNetwork::Mainnet, public_spend_key, public_view_key);
 
     Ok(MoneroKeys {
         private_spend_hex: hex::encode(private_spend),
         private_view_hex: hex::encode(private_view),
-        public_spend_hex: hex::encode(public_spend),
-        public_view_hex: hex::encode(public_view),
-        address,
+        public_spend_hex: hex::encode(public_spend_bytes),
+        public_view_hex: hex::encode(public_view_bytes),
+        address: address.to_string(),
     })
 }
 

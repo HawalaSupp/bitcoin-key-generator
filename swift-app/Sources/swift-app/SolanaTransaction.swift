@@ -30,87 +30,15 @@ struct SolanaTransaction {
         privateKeyBase58: String
     ) throws -> String {
         
-        // Decode keys
-        guard let senderPubkey = Base58.decode(sender),
-              let recipientPubkey = Base58.decode(recipient),
-              let privateKeyData = Base58.decode(privateKeyBase58) else {
-            throw SolanaError.invalidKey
-        }
+        // Convert Lamports to SOL
+        let amountSol = Double(amount) / 1_000_000_000.0
         
-        // Decode blockhash
-        guard let blockhashData = Base58.decode(recentBlockhash) else {
-            throw SolanaError.invalidBlockhash
-        }
-        
-        // System Program ID (11111111111111111111111111111111)
-        let systemProgramId = Data(repeating: 0, count: 32) // Simplified for example, actual ID is all 0s except last byte? No, it's all 0s in base58?
-        // Actually System Program ID is 11111111111111111111111111111111 which decodes to 32 bytes of zeros.
-        
-        // Build Instruction Data for Transfer (index 2)
-        // Layout: [2, 0, 0, 0] (u32 little endian) + [amount] (u64 little endian)
-        var instructionData = Data()
-        instructionData.append(UInt32(2).littleEndianData)
-        instructionData.append(amount.littleEndianData)
-        
-        // Build Message
-        // Header: num_required_signatures (1), num_readonly_signed_accounts (0), num_readonly_unsigned_accounts (1)
-        var message = Data()
-        message.append(contentsOf: [1, 0, 1])
-        
-        // Account Addresses
-        // 1. Sender (writable, signer)
-        // 2. Recipient (writable, unsigned)
-        // 3. System Program (readonly, unsigned)
-        
-        // Compact-array of accounts
-        // We need to sort/arrange accounts.
-        // Standard order: Signer/Writable, Signer/Readonly, Non-Signer/Writable, Non-Signer/Readonly
-        
-        // For simple transfer:
-        // 0: Sender (Signer, Writable)
-        // 1: Recipient (Writable)
-        // 2: System Program (Readonly)
-        
-        message.append(contentsOf: [3]) // Count of accounts
-        message.append(senderPubkey)
-        message.append(recipientPubkey)
-        message.append(systemProgramId)
-        
-        // Recent Blockhash
-        message.append(blockhashData)
-        
-        // Instructions
-        // Compact-array of instructions
-        message.append(contentsOf: [1]) // Count of instructions
-        
-        // Instruction 0
-        message.append(2) // Program ID index (System Program is at index 2)
-        
-        // Account indices
-        message.append(contentsOf: [2]) // Count of account indices
-        message.append(0) // Sender index
-        message.append(1) // Recipient index
-        
-        // Data length (compact-u16)
-        message.append(contentsOf: encodeCompactLength(instructionData.count))
-        message.append(instructionData)
-        
-        // Sign Message
-        guard privateKeyData.count >= 32 else { throw SolanaError.invalidKey }
-        let seed = privateKeyData.prefix(32)
-        let signingKey = try Curve25519.Signing.PrivateKey(rawRepresentation: seed)
-        let signature = try signingKey.signature(for: message)
-        
-        // Build Transaction
-        // 1. Compact-array of signatures
-        var transaction = Data()
-        transaction.append(contentsOf: [1]) // Count of signatures
-        transaction.append(signature)
-        
-        // 2. Message
-        transaction.append(message)
-        
-        return Base58.encode(transaction)
+        return try RustCLIBridge.shared.signSolana(
+            recipient: recipient,
+            amountSol: amountSol,
+            recentBlockhash: recentBlockhash,
+            senderBase58: privateKeyBase58
+        )
     }
     
     // MARK: - Helpers

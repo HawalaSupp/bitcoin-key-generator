@@ -2,7 +2,7 @@ use bitcoin::hashes::Hash; // Import Hash trait for as_byte_array
 use bitcoin::secp256k1::{Message, Secp256k1};
 use bitcoin::sighash::{EcdsaSighashType, SighashCache};
 use bitcoin::{
-    Address, Amount, Network, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness,
+    Address, Amount, Network, NetworkKind, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness,
     absolute::LockTime, consensus::encode, transaction::Version,
 };
 use serde::Deserialize;
@@ -30,8 +30,13 @@ pub struct UtxoStatus {
     pub block_time: Option<u64>,
 }
 
-pub fn fetch_utxos(address: &str) -> Result<Vec<Utxo>, Box<dyn Error>> {
-    let url = format!("https://blockstream.info/api/address/{}/utxo", address);
+pub fn fetch_utxos(address: &str, network: Network) -> Result<Vec<Utxo>, Box<dyn Error>> {
+    let base_url = match network {
+        Network::Bitcoin => "https://blockstream.info/api",
+        Network::Testnet => "https://blockstream.info/testnet/api",
+        _ => return Err("Unsupported network for UTXO fetch".into()),
+    };
+    let url = format!("{}/address/{}/utxo", base_url, address);
     let resp = reqwest::blocking::get(&url)?.text()?;
     let utxos: Vec<Utxo> = serde_json::from_str(&resp)?;
     Ok(utxos)
@@ -45,15 +50,19 @@ pub fn prepare_transaction(
 ) -> Result<String, Box<dyn Error>> {
     let secp = Secp256k1::new();
     let private_key = bitcoin::PrivateKey::from_wif(sender_wif)?;
+    let network = match private_key.network {
+        NetworkKind::Main => Network::Bitcoin,
+        NetworkKind::Test => Network::Testnet,
+    };
     let public_key = private_key.public_key(&secp);
     // Convert to CompressedPublicKey (P2WPKH requires compressed keys)
     let compressed_public_key = bitcoin::key::CompressedPublicKey::try_from(public_key)
         .map_err(|_| "Failed to compress public key")?;
 
-    let sender_address = Address::p2wpkh(&compressed_public_key, Network::Bitcoin);
+    let sender_address = Address::p2wpkh(&compressed_public_key, network);
 
     // 1. Fetch UTXOs
-    let utxos = fetch_utxos(&sender_address.to_string())?;
+    let utxos = fetch_utxos(&sender_address.to_string(), network)?;
 
     // 2. Select Inputs (Simple FIFO)
     let mut inputs = Vec::new();
@@ -88,7 +97,7 @@ pub fn prepare_transaction(
     }
 
     // 4. Build Transaction
-    let recipient_address = Address::from_str(recipient)?.require_network(Network::Bitcoin)?;
+    let recipient_address = Address::from_str(recipient)?.require_network(network)?;
     let change_address = sender_address.clone();
     let change_amount = total_input_value - target_value - fee;
 

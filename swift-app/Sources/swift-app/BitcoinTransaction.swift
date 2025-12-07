@@ -519,6 +519,40 @@ struct BitcoinTransactionBuilder {
         return (witnessVersion, Data(programBytes))
     }
     
+    // MARK: - Rust CLI Integration
+    
+    static func buildAndSignViaRust(
+        recipient: String,
+        amountSats: UInt64,
+        feeRate: UInt64,
+        privateKeyWIF: String,
+        isTestnet: Bool
+    ) throws -> SignedTransaction {
+        let rawHex = try RustCLIBridge.shared.signBitcoin(
+            recipient: recipient,
+            amountSats: amountSats,
+            feeRate: feeRate,
+            senderWIF: privateKeyWIF
+        )
+        
+        // Calculate txid (double SHA256 of raw hex)
+        guard let txData = Data(hex: rawHex) else {
+            throw BitcoinError.serializationError
+        }
+        
+        // Double SHA256 for txid
+        let firstHash = SHA256.hash(data: txData)
+        let secondHash = SHA256.hash(data: Data(firstHash))
+        let txid = Data(Data(secondHash).reversed()).hexString
+        
+        return SignedTransaction(
+            txid: txid,
+            rawHex: rawHex,
+            size: txData.count,
+            vsize: txData.count // Approximation
+        )
+    }
+    
     // MARK: - Helper Functions
     
     private static func doubleSHA256(_ data: Data) -> Data {
@@ -555,6 +589,7 @@ enum BitcoinError: LocalizedError {
     case notImplemented(String)
     case signingFailed
     case invalidPublicKey
+    case serializationError
     
     var errorDescription: String? {
         switch self {
@@ -572,6 +607,8 @@ enum BitcoinError: LocalizedError {
             return "Transaction signing failed"
         case .invalidPublicKey:
             return "Invalid public key format"
+        case .serializationError:
+            return "Serialization error"
         }
     }
 }

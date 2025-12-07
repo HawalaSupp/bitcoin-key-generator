@@ -1,20 +1,151 @@
-use rust_app::{AllKeys, create_new_wallet};
-use std::env;
+use clap::{Parser, Subcommand};
+use rust_app::{AllKeys, create_new_wallet, generate_keys_from_seed};
 use std::error::Error;
+use bip39::Mnemonic;
+
+#[derive(Parser)]
+#[command(name = "hawala-cli")]
+#[command(about = "Hawala Wallet CLI Backend", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Generate a new wallet or recover from mnemonic
+    GenKeys {
+        /// Optional mnemonic phrase to recover from
+        #[arg(long)]
+        mnemonic: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Sign a Bitcoin transaction
+    SignBtc {
+        #[arg(long)]
+        recipient: String,
+        #[arg(long)]
+        amount_sats: u64,
+        #[arg(long)]
+        fee_rate: u64,
+        #[arg(long)]
+        sender_wif: String,
+    },
+    /// Sign an Ethereum transaction
+    SignEth {
+        #[arg(long)]
+        recipient: String,
+        #[arg(long)]
+        amount_wei: String,
+        #[arg(long)]
+        chain_id: u64,
+        #[arg(long)]
+        sender_key: String,
+        #[arg(long)]
+        nonce: u64,
+        #[arg(long)]
+        gas_limit: u64,
+        #[arg(long)]
+        gas_price: String,
+        #[arg(long, default_value = "")]
+        data: String,
+    },
+    /// Sign a Solana transaction
+    SignSol {
+        #[arg(long)]
+        recipient: String,
+        #[arg(long)]
+        amount_sol: f64,
+        #[arg(long)]
+        recent_blockhash: String,
+        #[arg(long)]
+        sender_base58: String,
+    },
+    /// Sign a Monero transaction (Validation Only)
+    SignXmr {
+        #[arg(long)]
+        recipient: String,
+        #[arg(long)]
+        amount_xmr: f64,
+        #[arg(long)]
+        sender_spend_hex: String,
+        #[arg(long)]
+        sender_view_hex: String,
+    },
+    /// Sign an XRP transaction
+    SignXrp {
+        #[arg(long)]
+        recipient: String,
+        #[arg(long)]
+        amount_drops: u64,
+        #[arg(long)]
+        sender_seed_hex: String,
+        #[arg(long)]
+        sequence: u32,
+    },
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let args: Vec<String> = env::args().collect();
-    let (mnemonic, keys) = create_new_wallet()?;
+    let cli = Cli::parse();
 
-    if args.iter().any(|arg| arg == "--json") {
-        println!("{{ \"mnemonic\": \"{}\", \"keys\": {} }}", mnemonic, serde_json::to_string(&keys)?);
+    match &cli.command {
+        Commands::GenKeys { mnemonic, json } => {
+            handle_gen_keys(mnemonic.as_deref(), *json)?;
+        }
+        Commands::SignBtc { recipient, amount_sats, fee_rate, sender_wif } => {
+             let tx_hex = rust_app::bitcoin_wallet::prepare_transaction(recipient, *amount_sats, *fee_rate, sender_wif)?;
+             println!("{}", tx_hex);
+        }
+        Commands::SignEth { recipient, amount_wei, chain_id, sender_key, nonce, gas_limit, gas_price, data } => {
+             let rt = tokio::runtime::Runtime::new()?;
+             let tx_hex = rt.block_on(rust_app::ethereum_wallet::prepare_ethereum_transaction(
+                 recipient, amount_wei, *chain_id, sender_key, *nonce, *gas_limit, gas_price, data
+             ))?;
+             println!("{}", tx_hex);
+        }
+        Commands::SignSol { recipient, amount_sol, recent_blockhash, sender_base58 } => {
+            let tx_base58 = rust_app::solana_wallet::prepare_solana_transaction(
+                recipient, *amount_sol, recent_blockhash, sender_base58
+            )?;
+            println!("{}", tx_base58);
+        }
+        Commands::SignXmr { recipient, amount_xmr, sender_spend_hex, sender_view_hex } => {
+            let tx_hex = rust_app::monero_wallet::prepare_monero_transaction(
+                recipient, *amount_xmr, sender_spend_hex, sender_view_hex
+            )?;
+            println!("{}", tx_hex);
+        }
+        Commands::SignXrp { recipient, amount_drops, sender_seed_hex, sequence } => {
+            let tx_hex = rust_app::xrp_wallet::prepare_xrp_transaction(
+                recipient, *amount_drops, sender_seed_hex, *sequence
+            )?;
+            println!("{}", tx_hex);
+        }
+    }
+
+    Ok(())
+}
+
+fn handle_gen_keys(mnemonic_arg: Option<&str>, json: bool) -> Result<(), Box<dyn Error>> {
+    let (mnemonic_str, keys) = if let Some(phrase) = mnemonic_arg {
+        let mnemonic = Mnemonic::parse(phrase)?;
+        let seed = mnemonic.to_seed("");
+        let keys = generate_keys_from_seed(&seed)?;
+        (phrase.to_string(), keys)
+    } else {
+        create_new_wallet()?
+    };
+
+    if json {
+        println!("{{ \"mnemonic\": \"{}\", \"keys\": {} }}", mnemonic_str, serde_json::to_string(&keys)?);
     } else {
         println!("=== Mnemonic ===");
-        println!("{}", mnemonic);
+        println!("{}", mnemonic_str);
         println!();
         print_human_readable(&keys);
     }
-
     Ok(())
 }
 
