@@ -369,6 +369,75 @@ final class TransactionBroadcaster: ObservableObject {
         
         return signature
     }
+    
+    // MARK: - XRP Broadcast
+    
+    /// Broadcast a signed XRP transaction
+    func broadcastXRP(rawTxHex: String, isTestnet: Bool = false) async throws -> String {
+        isBroadcasting = true
+        defer { isBroadcasting = false }
+        
+        let rpcURL = isTestnet
+            ? "https://s.altnet.rippletest.net:51234"
+            : "https://s1.ripple.com:51234"
+            
+        guard let url = URL(string: rpcURL) else {
+            throw BroadcastError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = [
+            "method": "submit",
+            "params": [
+                ["tx_blob": rawTxHex]
+            ]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw BroadcastError.invalidResponse
+        }
+        
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = json["result"] as? [String: Any] else {
+            throw BroadcastError.invalidResponse
+        }
+        
+        // Check engine_result
+        if let engineResult = result["engine_result"] as? String,
+           engineResult != "tesSUCCESS" {
+            let message = result["engine_result_message"] as? String ?? engineResult
+            throw BroadcastError.broadcastFailed(message)
+        }
+        
+        guard let txJson = result["tx_json"] as? [String: Any],
+              let hash = txJson["hash"] as? String else {
+             // Sometimes it's just in the result root depending on API version
+             if let hash = result["tx_json"] as? [String: Any] {
+                 if let h = hash["hash"] as? String { return h }
+             }
+             throw BroadcastError.invalidResponse
+        }
+        
+        let explorerBase = isTestnet ? "https://testnet.xrpl.org/transactions/" : "https://livenet.xrpl.org/transactions/"
+        
+        lastBroadcast = BroadcastResult(
+            chainId: "xrp",
+            txid: hash,
+            success: true,
+            errorMessage: nil,
+            timestamp: Date(),
+            explorerURL: URL(string: "\(explorerBase)\(hash)")
+        )
+        
+        return hash
+    }
 }
 
 // MARK: - Broadcast Errors
