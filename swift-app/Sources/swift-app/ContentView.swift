@@ -8796,33 +8796,71 @@ private struct SettingsPanelView: View {
     @Binding var selectedCurrency: String
     let onCurrencyChanged: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var localization = LocalizationManager.shared
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                currencySection
-                
-                Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    languageSection
+                    
+                    Divider()
+                    
+                    currencySection
+                    
+                    Divider()
 
-                keysButton
-                securityButton
+                    keysButton
+                    securityButton
 
-                Spacer()
+                    Spacer()
+                }
+                .padding()
             }
-            .padding()
-            .frame(width: 350, height: 350)
-            .navigationTitle("Settings")
+            .frame(width: 380, height: 450)
+            .navigationTitle("settings.title".localized)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+                    Button("common.close".localized) { dismiss() }
                 }
             }
         }
     }
+    
+    @State private var selectedLanguage: LocalizationManager.Language = .english
+    
+    private var languageSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("settings.language".localized)
+                .font(.headline)
+            Picker("Language", selection: $selectedLanguage) {
+                ForEach(LocalizationManager.Language.allCases) { language in
+                    HStack(spacing: 8) {
+                        Text(language.flag)
+                        Text(language.displayName)
+                    }
+                    .tag(language)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onChange(of: selectedLanguage) { newLang in
+                localization.setLanguage(newLang)
+            }
+            .onAppear {
+                selectedLanguage = localization.currentLanguage
+            }
+            
+            Text("settings.language.description".localized)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.bottom, 8)
+    }
 
     private var currencySection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Display Currency")
+            Text("settings.currency".localized)
                 .font(.headline)
             Picker("Currency", selection: $selectedCurrency) {
                 ForEach(FiatCurrency.allCases) { currency in
@@ -8844,7 +8882,7 @@ private struct SettingsPanelView: View {
             dismiss()
             onShowKeys()
         } label: {
-            Label("Show All Private Keys", systemImage: "doc.text.magnifyingglass")
+            Label("settings.show_keys".localized, systemImage: "doc.text.magnifyingglass")
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.borderedProminent)
@@ -8856,7 +8894,7 @@ private struct SettingsPanelView: View {
             dismiss()
             onOpenSecurity()
         } label: {
-            Label("Security Settings", systemImage: "lock.shield")
+            Label("settings.security".localized, systemImage: "lock.shield")
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.bordered)
