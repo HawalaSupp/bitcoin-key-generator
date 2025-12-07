@@ -20,7 +20,7 @@ Multi-chain key generator with live balance/price tracking now complete. Native 
 - [ ] Add loading skeleton states instead of generic "Loading…"
 - [ ] Improve card transition animations
 - [ ] Add copy-to-clipboard feedback for price/balance tiles
-- [ ] Dark mode support for macOS
+- [x] Dark mode support for macOS (ThemeManager with dark/light/system modes)
 - [ ] Responsive layout for smaller displays
 
 ### 1.3 Performance Optimization
@@ -75,8 +75,9 @@ Multi-chain key generator with live balance/price tracking now complete. Native 
 - [ ] Cosmos (ATOM)
 
 ### 3.2 Additional Token Standards
-- [ ] BEP-20 tokens on BSC
-- [ ] SPL tokens on Solana
+- [x] BEP-20 tokens on BSC (CustomTokenManager supports adding by contract)
+- [x] SPL tokens on Solana (CustomTokenManager supports adding by contract)
+- [x] Custom ERC-20 tokens (CustomTokenManager supports adding by contract)
 - [ ] TRC-20 tokens on TRON
 - [ ] Polygon (MATIC) network support
 
@@ -144,7 +145,7 @@ Multi-chain key generator with live balance/price tracking now complete. Native 
 ### 6.1 Transaction Signing
 - [ ] Sign Bitcoin transactions (P2WPKH)
 - [ ] Sign Ethereum transactions (EIP-191)
-- [ ] Batch transaction signing UI
+- [x] Batch transaction signing UI (BatchTransactionManager with CSV import)
 - [ ] Hardware wallet integration (Ledger/Trezor fallback)
 
 ### 6.2 Portfolio Analytics
@@ -252,9 +253,12 @@ Multi-chain key generator with live balance/price tracking now complete. Native 
 
 1. ✅ ERC-20 balance display for USDT/USDC/DAI
 2. ✅ Fixed $1.00 price for stablecoins
-3. **TODO:** Add error message banner when RPC calls fail
-4. **TODO:** Implement 10-second retry for timeouts
-5. **TODO:** Add dark mode toggle in toolbar
+3. ✅ Dark/Light/System theme toggle (ThemeManager with accent colors)
+4. ✅ Batch transactions - send to multiple addresses at once (CSV import supported)
+5. ✅ Custom ERC-20/BEP-20/SPL token support (add tokens by contract address)
+6. ✅ Address labels/tags via ContactsManager
+7. **TODO:** Add error message banner when RPC calls fail
+8. **TODO:** Implement 10-second retry for timeouts
 
 ---
 

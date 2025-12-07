@@ -260,6 +260,7 @@ struct ContentView: View {
     @State private var showWatchOnlySheet = false
     @State private var showReceiveSheet = false
     @State private var showSendPicker = false
+    @State private var showBatchTransactionSheet = false
     @State private var sendChainContext: ChainInfo?
     @State private var pendingSendChain: ChainInfo?
     @State private var showSeedPhraseSheet = false
@@ -519,6 +520,10 @@ struct ContentView: View {
                         pendingSendChain = chain
                         showSendPicker = false
                     },
+                    onBatchSend: {
+                        showSendPicker = false
+                        showBatchTransactionSheet = true
+                    },
                     onDismiss: {
                         showSendPicker = false
                     }
@@ -567,6 +572,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showWatchOnlySheet) {
             WatchOnlyView()
+        }
+        .sheet(isPresented: $showBatchTransactionSheet) {
+            BatchTransactionView()
         }
         .sheet(isPresented: $showSettingsPanel) {
             SettingsPanelView(
@@ -5158,6 +5166,7 @@ private enum BitcoinSendError: LocalizedError {
 private struct SendAssetPickerSheet: View {
     let chains: [ChainInfo]
     let onSelect: (ChainInfo) -> Void
+    let onBatchSend: () -> Void
     let onDismiss: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
@@ -5193,6 +5202,56 @@ private struct SendAssetPickerSheet: View {
 
                 ScrollView {
                     LazyVStack(spacing: 12) {
+                        // Batch Send option
+                        Button {
+                            dismiss()
+                            onBatchSend()
+                        } label: {
+                            HStack(spacing: 16) {
+                                Image(systemName: "square.stack.3d.up.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(HawalaTheme.Colors.accent)
+                                    .frame(width: 44, height: 44)
+                                    .background(HawalaTheme.Colors.accent.opacity(0.1))
+                                    .clipShape(Circle())
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Batch Send")
+                                        .font(.headline)
+                                        .foregroundStyle(.primary)
+                                    Text("Send to multiple addresses at once")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(12)
+                            .background(LinearGradient(
+                                colors: [HawalaTheme.Colors.accent.opacity(0.08), HawalaTheme.Colors.accent.opacity(0.02)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ))
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .strokeBorder(HawalaTheme.Colors.accent.opacity(0.2), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        
+                        // Divider
+                        HStack {
+                            VStack { Divider() }
+                            Text("or select an asset")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            VStack { Divider() }
+                        }
+                        .padding(.vertical, 4)
+                        
                         ForEach(filteredChains) { chain in
                             Button {
                                 dismiss()

@@ -7,6 +7,7 @@ import AppKit
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var passcodeManager = PasscodeManager.shared
+    @ObservedObject var themeManager = ThemeManager.shared
     
     // Settings State
     @AppStorage("biometricLockEnabled") private var biometricLockEnabled = false
@@ -17,7 +18,6 @@ struct SettingsView: View {
     @AppStorage("networkAlerts") private var networkAlerts = true
     @AppStorage("hapticFeedback") private var hapticFeedback = true
     @AppStorage("hawala.selectedFiatCurrency") private var currency = "USD"
-    @AppStorage("theme") private var theme = "dark"
     @AppStorage("showTestnets") private var showTestnets = false
     
     @State private var showAbout = false
@@ -33,17 +33,14 @@ struct SettingsView: View {
     @State private var showSupportSheet = false
     @State private var showDebugConsole = false
     @State private var isForceSyncing = false
+    @State private var showCustomTokensSheet = false
     
     // Debug/Developer info
     @StateObject private var debugLogger = DebugLogger.shared
     
     // Computed color scheme based on theme
     private var selectedColorScheme: ColorScheme? {
-        switch theme {
-        case "dark": return .dark
-        case "light": return .light
-        default: return nil // system
-        }
+        themeManager.currentTheme.colorScheme
     }
     
     var body: some View {
@@ -68,6 +65,9 @@ struct SettingsView: View {
                     
                     // Appearance Section
                     appearanceSection
+                    
+                    // Tokens Section
+                    tokensSection
                     
                     // General Section
                     generalSection
@@ -116,6 +116,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showDebugConsole) {
             DebugConsoleSheet()
+        }
+        .sheet(isPresented: $showCustomTokensSheet) {
+            CustomTokensSheet()
         }
         .alert("Reset Wallet", isPresented: $showResetConfirm) {
             Button("Cancel", role: .cancel) { }
@@ -338,7 +341,7 @@ struct SettingsView: View {
     private var appearanceSection: some View {
         SettingsSection("Appearance") {
             // Theme Picker
-            ThemePickerRow(theme: $theme)
+            ThemePickerRow()
             
             Divider()
                 .background(HawalaTheme.Colors.border)
@@ -375,6 +378,21 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.trailing, HawalaTheme.Spacing.md)
+            }
+        }
+    }
+    
+    // MARK: - Tokens Section
+    private var tokensSection: some View {
+        SettingsSection("Tokens") {
+            SettingsRow(
+                icon: "circle.hexagongrid.fill",
+                iconColor: HawalaTheme.Colors.accent,
+                title: "Custom Tokens",
+                subtitle: "Add ERC-20, BEP-20, or SPL tokens"
+            ) {
+                triggerHaptic()
+                showCustomTokensSheet = true
             }
         }
     }
@@ -668,13 +686,13 @@ struct SettingsView: View {
     
     // MARK: - Helper Methods
     private func cycleTheme() {
-        let themes = ["dark", "light", "system"]
-        if let currentIndex = themes.firstIndex(of: theme) {
-            theme = themes[(currentIndex + 1) % themes.count]
+        let themes = ThemeManager.AppTheme.allCases
+        if let currentIndex = themes.firstIndex(of: themeManager.currentTheme) {
+            themeManager.currentTheme = themes[(currentIndex + 1) % themes.count]
         } else {
-            theme = "dark"
+            themeManager.currentTheme = .dark
         }
-        ToastManager.shared.info("Theme: \(theme.capitalized)")
+        ToastManager.shared.info("Theme: \(themeManager.currentTheme.rawValue)")
     }
     
     private func cycleCurrency() {
@@ -733,15 +751,8 @@ struct SettingsView: View {
 
 // MARK: - Theme Picker Row
 struct ThemePickerRow: View {
-    @Binding var theme: String
-    @Environment(\.colorScheme) private var systemColorScheme
+    @ObservedObject var themeManager = ThemeManager.shared
     @State private var isHovered = false
-    
-    private let themes = [
-        ("dark", "Dark", "moon.fill"),
-        ("light", "Light", "sun.max.fill"),
-        ("system", "System", "gear")
-    ]
     
     var body: some View {
         HStack(spacing: HawalaTheme.Spacing.md) {
@@ -767,13 +778,16 @@ struct ThemePickerRow: View {
             
             Spacer()
             
-            Picker("", selection: $theme) {
-                ForEach(themes, id: \.0) { value, label, icon in
+            Picker("", selection: Binding(
+                get: { themeManager.currentTheme },
+                set: { themeManager.currentTheme = $0 }
+            )) {
+                ForEach(ThemeManager.AppTheme.allCases, id: \.self) { theme in
                     HStack {
-                        Image(systemName: icon)
-                        Text(label)
+                        Image(systemName: theme.icon)
+                        Text(theme.rawValue)
                     }
-                    .tag(value)
+                    .tag(theme)
                 }
             }
             .pickerStyle(.menu)
