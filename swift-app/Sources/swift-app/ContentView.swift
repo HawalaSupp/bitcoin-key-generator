@@ -263,6 +263,7 @@ struct ContentView: View {
     @State private var sendChainContext: ChainInfo?
     @State private var pendingSendChain: ChainInfo?
     @State private var showSeedPhraseSheet = false
+    @State private var showTransactionHistorySheet = false
     @State private var historyEntries: [TransactionHistoryEntry] = []
     @State private var historyError: String?
     @State private var isHistoryLoading = false
@@ -528,6 +529,10 @@ struct ContentView: View {
             SeedPhraseSheet(onCopy: { value in
                 copyToClipboard(value)
             })
+        }
+        .sheet(isPresented: $showTransactionHistorySheet) {
+            TransactionHistoryView()
+                .frame(minWidth: 500, minHeight: 600)
         }
         .sheet(item: $speedUpTransaction) { tx in
             if let keys {
@@ -1378,6 +1383,14 @@ struct ContentView: View {
             color: .purple
         ) {
             showSeedPhraseSheet = true
+        }
+        
+        walletActionButton(
+            title: "History",
+            systemImage: "clock.arrow.circlepath",
+            color: .cyan
+        ) {
+            showTransactionHistorySheet = true
         }
     }
 
