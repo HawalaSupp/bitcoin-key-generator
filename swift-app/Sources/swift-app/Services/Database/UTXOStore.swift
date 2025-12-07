@@ -227,7 +227,7 @@ actor UTXOStore {
     
     /// Delete a UTXO
     func delete(txHash: String, outputIndex: Int) async throws {
-        try await db.writeAsync { dbConn in
+        _ = try await db.writeAsync { dbConn in
             try UTXORecord
                 .filter(Column("txHash") == txHash)
                 .filter(Column("outputIndex") == outputIndex)
@@ -237,7 +237,7 @@ actor UTXOStore {
     
     /// Delete all UTXOs for a wallet
     func deleteAll(walletId: String) async throws {
-        try await db.writeAsync { dbConn in
+        _ = try await db.writeAsync { dbConn in
             try UTXORecord
                 .filter(Column("walletId") == walletId)
                 .deleteAll(dbConn)
@@ -247,7 +247,7 @@ actor UTXOStore {
     /// Delete spent UTXOs older than a certain date (cleanup)
     func deleteOldSpent(olderThan days: Int) async throws {
         let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date())!
-        try await db.writeAsync { dbConn in
+        _ = try await db.writeAsync { dbConn in
             try UTXORecord
                 .filter(Column("isSpent") == true)
                 .filter(Column("updatedAt") < cutoff)

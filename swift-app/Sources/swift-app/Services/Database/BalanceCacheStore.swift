@@ -125,7 +125,7 @@ actor BalanceCacheStore {
     
     /// Delete all cached balances for a wallet
     func deleteAll(walletId: String) async throws {
-        try await db.writeAsync { dbConn in
+        _ = try await db.writeAsync { dbConn in
             try CachedBalanceRecord
                 .filter(Column("walletId") == walletId)
                 .deleteAll(dbConn)
@@ -134,7 +134,7 @@ actor BalanceCacheStore {
     
     /// Clear all cached balances (full refresh needed)
     func clearAll() async throws {
-        try await db.writeAsync { dbConn in
+        _ = try await db.writeAsync { dbConn in
             try CachedBalanceRecord.deleteAll(dbConn)
         }
     }

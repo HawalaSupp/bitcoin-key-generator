@@ -168,7 +168,7 @@ actor TransactionStore {
     
     /// Delete a transaction
     func delete(txHash: String, chainId: String) async throws {
-        try await db.writeAsync { dbConn in
+        _ = try await db.writeAsync { dbConn in
             try TransactionRecord
                 .filter(Column("txHash") == txHash)
                 .filter(Column("chainId") == chainId)
@@ -178,7 +178,7 @@ actor TransactionStore {
     
     /// Delete all transactions for a wallet
     func deleteAll(walletId: String) async throws {
-        try await db.writeAsync { dbConn in
+        _ = try await db.writeAsync { dbConn in
             try TransactionRecord
                 .filter(Column("walletId") == walletId)
                 .deleteAll(dbConn)

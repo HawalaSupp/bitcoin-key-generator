@@ -154,7 +154,7 @@ actor SyncStateStore {
     
     /// Delete sync state for a wallet
     func delete(walletId: String) async throws {
-        try await db.writeAsync { dbConn in
+        _ = try await db.writeAsync { dbConn in
             try SyncStateRecord
                 .filter(Column("walletId") == walletId)
                 .deleteAll(dbConn)

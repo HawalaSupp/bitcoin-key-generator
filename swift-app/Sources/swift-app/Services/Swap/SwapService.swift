@@ -713,7 +713,7 @@ struct SwapView: View {
     }
     
     private var estimatedReceiveAmount: String {
-        guard let amount = fromAmountDecimal,
+        guard fromAmountDecimal != nil,
               let bestQuote = swapService.quotes.first else {
             return "~0.00"
         }
