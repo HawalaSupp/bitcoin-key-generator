@@ -86,6 +86,10 @@ final class ChainAddressValidator: ObservableObject {
         if input.lowercased().hasSuffix(".eth") {
             return true
         }
+        // Solana Name Service (.sol)
+        if input.lowercased().hasSuffix(".sol") {
+            return true
+        }
         // Unstoppable Domains (.crypto, .nft, .x, .wallet, .blockchain, .bitcoin)
         let unstoppableTLDs = [".crypto", ".nft", ".x", ".wallet", ".blockchain", ".bitcoin", ".dao", ".888"]
         for tld in unstoppableTLDs {
@@ -103,6 +107,11 @@ final class ChainAddressValidator: ObservableObject {
         // ENS resolution (for .eth domains)
         if domain.lowercased().hasSuffix(".eth") {
             return await resolveENS(domain, chainId: chainId)
+        }
+        
+        // Solana Name Service resolution (for .sol domains)
+        if domain.lowercased().hasSuffix(".sol") {
+            return await resolveSolanaNS(domain, chainId: chainId)
         }
         
         // Unstoppable Domains resolution
@@ -237,6 +246,49 @@ final class ChainAddressValidator: ObservableObject {
             
         } catch {
             return .invalid(error: "Failed to resolve domain: \(error.localizedDescription)")
+        }
+    }
+    
+    /// Resolve Solana Name Service (.sol) domains
+    private func resolveSolanaNS(_ domain: String, chainId: String) async -> ChainAddressValidationResult {
+        // SNS only resolves to Solana addresses
+        guard chainId == "solana" else {
+            return .invalid(error: "Solana domains (.sol) only support Solana addresses")
+        }
+        
+        // Remove .sol suffix
+        let name = domain.hasSuffix(".sol") ? String(domain.dropLast(4)) : domain
+        
+        // Use Bonfida SNS SDK proxy API
+        let urlString = "https://sns-sdk-proxy.bonfida.workers.dev/resolve/\(name)"
+        
+        guard let url = URL(string: urlString) else {
+            return .invalid(error: "Invalid domain format")
+        }
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                return .invalid(error: "Domain not found: \(domain)")
+            }
+            
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let result = json["result"] as? String, !result.isEmpty else {
+                return .invalid(error: "No address set for \(domain)")
+            }
+            
+            resolvedAddress = result
+            resolvedName = domain
+            
+            return .valid(
+                normalizedAddress: result,
+                displayName: domain,
+                checksumAddress: result // Solana addresses don't have checksums
+            )
+        } catch {
+            return .invalid(error: "Failed to resolve Solana domain: \(error.localizedDescription)")
         }
     }
     
