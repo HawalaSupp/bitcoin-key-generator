@@ -272,6 +272,7 @@ struct ContentView: View {
     @State private var showMultisigSheet = false
     @State private var showHardwareWalletSheet = false
     @State private var showWatchOnlySheet = false
+    @State private var showWalletConnectSheet = false
     @State private var showReceiveSheet = false
     @State private var showSendPicker = false
     @State private var showBatchTransactionSheet = false
@@ -451,6 +452,7 @@ struct ContentView: View {
                     showStakingSheet: $showStakingSheet,
                     showNotificationsSheet: $showNotificationsSheet,
                     showContactsSheet: $showContactsSheet,
+                    showWalletConnectSheet: $showWalletConnectSheet,
                     onGenerateKeys: {
                         guard hasAcknowledgedSecurityNotice else {
                             showSecurityNotice = true
@@ -615,6 +617,14 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showWatchOnlySheet) {
             WatchOnlyView()
+        }
+        .sheet(isPresented: $showWalletConnectSheet) {
+            WalletConnectView(
+                availableAccounts: getEvmAccounts(),
+                onSign: { request in
+                    try await handleWalletConnectSign(request)
+                }
+            )
         }
         .sheet(isPresented: $showBatchTransactionSheet) {
             BatchTransactionView()
@@ -3411,6 +3421,117 @@ struct ContentView: View {
             print("XRP history fetch error: \(error)")
             return []
         }
+    }
+    
+    // MARK: - WalletConnect Helpers
+    
+    /// Get all EVM-compatible addresses for WalletConnect
+    private func getEvmAccounts() -> [String] {
+        guard let keys = keys else { return [] }
+        
+        var accounts: [String] = []
+        
+        // Ethereum mainnet
+        if !keys.ethereum.address.isEmpty {
+            accounts.append("eip155:1:\(keys.ethereum.address)")
+        }
+        
+        // Ethereum Sepolia testnet
+        if !keys.ethereumSepolia.address.isEmpty {
+            accounts.append("eip155:11155111:\(keys.ethereumSepolia.address)")
+        }
+        
+        // BSC (BNB Chain)
+        if !keys.bnb.address.isEmpty {
+            accounts.append("eip155:56:\(keys.bnb.address)")
+        }
+        
+        // Add more EVM chains as needed - they typically share the same address
+        let evmAddress = keys.ethereum.address.isEmpty ? keys.ethereumSepolia.address : keys.ethereum.address
+        if !evmAddress.isEmpty {
+            accounts.append("eip155:137:\(evmAddress)")   // Polygon
+            accounts.append("eip155:42161:\(evmAddress)") // Arbitrum
+            accounts.append("eip155:10:\(evmAddress)")    // Optimism
+            accounts.append("eip155:43114:\(evmAddress)") // Avalanche
+        }
+        
+        return accounts
+    }
+    
+    /// Handle WalletConnect signing requests
+    private func handleWalletConnectSign(_ request: WCSessionRequest) async throws -> String {
+        // Extract the method and params
+        let method = request.method
+        
+        // For now, we'll return a placeholder - full implementation would
+        // use the wallet's private keys to sign the message/transaction
+        switch method {
+        case "personal_sign", "eth_sign":
+            // Sign a message
+            return try await signPersonalMessage(request)
+            
+        case "eth_signTypedData", "eth_signTypedData_v3", "eth_signTypedData_v4":
+            // Sign typed data (EIP-712)
+            return try await signTypedData(request)
+            
+        case "eth_sendTransaction", "eth_signTransaction":
+            // Sign/send a transaction
+            return try await signTransaction(request)
+            
+        default:
+            throw WCError.userRejected
+        }
+    }
+    
+    /// Sign a personal message (eth_sign, personal_sign)
+    private func signPersonalMessage(_ request: WCSessionRequest) async throws -> String {
+        // Extract message from params
+        guard let params = request.params as? [Any],
+              params.count >= 2,
+              let message = params[1] as? String else {
+            throw WCError.requestTimeout
+        }
+        
+        // For now, return a placeholder signature
+        // In production, use the private key to sign the message
+        // The message format is: keccak256("\x19Ethereum Signed Message:\n" + len(message) + message)
+        
+        print("📝 WalletConnect: Personal sign request for message: \(message)")
+        
+        // TODO: Implement actual message signing with private key
+        // This requires importing a crypto library or using the Rust backend
+        return "0x" + String(repeating: "0", count: 130) // Placeholder
+    }
+    
+    /// Sign typed data (EIP-712)
+    private func signTypedData(_ request: WCSessionRequest) async throws -> String {
+        guard let params = request.params as? [Any],
+              params.count >= 2 else {
+            throw WCError.requestTimeout
+        }
+        
+        print("📝 WalletConnect: Typed data sign request")
+        
+        // TODO: Implement EIP-712 signing
+        return "0x" + String(repeating: "0", count: 130) // Placeholder
+    }
+    
+    /// Sign or send a transaction
+    private func signTransaction(_ request: WCSessionRequest) async throws -> String {
+        guard let params = request.params as? [[String: Any]],
+              let txParams = params.first else {
+            throw WCError.requestTimeout
+        }
+        
+        print("📝 WalletConnect: Transaction sign request")
+        print("   From: \(txParams["from"] ?? "unknown")")
+        print("   To: \(txParams["to"] ?? "unknown")")
+        print("   Value: \(txParams["value"] ?? "0")")
+        print("   Data: \(txParams["data"] ?? "0x")")
+        
+        // TODO: Build and sign the transaction using the wallet's private key
+        // For now, return a placeholder transaction hash
+        return "0x" + String(repeating: "0", count: 64) // Placeholder tx hash
     }
     
     private func openSendSheet() {

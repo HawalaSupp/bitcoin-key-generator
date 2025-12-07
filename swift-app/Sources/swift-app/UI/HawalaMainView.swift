@@ -37,6 +37,7 @@ struct HawalaMainView: View {
     @Binding var showStakingSheet: Bool
     @Binding var showNotificationsSheet: Bool
     @Binding var showContactsSheet: Bool
+    @Binding var showWalletConnectSheet: Bool
     
     // Actions
     var onGenerateKeys: () -> Void
@@ -1049,6 +1050,15 @@ struct HawalaMainView: View {
                     color: HawalaTheme.Colors.success
                 ) {
                     // showHardwareWalletSheet = true
+                }
+                
+                DiscoverCard(
+                    icon: "link.circle.fill",
+                    title: "WalletConnect",
+                    description: "Connect to dApps securely",
+                    color: HawalaTheme.Colors.info
+                ) {
+                    showWalletConnectSheet = true
                 }
             }
             .padding(.horizontal, HawalaTheme.Spacing.xl)
