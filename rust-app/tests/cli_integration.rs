@@ -4,13 +4,22 @@ use bitcoin::secp256k1::{Secp256k1, SecretKey as SecpSecretKey};
 use bitcoin::{Address, Network, PrivateKey};
 use bs58::Alphabet;
 use rust_app::{AllKeys, encode_litecoin_wif, keccak256, to_checksum_address};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::convert::TryInto;
 use std::process::Command;
 
+/// Wrapper struct for CLI output
+#[derive(Debug, Serialize, Deserialize)]
+struct CliOutput {
+    mnemonic: String,
+    keys: AllKeys,
+}
+
 fn decode_keys_from_cli() -> AllKeys {
     let binary_path = assert_cmd::cargo::cargo_bin!("rust-app");
     let output = Command::new(binary_path)
+        .arg("gen-keys")
         .arg("--json")
         .output()
         .expect("cli run succeeds");
@@ -24,7 +33,8 @@ fn decode_keys_from_cli() -> AllKeys {
 
     // sanity check: ensure output parses as json before struct deserialization
     let _: Value = serde_json::from_str(&stdout).expect("stdout is valid json");
-    serde_json::from_str(&stdout).expect("json matches AllKeys schema")
+    let cli_output: CliOutput = serde_json::from_str(&stdout).expect("json matches CliOutput schema");
+    cli_output.keys
 }
 
 #[test]

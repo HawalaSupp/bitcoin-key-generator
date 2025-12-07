@@ -1,52 +1,56 @@
 # Hawala 2.0 – Path to Production Roadmap
 **Last Updated:** December 7, 2025
-**Current Status:** Alpha - Core Signing Infrastructure Implemented
+**Current Status:** Alpha - Phase 2 Complete (Data Persistence & State Management)
 
 This roadmap outlines the strategic steps to evolve Hawala from a "Key Generator & Balance Checker" into a fully functional, production-grade multi-chain wallet.
 
 ---
 
-## 🚀 Phase 1: Transaction Infrastructure (Immediate Priority)
+## 🚀 Phase 1: Transaction Infrastructure ✅ COMPLETE
 **Goal:** Enable real value transfer for all supported chains.
 
 ### 1.1 Complete Signing Logic
 - [x] **Bitcoin (BTC):** Implemented & Tested.
 - [x] **Ethereum (ETH):** Implemented & Tested.
 - [x] **Solana (SOL):** Implemented & Tested.
-- [ ] **XRP (Ripple):** 
-    - Replace mock implementation in `rust-app/src/xrp_wallet.rs` with real `xrpl-rust` serialization.
-    - Verify canonical serialization against `rippled` test vectors.
-- [ ] **Monero (XMR):**
-    - Evaluate feasibility of client-side RingCT signing vs. `monero-wallet-rpc`.
-    - If client-side is too heavy, implement a secure bridge to a local/remote node for signing.
-    - **Decision Point:** Pure Rust implementation vs. FFI bindings to C++ Monero libraries.
+- [x] **XRP (Ripple):** Fully implemented with real xrpl-rust serialization and cryptographic signing.
+- [~] **Monero (XMR):** Deferred to Phase 2 - requires RPC bridge integration (client-side RingCT is too complex without chain sync).
 
 ### 1.2 Broadcasting Layer
-- [ ] **Network Managers:** Create Swift services to broadcast signed hexes.
-    - `BitcoinNetworkService`: Push via Blockstream/Mempool API.
-    - `EthereumNetworkService`: `eth_sendRawTransaction` via Alchemy/Infura.
+- [x] **Network Managers:** All chain-specific broadcast services implemented.
+    - `BitcoinNetworkService`: Push via Mempool.space API.
+    - `EthereumNetworkService`: `eth_sendRawTransaction` via Alchemy.
     - `SolanaNetworkService`: `sendTransaction` via RPC.
-    - `XRPNetworkService`: `submit` command via WebSocket/JSON-RPC.
-- [ ] **Transaction Status Tracking:**
-    - Polling mechanism to check if tx is confirmed.
-    - Handle "dropped" or "stuck" transactions (RBF for Bitcoin, Nonce replacement for ETH).
+    - `XRPNetworkService`: `submit` command via JSON-RPC.
+- [x] **Transaction Status Tracking:**
+    - Polling mechanism for all chains (BTC, ETH, SOL, XRP).
+    - Confirmation count tracking.
+    - Handle "pending" vs "confirmed" vs "failed" states.
+
+### 1.3 Fee Estimation
+- [x] **Bitcoin:** Live fees from mempool.space (Fastest/Fast/Medium/Slow).
+- [x] **Ethereum:** EIP-1559 aware (baseFee + priorityFee) via Etherscan.
+- [x] **Solana:** Priority fee estimation via RPC.
+- [x] **XRP:** Open ledger fee and queue monitoring via rippled.
 
 ---
 
-## 💾 Phase 2: Data Persistence & State Management
+## 💾 Phase 2: Data Persistence & State Management ✅ COMPLETE
 **Goal:** Make the app usable offline and responsive.
 
 ### 2.1 Local Database
-- [ ] Integrate **SQLite** (via GRDB.swift or CoreData) to store:
-    - Wallets (Metadata, not keys).
-    - Transactions (History).
-    - UTXOs (for Bitcoin/Litecoin).
-- [ ] **Migration Strategy:** Ensure schema versioning from day one.
+- [x] Integrate **SQLite** (via GRDB.swift) to store:
+    - Wallets (Metadata, not keys) - `WalletRecord`
+    - Transactions (History) - `TransactionRecord`, `TransactionStore`
+    - UTXOs (for Bitcoin/Litecoin) - `UTXORecord`, `UTXOStore`
+    - Sync State - `SyncStateRecord`, `SyncStateStore`
+    - Balance Cache - `CachedBalanceRecord`, `BalanceCacheStore`
+- [x] **Migration Strategy:** Schema versioning via `DatabaseMigrator` with `v1_initial` migration.
 
 ### 2.2 Sync Engine
-- [ ] **Incremental Sync:** Only fetch new transactions since last block height.
-- [ ] **Background Fetch:** Utilize `BGAppRefreshTask` to keep balances up to date.
-- [ ] **UTXO Management:** For BTC, we must track unspent outputs locally to construct transactions without re-scanning the whole chain every time.
+- [x] **Incremental Sync:** `SyncEngine` tracks last block height per chain.
+- [~] **Background Fetch:** Deferred - requires app lifecycle integration (BGAppRefreshTask).
+- [x] **UTXO Management:** `UTXOCoinSelector` with largest-first coin selection, fee estimation, and integration with `BitcoinTransactionBuilder`.
 
 ---
 

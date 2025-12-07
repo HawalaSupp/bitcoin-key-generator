@@ -199,7 +199,7 @@ private struct ViewWidthPreferenceKey: PreferenceKey {
 }
 
 /// Result info passed back after successful transaction broadcast
-private struct TransactionBroadcastResult {
+struct TransactionBroadcastResult {
     let txid: String
     let chainId: String
     let chainName: String
@@ -494,94 +494,22 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showReceiveSheet) {
             if let keys {
-                ReceiveFundsSheet(chains: keys.chainInfos, onCopy: copyToClipboard)
+                ReceiveViewModern(chains: keys.chainInfos, onCopy: copyToClipboard)
+                    .frame(minWidth: 500, minHeight: 650)
             } else {
                 NoKeysPlaceholderView()
             }
         }
         .sheet(item: $sendChainContext, onDismiss: { sendChainContext = nil }) { chain in
-            if let keys {
-                if chain.id.starts(with: "bitcoin") || chain.id.starts(with: "litecoin") {
-                    BitcoinSendSheet(
-                        chain: chain,
-                        keys: keys,
-                        requireBiometric: biometricForSends && BiometricAuthHelper.isBiometricAvailable,
-                        onDismiss: {
-                            sendChainContext = nil
-                        },
-                        onSuccess: { result in
-                            handleTransactionSuccess(result)
-                        }
-                    )
-                } else if chain.id.starts(with: "ethereum") || chain.id.contains("erc20") {
-                    EthereumSendSheet(
-                        chain: chain,
-                        keys: keys,
-                        requireBiometric: biometricForSends && BiometricAuthHelper.isBiometricAvailable,
-                        onDismiss: {
-                            sendChainContext = nil
-                        },
-                        onSuccess: { result in
-                            handleTransactionSuccess(result)
-                        }
-                    )
-                } else if chain.id == "bnb" {
-                    BnbSendSheet(
-                        chain: chain,
-                        keys: keys,
-                        requireBiometric: biometricForSends && BiometricAuthHelper.isBiometricAvailable,
-                        onDismiss: {
-                            sendChainContext = nil
-                        },
-                        onSuccess: { result in
-                            handleTransactionSuccess(result)
-                        }
-                    )
-                } else if chain.id == "solana" {
-                    SolanaSendSheet(
-                        chain: chain,
-                        keys: keys,
-                        requireBiometric: biometricForSends && BiometricAuthHelper.isBiometricAvailable,
-                        onDismiss: {
-                            sendChainContext = nil
-                        },
-                        onSuccess: { result in
-                            handleTransactionSuccess(result)
-                        }
-                    )
-                } else if chain.id == "monero" {
-                    MoneroSendSheet(
-                        chain: chain,
-                        keys: keys,
-                        requireBiometric: biometricForSends && BiometricAuthHelper.isBiometricAvailable,
-                        onDismiss: {
-                            sendChainContext = nil
-                        },
-                        onSuccess: { result in
-                            handleTransactionSuccess(result)
-                        }
-                    )
-                } else if chain.id == "xrp" {
-                    XRPSendSheet(
-                        chain: chain,
-                        keys: keys,
-                        requireBiometric: biometricForSends && BiometricAuthHelper.isBiometricAvailable,
-                        onDismiss: {
-                            sendChainContext = nil
-                        },
-                        onSuccess: { result in
-                            handleTransactionSuccess(result)
-                        }
-                    )
-                } else {
-                    Text("Send functionality coming soon for \(chain.title)")
-                        .padding()
-                }
+            if keys != nil {
+                SendView(initialChain: mapToChain(chain.id), onSuccess: { result in
+                    handleTransactionSuccess(result)
+                })
             } else {
-                Text("Generate keys before sending funds.")
-                    .padding()
+                Text("Keys not available")
             }
         }
+
         .sheet(isPresented: $showSendPicker, onDismiss: presentQueuedSendIfNeeded) {
             if let keys {
                 SendAssetPickerSheet(
@@ -3060,6 +2988,15 @@ struct ContentView: View {
         guard let chain = pendingSendChain else { return }
         pendingSendChain = nil
         sendChainContext = chain
+    }
+
+    private func mapToChain(_ chainId: String) -> Chain {
+        if chainId.starts(with: "bitcoin") { return .bitcoin }
+        if chainId.starts(with: "ethereum") { return .ethereum }
+        if chainId == "solana" { return .solana }
+        if chainId == "xrp" { return .xrp }
+        if chainId == "monero" { return .monero }
+        return .bitcoin
     }
 
     private func sendEligibleChains(from keys: AllKeys) -> [ChainInfo] {

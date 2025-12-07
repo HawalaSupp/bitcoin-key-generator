@@ -9,7 +9,8 @@ let package = Package(
         .macOS(.v13)
     ],
     dependencies: [
-        .package(url: "https://github.com/21-DOT-DEV/swift-secp256k1.git", from: "0.21.1")
+        .package(url: "https://github.com/21-DOT-DEV/swift-secp256k1.git", from: "0.21.1"),
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0")
     ],
     targets: [
         .target(
@@ -24,6 +25,7 @@ let package = Package(
             name: "swift-app",
             dependencies: [
                 .product(name: "P256K", package: "swift-secp256k1"),
+                .product(name: "GRDB", package: "GRDB.swift"),
                 "RustBridge"
             ],
             exclude: ["APIKeys.swift.template"],

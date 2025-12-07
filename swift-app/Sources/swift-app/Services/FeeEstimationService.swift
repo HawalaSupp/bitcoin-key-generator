@@ -13,6 +13,7 @@ final class FeeEstimationService: ObservableObject {
     @Published var ethereumFees: EthereumFeeEstimate?
     @Published var litecoinFees: LitecoinFeeEstimate?
     @Published var solanaFees: SolanaFeeEstimate?
+    @Published var xrpFees: XRPFeeEstimate?
     @Published var isLoading = false
     @Published var lastUpdated: Date?
     
@@ -39,13 +40,15 @@ final class FeeEstimationService: ObservableObject {
         async let eth = fetchEthereumFees()
         async let ltc = fetchLitecoinFees()
         async let sol = fetchSolanaFees()
+        async let xrp = fetchXRPFees()
         
-        let (btcResult, ethResult, ltcResult, solResult) = await (btc, eth, ltc, sol)
+        let (btcResult, ethResult, ltcResult, solResult, xrpResult) = await (btc, eth, ltc, sol, xrp)
         
         bitcoinFees = btcResult
         ethereumFees = ethResult
         litecoinFees = ltcResult
         solanaFees = solResult
+        xrpFees = xrpResult
         
         lastFetchTime = Date()
         lastUpdated = Date()
@@ -261,6 +264,61 @@ final class FeeEstimationService: ObservableObject {
         )
     }
     
+    // MARK: - XRP Fee Estimation
+    
+    func fetchXRPFees() async -> XRPFeeEstimate? {
+        guard let url = URL(string: "https://s1.ripple.com:51234") else {
+            return defaultXRPFees()
+        }
+        
+        let payload: [String: Any] = [
+            "method": "fee",
+            "params": [[:]]
+        ]
+        
+        do {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+            
+            let (data, _) = try await URLSession.shared.data(for: request)
+            
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let result = json["result"] as? [String: Any],
+                  let drops = result["drops"] as? [String: Any] else {
+                return defaultXRPFees()
+            }
+            
+            // Parse fee values (in drops)
+            let openLedgerFee = UInt64(drops["open_ledger_fee"] as? String ?? "12") ?? 12
+            let minimumFee = UInt64(drops["minimum_fee"] as? String ?? "10") ?? 10
+            let medianFee = UInt64(drops["median_fee"] as? String ?? "12") ?? 12
+            
+            // Parse queue info
+            let currentQueue = result["current_queue_size"] as? Int ?? 0
+            
+            return XRPFeeEstimate(
+                openLedgerFee: openLedgerFee,
+                minimumFee: minimumFee,
+                medianFee: medianFee,
+                currentQueue: currentQueue
+            )
+        } catch {
+            print("XRP fee fetch error: \(error)")
+            return defaultXRPFees()
+        }
+    }
+    
+    private func defaultXRPFees() -> XRPFeeEstimate {
+        return XRPFeeEstimate(
+            openLedgerFee: 12,
+            minimumFee: 10,
+            medianFee: 12,
+            currentQueue: 0
+        )
+    }
+    
     // MARK: - Fee Calculation Helpers
     
     /// Calculate estimated BTC transaction fee
@@ -392,6 +450,28 @@ struct PriorityFeeLevel {
     func formatted(_ level: UInt64) -> String {
         let sol = Double(level) / 1_000_000_000.0
         return String(format: "%.6f SOL", sol)
+    }
+}
+
+struct XRPFeeEstimate {
+    let openLedgerFee: UInt64 // drops
+    let minimumFee: UInt64 // drops
+    let medianFee: UInt64 // drops
+    let currentQueue: Int
+    
+    var formattedOpenLedger: String {
+        let xrp = Double(openLedgerFee) / 1_000_000.0
+        return String(format: "%.6f XRP", xrp)
+    }
+    
+    var formattedMinimum: String {
+        let xrp = Double(minimumFee) / 1_000_000.0
+        return String(format: "%.6f XRP", xrp)
+    }
+    
+    var recommendedFee: UInt64 {
+        // Use median or open ledger fee, whichever is higher
+        max(medianFee, openLedgerFee)
     }
 }
 

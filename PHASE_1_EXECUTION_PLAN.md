@@ -93,8 +93,11 @@ protocol TransactionBroadcaster {
 
 ## 4. Immediate Next Actions (Checklist)
 
-- [ ] **Rust:** Implement `sign-xrp` with real serialization.
-- [ ] **Swift:** Create `TransactionBroadcaster` protocol.
-- [ ] **Swift:** Implement `BitcoinService` broadcast method.
-- [ ] **Swift:** Implement `EthereumService` broadcast method.
+- [x] **Rust:** Implement `sign-xrp` with real serialization (✅ Fully implemented with xrpl-rust library).
+- [x] **Swift:** Create `TransactionBroadcaster` protocol (Extended existing `TransactionBroadcaster` class).
+- [x] **Swift:** Implement `BitcoinService` broadcast method (Verified existing).
+- [x] **Swift:** Implement `EthereumService` broadcast method (Verified existing).
+- [x] **Swift:** Implement `XRPService` broadcast method (Added `broadcastXRP`).
+- [ ] **Monero Decision:** Deferred to Phase 2 – requires RPC bridge or light wallet server integration.
+- [ ] **Transaction Status Tracking:** Implement confirmation polling mechanism.
 - [ ] **Test:** End-to-end test on Testnets (Sepolia, BTC Testnet).

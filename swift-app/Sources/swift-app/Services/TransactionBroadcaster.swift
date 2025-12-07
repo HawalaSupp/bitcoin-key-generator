@@ -438,6 +438,392 @@ final class TransactionBroadcaster: ObservableObject {
         
         return hash
     }
+    
+    // MARK: - Network Helpers
+    
+    func getEthereumNonce(address: String, isTestnet: Bool) async throws -> UInt64 {
+        let rpcURL = isTestnet ? "https://rpc.sepolia.org" : "https://eth.llamarpc.com"
+        guard let url = URL(string: rpcURL) else { throw BroadcastError.invalidURL }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getTransactionCount",
+            "params": [address, "latest"],
+            "id": 1
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = json["result"] as? String else {
+            throw BroadcastError.invalidResponse
+        }
+        
+        return UInt64(result.dropFirst(2), radix: 16) ?? 0
+    }
+    
+    func getSolanaBlockhash(isDevnet: Bool) async throws -> String {
+        let rpcURL = isDevnet ? "https://api.devnet.solana.com" : "https://api.mainnet-beta.solana.com"
+        guard let url = URL(string: rpcURL) else { throw BroadcastError.invalidURL }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getLatestBlockhash",
+            "params": [["commitment": "finalized"]]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = json["result"] as? [String: Any],
+              let value = result["value"] as? [String: Any],
+              let blockhash = value["blockhash"] as? String else {
+            throw BroadcastError.invalidResponse
+        }
+        
+        return blockhash
+    }
+    
+    func getXRPSequence(address: String, isTestnet: Bool) async throws -> UInt32 {
+        let rpcURL = isTestnet ? "https://s.altnet.rippletest.net:51234" : "https://s1.ripple.com:51234"
+        guard let url = URL(string: rpcURL) else { throw BroadcastError.invalidURL }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = [
+            "method": "account_info",
+            "params": [
+                ["account": address, "ledger_index": "current"]
+            ]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = json["result"] as? [String: Any],
+              let accountData = result["account_data"] as? [String: Any],
+              let sequence = accountData["Sequence"] as? Int else {
+            throw BroadcastError.invalidResponse
+        }
+        
+        return UInt32(sequence)
+    }
+    
+    // MARK: - Transaction Status Tracking
+    
+    /// Transaction confirmation status
+    enum TransactionStatus {
+        case pending
+        case confirmed(confirmations: Int)
+        case failed(reason: String)
+        case notFound
+    }
+    
+    /// Check Bitcoin transaction status
+    func checkBitcoinStatus(txid: String, isTestnet: Bool) async throws -> TransactionStatus {
+        let baseURL = isTestnet ? "https://mempool.space/testnet/api" : "https://mempool.space/api"
+        
+        guard let url = URL(string: "\(baseURL)/tx/\(txid)") else {
+            throw BroadcastError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BroadcastError.invalidResponse
+        }
+        
+        if httpResponse.statusCode == 404 {
+            return .notFound
+        }
+        
+        guard httpResponse.statusCode == 200 else {
+            throw BroadcastError.invalidResponse
+        }
+        
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw BroadcastError.invalidResponse
+        }
+        
+        // Check if confirmed (has block_height)
+        if let status = json["status"] as? [String: Any] {
+            if let confirmed = status["confirmed"] as? Bool, confirmed {
+                if let blockHeight = status["block_height"] as? Int {
+                    // Get current block height to calculate confirmations
+                    let currentHeight = try await getCurrentBitcoinBlockHeight(isTestnet: isTestnet)
+                    let confirmations = currentHeight - blockHeight + 1
+                    return .confirmed(confirmations: max(1, confirmations))
+                }
+                return .confirmed(confirmations: 1)
+            }
+        }
+        
+        return .pending
+    }
+    
+    /// Get current Bitcoin block height
+    private func getCurrentBitcoinBlockHeight(isTestnet: Bool) async throws -> Int {
+        let baseURL = isTestnet ? "https://mempool.space/testnet/api" : "https://mempool.space/api"
+        
+        guard let url = URL(string: "\(baseURL)/blocks/tip/height") else {
+            throw BroadcastError.invalidURL
+        }
+        
+        let (data, _) = try await URLSession.shared.data(for: URLRequest(url: url))
+        
+        guard let heightStr = String(data: data, encoding: .utf8),
+              let height = Int(heightStr.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            throw BroadcastError.invalidResponse
+        }
+        
+        return height
+    }
+    
+    /// Check Ethereum transaction status
+    func checkEthereumStatus(txid: String, isTestnet: Bool) async throws -> TransactionStatus {
+        let chainId = isTestnet ? "eth-sepolia" : "eth-mainnet"
+        
+        guard let url = URL(string: "https://\(chainId).g.alchemy.com/v2/\(APIConfig.alchemyAPIKey)") else {
+            throw BroadcastError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        // First, get transaction receipt
+        let receiptBody: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getTransactionReceipt",
+            "params": [txid],
+            "id": 1
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: receiptBody)
+        
+        let (receiptData, _) = try await URLSession.shared.data(for: request)
+        
+        guard let receiptJson = try? JSONSerialization.jsonObject(with: receiptData) as? [String: Any] else {
+            throw BroadcastError.invalidResponse
+        }
+        
+        // Check if receipt exists
+        if let result = receiptJson["result"] as? [String: Any] {
+            // Transaction is mined
+            if let statusHex = result["status"] as? String {
+                let success = statusHex == "0x1"
+                if !success {
+                    return .failed(reason: "Transaction reverted")
+                }
+            }
+            
+            if let blockNumberHex = result["blockNumber"] as? String {
+                // Get current block number
+                let currentBlock = try await getCurrentEthereumBlockNumber(isTestnet: isTestnet)
+                let txBlock = Int(blockNumberHex.dropFirst(2), radix: 16) ?? 0
+                let confirmations = currentBlock - txBlock + 1
+                return .confirmed(confirmations: max(1, confirmations))
+            }
+            
+            return .confirmed(confirmations: 1)
+        } else if receiptJson["result"] is NSNull || receiptJson["result"] == nil {
+            // Receipt not found, check if tx exists
+            return .pending
+        }
+        
+        return .notFound
+    }
+    
+    /// Get current Ethereum block number
+    private func getCurrentEthereumBlockNumber(isTestnet: Bool) async throws -> Int {
+        let chainId = isTestnet ? "eth-sepolia" : "eth-mainnet"
+        
+        guard let url = URL(string: "https://\(chainId).g.alchemy.com/v2/\(APIConfig.alchemyAPIKey)") else {
+            throw BroadcastError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_blockNumber",
+            "params": [],
+            "id": 1
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let resultHex = json["result"] as? String,
+              let blockNumber = Int(resultHex.dropFirst(2), radix: 16) else {
+            throw BroadcastError.invalidResponse
+        }
+        
+        return blockNumber
+    }
+    
+    /// Check Solana transaction status
+    func checkSolanaStatus(signature: String, isDevnet: Bool) async throws -> TransactionStatus {
+        let baseURL = isDevnet 
+            ? "https://api.devnet.solana.com"
+            : "https://api.mainnet-beta.solana.com"
+        
+        guard let url = URL(string: baseURL) else {
+            throw BroadcastError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getSignatureStatuses",
+            "params": [[signature], ["searchTransactionHistory": true]]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = json["result"] as? [String: Any],
+              let value = result["value"] as? [Any?] else {
+            throw BroadcastError.invalidResponse
+        }
+        
+        guard let statusInfo = value.first as? [String: Any]? else {
+            return .notFound
+        }
+        
+        guard let info = statusInfo else {
+            return .notFound
+        }
+        
+        // Check for error
+        if let err = info["err"] {
+            if !(err is NSNull) {
+                return .failed(reason: "Transaction failed on-chain")
+            }
+        }
+        
+        // Check confirmations
+        if let confirmations = info["confirmations"] as? Int {
+            if confirmations > 0 {
+                return .confirmed(confirmations: confirmations)
+            }
+        }
+        
+        // Check confirmation status
+        if let status = info["confirmationStatus"] as? String {
+            switch status {
+            case "finalized":
+                return .confirmed(confirmations: 32) // Finalized = max confirmations
+            case "confirmed":
+                return .confirmed(confirmations: 1)
+            case "processed":
+                return .pending
+            default:
+                return .pending
+            }
+        }
+        
+        return .pending
+    }
+    
+    /// Check XRP transaction status
+    func checkXRPStatus(txid: String, isTestnet: Bool) async throws -> TransactionStatus {
+        let baseURL = isTestnet 
+            ? "https://s.altnet.rippletest.net:51234"
+            : "https://s1.ripple.com:51234"
+        
+        guard let url = URL(string: baseURL) else {
+            throw BroadcastError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = [
+            "method": "tx",
+            "params": [
+                ["transaction": txid]
+            ]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = json["result"] as? [String: Any] else {
+            throw BroadcastError.invalidResponse
+        }
+        
+        // Check if transaction was found
+        if let error = result["error"] as? String {
+            if error == "txnNotFound" {
+                return .notFound
+            }
+            return .failed(reason: error)
+        }
+        
+        // Check validation status
+        if let validated = result["validated"] as? Bool, validated {
+            // Check result code
+            if let meta = result["meta"] as? [String: Any],
+               let transactionResult = meta["TransactionResult"] as? String {
+                if transactionResult == "tesSUCCESS" {
+                    return .confirmed(confirmations: 1) // XRP: validated = confirmed
+                } else {
+                    return .failed(reason: transactionResult)
+                }
+            }
+            return .confirmed(confirmations: 1)
+        }
+        
+        return .pending
+    }
+    
+    /// Unified status check for any chain
+    func checkTransactionStatus(txid: String, chainId: String) async throws -> TransactionStatus {
+        switch chainId {
+        case "bitcoin":
+            return try await checkBitcoinStatus(txid: txid, isTestnet: false)
+        case "bitcoin-testnet":
+            return try await checkBitcoinStatus(txid: txid, isTestnet: true)
+        case "ethereum":
+            return try await checkEthereumStatus(txid: txid, isTestnet: false)
+        case "ethereum-sepolia":
+            return try await checkEthereumStatus(txid: txid, isTestnet: true)
+        case "solana":
+            return try await checkSolanaStatus(signature: txid, isDevnet: false)
+        case "solana-devnet":
+            return try await checkSolanaStatus(signature: txid, isDevnet: true)
+        case "xrp":
+            return try await checkXRPStatus(txid: txid, isTestnet: false)
+        case "xrp-testnet":
+            return try await checkXRPStatus(txid: txid, isTestnet: true)
+        default:
+            throw BroadcastError.unsupportedChain
+        }
+    }
 }
 
 // MARK: - Broadcast Errors

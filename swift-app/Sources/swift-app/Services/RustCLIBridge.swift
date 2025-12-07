@@ -74,6 +74,60 @@ final class RustCLIBridge: Sendable {
         return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
+    // MARK: - Key Generation
+    
+    struct KeysOutput: Codable {
+        let mnemonic: String?
+        let keys: AllKeys
+    }
+    
+    struct AllKeys: Codable {
+        let bitcoin: BitcoinKeys
+        let bitcoin_testnet: BitcoinKeys
+        let ethereum: EthereumKeys
+        let solana: SolanaKeys
+        let monero: MoneroKeys
+        let xrp: XRPKeys
+    }
+    
+    struct BitcoinKeys: Codable {
+        let private_wif: String
+        let address: String
+    }
+    
+    struct EthereumKeys: Codable {
+        let private_hex: String
+        let address: String
+    }
+    
+    struct SolanaKeys: Codable {
+        let private_key_base58: String
+        let public_key_base58: String
+    }
+    
+    struct MoneroKeys: Codable {
+        let private_spend_hex: String
+        let private_view_hex: String
+        let address: String
+    }
+    
+    struct XRPKeys: Codable {
+        let private_hex: String
+        let classic_address: String
+    }
+    
+    func generateKeys(mnemonic: String) throws -> AllKeys {
+        let args = ["gen-keys", "--mnemonic", mnemonic, "--json"]
+        let jsonString = try runCommand(args: args)
+        
+        guard let data = jsonString.data(using: .utf8) else {
+            throw RustCLIError.outputParsingFailed
+        }
+        
+        let output = try JSONDecoder().decode(KeysOutput.self, from: data)
+        return output.keys
+    }
+
     // MARK: - Bitcoin
     
     func signBitcoin(recipient: String, amountSats: UInt64, feeRate: UInt64, senderWIF: String) throws -> String {
