@@ -219,6 +219,11 @@ To add support for another chain:
 
 ## License
 
+## Roadmaps
+
+- `HAWALA_ROADMAP.md` — original broad feature roadmap (2025)
+- `FINAL_ROADMAP.md` — **ship plan** based on the full product Q&A (milestones, cut-lines, acceptance criteria)
+
 See `LICENSE` file for details.
 
 ## References

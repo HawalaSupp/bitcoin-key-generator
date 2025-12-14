@@ -116,6 +116,15 @@ final class IntegrationTests: XCTestCase {
     // MARK: - Signing Tests
     
     func testRustCLISigning() throws {
+        // These signing tests currently depend on live network access (e.g., fetching UTXOs)
+        // and on provider-specific seed formats. To keep `swift test` reliable and CI-friendly,
+        // we only run them when explicitly enabled.
+        let env = ProcessInfo.processInfo.environment
+        let shouldRun = (env["HAWALA_RUN_NETWORK_INTEGRATION"] == "1") || (env["HAWALA_RUN_NETWORK_INTEGRATION"] == "true")
+        guard shouldRun else {
+            throw XCTSkip("Skipping network-dependent signing integration tests. Set HAWALA_RUN_NETWORK_INTEGRATION=1 to enable.")
+        }
+
         // 1. Locate the binary
         let fileManager = FileManager.default
         let possiblePaths = [
