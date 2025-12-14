@@ -1494,6 +1494,8 @@ struct BentoAssetCard: View {
                             lineWidth: isSelected ? 1.5 : 1
                         )
                 }
+                .compositingGroup() // Optimize shadow rendering
+                .shadow(color: Color.black.opacity(isHovered ? 0.2 : 0.1), radius: isHovered ? 15 : 10, x: 0, y: isHovered ? 8 : 5)
             )
             .drawingGroup() // GPU-accelerated rendering for smooth scrolling
         }

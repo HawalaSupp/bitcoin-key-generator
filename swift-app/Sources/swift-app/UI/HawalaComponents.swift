@@ -701,6 +701,7 @@ struct EnhancedSparkline: View {
                             .shadow(color: color.opacity(0.5), radius: 4)
                     }
                 }
+                .drawingGroup() // Optimize complex path rendering
             }
         }
     }

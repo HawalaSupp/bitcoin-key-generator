@@ -71,9 +71,16 @@ struct BackgroundTypePicker: View {
 func createBackgroundWebView(html: String) -> WKWebView {
     let config = WKWebViewConfiguration()
     config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+    config.suppressesIncrementalRendering = true // Wait for full render
     
     let webView = WKWebView(frame: .zero, configuration: config)
     webView.setValue(false, forKey: "drawsBackground")
+    
+    // Enable hardware acceleration if possible (private API, but safe for this context)
+    if #available(macOS 10.15, *) {
+        webView.layer?.drawsAsynchronously = true
+    }
+    
     webView.loadHTMLString(html, baseURL: nil)
     return webView
 }
@@ -135,7 +142,17 @@ struct AuroraBackground: NSViewRepresentable {
         // https://github.com/DavidHDev/react-bits/blob/main/src/content/Backgrounds/Aurora/Aurora.jsx
         
         const canvas = document.getElementById('c');
-        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+        const gl = canvas.getContext('webgl2', { 
+            alpha: true, 
+            powerPreference: 'high-performance',
+            antialias: false,
+            preserveDrawingBuffer: false
+        }) || canvas.getContext('webgl', { 
+            alpha: true, 
+            powerPreference: 'high-performance',
+            antialias: false,
+            preserveDrawingBuffer: false
+        });
         const isWebGL2 = gl instanceof WebGL2RenderingContext;
         
         // Exact VERT shader from ReactBits
