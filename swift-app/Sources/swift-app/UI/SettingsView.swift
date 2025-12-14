@@ -36,6 +36,9 @@ struct SettingsView: View {
     @State private var showCustomTokensSheet = false
     @State private var showAddressManagement = false
     @State private var showStealthAddresses = false
+    @State private var showScheduledTransactions = false
+    @State private var showFeeIntelligence = false
+    @State private var showTransactionIntentDemo = false
     
     // Debug/Developer info
     @StateObject private var debugLogger = DebugLogger.shared
@@ -127,6 +130,17 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showStealthAddresses) {
             StealthAddressView()
+        }
+        .sheet(isPresented: $showScheduledTransactions) {
+            ScheduledTransactionsView()
+        }
+        .sheet(isPresented: $showFeeIntelligence) {
+            FeeIntelligenceView()
+                .frame(width: 700, height: 800)
+        }
+        .sheet(isPresented: $showTransactionIntentDemo) {
+            TransactionIntentDemoView()
+                .frame(width: 550, height: 750)
         }
         .alert("Reset Wallet", isPresented: $showResetConfirm) {
             Button("Cancel", role: .cancel) { }
@@ -434,6 +448,48 @@ struct SettingsView: View {
     // MARK: - General Section
     private var generalSection: some View {
         SettingsSection("General") {
+            SettingsRow(
+                icon: "calendar.badge.clock",
+                iconColor: HawalaTheme.Colors.accent,
+                title: "Scheduled Transactions",
+                subtitle: "Automate recurring payments"
+            ) {
+                triggerHaptic()
+                showScheduledTransactions = true
+            }
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
+            SettingsRow(
+                icon: "chart.line.uptrend.xyaxis",
+                iconColor: .orange,
+                title: "Fee Intelligence",
+                subtitle: "Optimize transaction fees"
+            ) {
+                triggerHaptic()
+                showFeeIntelligence = true
+            }
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
+            SettingsRow(
+                icon: "doc.text.magnifyingglass",
+                iconColor: .purple,
+                title: "Transaction Intent Preview",
+                subtitle: "Human-readable transaction signing"
+            ) {
+                triggerHaptic()
+                showTransactionIntentDemo = true
+            }
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
             SettingsRow(
                 icon: "square.and.arrow.up.fill",
                 iconColor: HawalaTheme.Colors.success,
