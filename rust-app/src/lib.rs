@@ -26,6 +26,7 @@ pub mod ethereum_wallet;
 pub mod solana_wallet;
 pub mod monero_wallet;
 pub mod xrp_wallet;
+pub mod litecoin_wallet;
 pub mod history;
 pub use balances::{fetch_bitcoin_balance, fetch_ethereum_balance};
 pub use bitcoin_wallet::prepare_transaction;
@@ -33,6 +34,7 @@ pub use ethereum_wallet::prepare_ethereum_transaction;
 pub use solana_wallet::prepare_solana_transaction;
 pub use monero_wallet::prepare_monero_transaction;
 pub use xrp_wallet::prepare_xrp_transaction;
+pub use litecoin_wallet::prepare_litecoin_transaction;
 pub use history::fetch_bitcoin_history;
 use tiny_keccak::{Hasher, Keccak};
 

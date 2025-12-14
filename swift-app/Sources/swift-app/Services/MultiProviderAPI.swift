@@ -33,6 +33,12 @@ final class MultiProviderAPI: ObservableObject {
         }
     }
     
+    // MARK: - Health Manager Reference
+    
+    private var healthManager: ProviderHealthManager {
+        ProviderHealthManager.shared
+    }
+    
     // MARK: - Price Providers
     
     /// Fetches prices from multiple providers with automatic fallback
@@ -40,22 +46,35 @@ final class MultiProviderAPI: ObservableObject {
         // Try CoinCap first (no API key needed, generous limits)
         do {
             print("📊 Trying CoinCap for prices...")
-            return try await fetchPricesFromCoinCap()
+            let prices = try await fetchPricesFromCoinCap()
+            healthManager.recordSuccess(for: .coinCap)
+            return prices
         } catch {
             print("⚠️ CoinCap failed: \(error.localizedDescription)")
+            healthManager.recordFailure(for: .coinCap, error: error)
         }
         
         // Try CryptoCompare second
         do {
             print("📊 Trying CryptoCompare for prices...")
-            return try await fetchPricesFromCryptoCompare()
+            let prices = try await fetchPricesFromCryptoCompare()
+            healthManager.recordSuccess(for: .cryptoCompare)
+            return prices
         } catch {
             print("⚠️ CryptoCompare failed: \(error.localizedDescription)")
+            healthManager.recordFailure(for: .cryptoCompare, error: error)
         }
         
         // Finally try CoinGecko (most likely to be rate limited)
         print("📊 Trying CoinGecko for prices...")
-        return try await fetchPricesFromCoinGecko()
+        do {
+            let prices = try await fetchPricesFromCoinGecko()
+            healthManager.recordSuccess(for: .coinGecko)
+            return prices
+        } catch {
+            healthManager.recordFailure(for: .coinGecko, error: error)
+            throw error
+        }
     }
     
     // MARK: - Alchemy Ethereum Balance
@@ -66,9 +85,12 @@ final class MultiProviderAPI: ObservableObject {
         if let alchemyURL = apiKeys.alchemyBaseURL(for: APIKeys.AlchemyChain.ethereumMainnet) {
             do {
                 print("📡 Fetching ETH balance from Alchemy...")
-                return try await fetchEthBalanceFromRPC(address: address, endpoint: alchemyURL)
+                let balance = try await fetchEthBalanceFromRPC(address: address, endpoint: alchemyURL)
+                healthManager.recordSuccess(for: .alchemy)
+                return balance
             } catch {
                 print("⚠️ Alchemy ETH balance failed: \(error.localizedDescription)")
+                healthManager.recordFailure(for: .alchemy, error: error)
             }
         }
         
@@ -84,9 +106,12 @@ final class MultiProviderAPI: ObservableObject {
         if let alchemyURL = apiKeys.alchemyBaseURL(for: APIKeys.AlchemyChain.solanaMainnet) {
             do {
                 print("📡 Fetching SOL balance from Alchemy...")
-                return try await fetchSolBalanceFromAlchemy(url: alchemyURL, address: address)
+                let balance = try await fetchSolBalanceFromAlchemy(url: alchemyURL, address: address)
+                healthManager.recordSuccess(for: .alchemy)
+                return balance
             } catch {
                 print("⚠️ Alchemy SOL balance failed: \(error.localizedDescription)")
+                healthManager.recordFailure(for: .alchemy, error: error)
             }
         }
         
@@ -387,15 +412,20 @@ final class MultiProviderAPI: ObservableObject {
         
         // Try mempool.space first (most reliable)
         do {
-            return try await fetchBitcoinBalanceFromMempool(address: address, isTestnet: isTestnet)
+            let balance = try await fetchBitcoinBalanceFromMempool(address: address, isTestnet: isTestnet)
+            healthManager.recordSuccess(for: .mempool)
+            return balance
         } catch {
             print("⚠️ Mempool.space failed: \(error.localizedDescription)")
+            healthManager.recordFailure(for: .mempool, error: error)
         }
         
         // Try Blockstream second
         if !isTestnet {
             do {
-                return try await fetchBitcoinBalanceFromBlockstream(address: address)
+                let balance = try await fetchBitcoinBalanceFromBlockstream(address: address)
+                healthManager.recordSuccess(for: .blockchair) // Using blockchair as generic blockchain provider
+                return balance
             } catch {
                 print("⚠️ Blockstream failed: \(error.localizedDescription)")
             }
@@ -403,7 +433,8 @@ final class MultiProviderAPI: ObservableObject {
         
         // Try BlockCypher last
         do {
-            return try await fetchBitcoinBalanceFromBlockCypher(address: address, isTestnet: isTestnet)
+            let balance = try await fetchBitcoinBalanceFromBlockCypher(address: address, isTestnet: isTestnet)
+            return balance
         } catch {
             print("⚠️ BlockCypher failed: \(error.localizedDescription)")
         }

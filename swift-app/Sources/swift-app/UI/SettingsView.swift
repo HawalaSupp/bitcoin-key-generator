@@ -41,6 +41,7 @@ struct SettingsView: View {
     @State private var showFeeIntelligence = false
     @State private var showTransactionIntentDemo = false
     @State private var showAddressIntelligence = false
+    @State private var showProviderSettings = false
     
     // Debug/Developer info
     @StateObject private var debugLogger = DebugLogger.shared
@@ -379,6 +380,21 @@ struct SettingsView: View {
     // MARK: - Network Section
     private var networkSection: some View {
         SettingsSection("Network & Sync") {
+            // Provider Settings
+            SettingsRow(
+                icon: "server.rack",
+                iconColor: HawalaTheme.Colors.accent,
+                title: "Data Providers",
+                subtitle: "Configure API sources and keys"
+            ) {
+                triggerHaptic()
+                showProviderSettings = true
+            }
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
             // WebSocket real-time prices
             WebSocketConnectionControl()
             
@@ -388,6 +404,10 @@ struct SettingsView: View {
             
             // Background sync
             SyncSettingsControl()
+        }
+        .sheet(isPresented: $showProviderSettings) {
+            ProviderSettingsView()
+                .frame(minWidth: 500, minHeight: 700)
         }
     }
     

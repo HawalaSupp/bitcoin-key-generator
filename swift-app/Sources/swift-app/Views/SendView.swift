@@ -6,7 +6,10 @@ import AppKit
 enum Chain: String, CaseIterable, Identifiable {
     case bitcoinTestnet = "bitcoin-testnet"
     case bitcoinMainnet = "bitcoin-mainnet"
+    case litecoin = "litecoin"
     case ethereum
+    case polygon
+    case bnb
     case solana
     case xrp
     case monero
@@ -17,7 +20,10 @@ enum Chain: String, CaseIterable, Identifiable {
         switch self {
         case .bitcoinTestnet: return "bitcoin-testnet"
         case .bitcoinMainnet: return "bitcoin-mainnet"
+        case .litecoin: return "litecoin"
         case .ethereum: return "ethereum-sepolia"
+        case .polygon: return "polygon-mainnet"
+        case .bnb: return "bsc-mainnet"
         case .solana: return "solana"
         case .xrp: return "xrp"
         case .monero: return "monero"
@@ -28,7 +34,10 @@ enum Chain: String, CaseIterable, Identifiable {
         switch self {
         case .bitcoinTestnet: return "BTC Testnet"
         case .bitcoinMainnet: return "BTC Mainnet"
+        case .litecoin: return "Litecoin"
         case .ethereum: return "Ethereum"
+        case .polygon: return "Polygon"
+        case .bnb: return "BNB Chain"
         case .solana: return "Solana"
         case .xrp: return "XRP"
         case .monero: return "Monero"
@@ -39,7 +48,10 @@ enum Chain: String, CaseIterable, Identifiable {
         switch self {
         case .bitcoinTestnet: return "bitcoinsign"
         case .bitcoinMainnet: return "bitcoinsign.circle.fill"
+        case .litecoin: return "l.circle.fill"
         case .ethereum: return "e.circle.fill"
+        case .polygon: return "p.circle.fill"
+        case .bnb: return "b.circle.fill"
         case .solana: return "s.circle.fill"
         case .xrp: return "x.circle.fill"
         case .monero: return "m.circle.fill"
@@ -49,6 +61,42 @@ enum Chain: String, CaseIterable, Identifiable {
     var isBitcoin: Bool {
         self == .bitcoinTestnet || self == .bitcoinMainnet
     }
+    
+    var isLitecoin: Bool {
+        self == .litecoin
+    }
+    
+    var isUTXOBased: Bool {
+        isBitcoin || isLitecoin
+    }
+    
+    var isEVM: Bool {
+        self == .ethereum || self == .polygon || self == .bnb
+    }
+    
+    /// EVM chain ID for transaction signing
+    var evmChainId: UInt64? {
+        switch self {
+        case .ethereum: return 11155111  // Sepolia testnet
+        case .polygon: return 137        // Polygon mainnet
+        case .bnb: return 56             // BSC mainnet
+        default: return nil
+        }
+    }
+    
+    /// Native token symbol
+    var nativeSymbol: String {
+        switch self {
+        case .bitcoinTestnet, .bitcoinMainnet: return "BTC"
+        case .litecoin: return "LTC"
+        case .ethereum: return "ETH"
+        case .polygon: return "POL"
+        case .bnb: return "BNB"
+        case .solana: return "SOL"
+        case .xrp: return "XRP"
+        case .monero: return "XMR"
+        }
+    }
 }
 
 struct SendView: View {
@@ -56,6 +104,7 @@ struct SendView: View {
     @ObservedObject var broadcaster = TransactionBroadcaster.shared
     @ObservedObject var addressValidator = ChainAddressValidator.shared
     @StateObject private var feeEstimator = FeeEstimator.shared
+    @StateObject private var feeWarningService = FeeWarningService.shared
     
     // Keys passed from parent
     let keys: AllKeys
@@ -101,6 +150,14 @@ struct SendView: View {
     @State private var preSigningInProgress = false
     @State private var preSignError: String?
     
+    // Fee warnings state
+    @State private var feeWarnings: [FeeWarning] = []
+    
+    // Gas estimation state
+    @State private var gasEstimateResult: GasEstimateResult?
+    @State private var isEstimatingGas = false
+    @State private var autoEstimateGas = true // Auto-estimate when address changes
+    
     // Animation
     @State private var appearAnimation = false
     
@@ -134,9 +191,19 @@ struct SendView: View {
                         // Amount Input
                         amountSection
                         
-                        // Fee Settings (BTC/ETH only)
-                        if selectedChain.isBitcoin || selectedChain == .ethereum {
+                        // Fee Settings (BTC/LTC/ETH only)
+                        if selectedChain.isUTXOBased || selectedChain == .ethereum {
                             feeSection
+                            
+                            // Fee Warnings
+                            if !feeWarnings.isEmpty {
+                                feeWarningsSection
+                            }
+                        }
+                        
+                        // Fixed Fee Info (Solana/XRP)
+                        if selectedChain == .solana || selectedChain == .xrp {
+                            fixedFeeInfoSection
                         }
                         
                         // XRP Destination Tag
@@ -183,6 +250,24 @@ struct SendView: View {
         }
         .onChange(of: selectedFeePriority) { _ in
             updateFeeFromPriority()
+        }
+        .onChange(of: amount) { _ in
+            updateFeeWarnings()
+        }
+        .onChange(of: feeRate) { _ in
+            if selectedChain.isBitcoin {
+                updateFeeWarnings()
+            }
+        }
+        .onChange(of: gasPrice) { _ in
+            if selectedChain == .ethereum {
+                updateFeeWarnings()
+            }
+        }
+        .onChange(of: gasLimit) { _ in
+            if selectedChain == .ethereum {
+                updateFeeWarnings()
+            }
         }
         .sheet(isPresented: $showingReview, onDismiss: {
             // Clear pre-signed tx if user cancels
@@ -336,6 +421,10 @@ struct SendView: View {
                     .disableAutocorrection(true)
                     .onChange(of: recipientAddress) { _ in
                         validateAddressAsync()
+                        // Trigger gas estimation for EVM chains
+                        if autoEstimateGas && selectedChain == .ethereum {
+                            Task { await estimateGasLimit() }
+                        }
                     }
                 
                 // QR Scan button
@@ -520,21 +609,67 @@ struct SendView: View {
                 .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
             }
             
-            // Gas Limit (ETH only)
+            // Gas Limit (ETH/EVM only)
             if selectedChain == .ethereum {
-                HStack {
-                    Text("Gas Limit")
-                        .font(HawalaTheme.Typography.bodySmall)
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                VStack(alignment: .leading, spacing: HawalaTheme.Spacing.xs) {
+                    HStack {
+                        Text("Gas Limit")
+                            .font(HawalaTheme.Typography.bodySmall)
+                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                        
+                        Spacer()
+                        
+                        // Auto-estimate toggle
+                        Toggle("Auto", isOn: $autoEstimateGas)
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+                            .onChange(of: autoEstimateGas) { newValue in
+                                if newValue {
+                                    Task { await estimateGasLimit() }
+                                }
+                            }
+                    }
                     
-                    Spacer()
-                    
-                    TextField("21000", text: $gasLimit)
-                        .textFieldStyle(.plain)
-                        .font(HawalaTheme.Typography.mono)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 100)
+                    HStack {
+                        if isEstimatingGas {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Estimating...")
+                                .font(HawalaTheme.Typography.caption)
+                                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        } else {
+                            TextField("21000", text: $gasLimit)
+                                .textFieldStyle(.plain)
+                                .font(HawalaTheme.Typography.mono)
+                                .foregroundColor(HawalaTheme.Colors.textPrimary)
+                                .multilineTextAlignment(.leading)
+                                .disabled(autoEstimateGas)
+                            
+                            Spacer()
+                            
+                            if let result = gasEstimateResult {
+                                if result.isEstimated {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(HawalaTheme.Colors.success)
+                                            .font(.caption)
+                                        Text("Estimated")
+                                            .font(HawalaTheme.Typography.caption)
+                                            .foregroundColor(HawalaTheme.Colors.success)
+                                    }
+                                } else {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "exclamationmark.triangle.fill")
+                                            .foregroundColor(HawalaTheme.Colors.warning)
+                                            .font(.caption)
+                                        Text("Default")
+                                            .font(HawalaTheme.Typography.caption)
+                                            .foregroundColor(HawalaTheme.Colors.warning)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 .padding(HawalaTheme.Spacing.md)
                 .background(HawalaTheme.Colors.backgroundTertiary)
@@ -545,6 +680,78 @@ struct SendView: View {
         .opacity(appearAnimation ? 1 : 0)
         .offset(y: appearAnimation ? 0 : 20)
         .animation(HawalaTheme.Animation.spring.delay(0.15), value: appearAnimation)
+    }
+    
+    // MARK: - Fee Warnings Section
+    
+    private var feeWarningsSection: some View {
+        VStack(spacing: HawalaTheme.Spacing.sm) {
+            ForEach(feeWarnings) { warning in
+                FeeWarningView(warning: warning)
+            }
+        }
+        .opacity(appearAnimation ? 1 : 0)
+        .offset(y: appearAnimation ? 0 : 20)
+        .animation(HawalaTheme.Animation.spring.delay(0.17), value: appearAnimation)
+    }
+    
+    // MARK: - Fixed Fee Info Section (Solana/XRP)
+    
+    private var fixedFeeInfoSection: some View {
+        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
+            Text("NETWORK FEE")
+                .font(HawalaTheme.Typography.label)
+                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                .tracking(1)
+            
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(fixedFeeAmount)
+                        .font(HawalaTheme.Typography.body)
+                        .fontWeight(.semibold)
+                        .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    
+                    Text(fixedFeeDescription)
+                        .font(HawalaTheme.Typography.caption)
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                }
+                
+                Spacer()
+                
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(HawalaTheme.Colors.success)
+            }
+            .padding(HawalaTheme.Spacing.md)
+            .background(HawalaTheme.Colors.backgroundTertiary)
+            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+        }
+        .hawalaCard()
+        .opacity(appearAnimation ? 1 : 0)
+        .offset(y: appearAnimation ? 0 : 20)
+        .animation(HawalaTheme.Animation.spring.delay(0.15), value: appearAnimation)
+    }
+    
+    private var fixedFeeAmount: String {
+        switch selectedChain {
+        case .solana:
+            return "~0.000005 SOL"
+        case .xrp:
+            return "~0.00001 XRP"
+        default:
+            return "N/A"
+        }
+    }
+    
+    private var fixedFeeDescription: String {
+        switch selectedChain {
+        case .solana:
+            return "Fixed network fee (~$0.001) • ~1 min confirmation"
+        case .xrp:
+            return "Fixed network fee (~$0.00001) • ~4 sec confirmation"
+        default:
+            return ""
+        }
     }
     
     // MARK: - XRP Options
@@ -768,6 +975,62 @@ struct SendView: View {
         }
     }
     
+    /// Estimate gas limit for EVM transactions
+    private func estimateGasLimit() async {
+        guard selectedChain == .ethereum else {
+            return
+        }
+        
+        guard !recipientAddress.isEmpty,
+              let validation = addressValidationResult,
+              validation.isValid else {
+            // Use default if no valid address
+            gasLimit = "21000"
+            gasEstimateResult = nil
+            return
+        }
+        
+        isEstimatingGas = true
+        
+        // Get sender address from Ethereum keys
+        let fromAddress = keys.ethereumSepolia.address
+        
+        // Convert amount to wei hex
+        let weiValue: String
+        if let amountDouble = Double(amount), amountDouble > 0 {
+            let weiAmount = UInt64(amountDouble * 1_000_000_000_000_000_000) // 1e18
+            weiValue = "0x" + String(weiAmount, radix: 16)
+        } else {
+            weiValue = "0x0"
+        }
+        
+        // Get chain ID (Sepolia testnet for ethereum)
+        let chainId = 11155111
+        
+        // Estimate gas
+        if let result = await FeeEstimationService.shared.estimateGasLimit(
+            from: fromAddress,
+            to: recipientAddress,
+            value: weiValue,
+            data: "0x",
+            chainId: chainId
+        ) {
+            gasEstimateResult = result
+            gasLimit = String(result.recommendedGas)
+        } else {
+            // Fallback to default
+            gasEstimateResult = GasEstimateResult(
+                estimatedGas: 21000,
+                recommendedGas: 21000,
+                isEstimated: false,
+                errorMessage: "Could not estimate, using default"
+            )
+            gasLimit = "21000"
+        }
+        
+        isEstimatingGas = false
+    }
+    
     private func getEstimate(for priority: FeePriority) -> FeeEstimate? {
         if selectedChain.isBitcoin {
             return feeEstimator.getBitcoinEstimate(for: priority)
@@ -790,7 +1053,10 @@ struct SendView: View {
     private var amountHint: String {
         switch selectedChain {
         case .bitcoinTestnet, .bitcoinMainnet: return "Amount in BTC (e.g., 0.001)"
+        case .litecoin: return "Amount in LTC (e.g., 0.1)"
         case .ethereum: return "Amount in ETH (e.g., 0.01)"
+        case .polygon: return "Amount in MATIC (e.g., 1.0)"
+        case .bnb: return "Amount in BNB (e.g., 0.01)"
         case .solana: return "Amount in SOL (e.g., 0.1)"
         case .xrp: return "Amount in XRP (e.g., 10)"
         case .monero: return "Amount in XMR"
@@ -800,7 +1066,10 @@ struct SendView: View {
     private var chainSymbol: String {
         switch selectedChain {
         case .bitcoinTestnet, .bitcoinMainnet: return "BTC"
+        case .litecoin: return "LTC"
         case .ethereum: return "ETH"
+        case .polygon: return "MATIC"
+        case .bnb: return "BNB"
         case .solana: return "SOL"
         case .xrp: return "XRP"
         case .monero: return "XMR"
@@ -811,7 +1080,10 @@ struct SendView: View {
         switch selectedChain {
         case .bitcoinTestnet: return "Bitcoin Testnet"
         case .bitcoinMainnet: return "Bitcoin Mainnet"
+        case .litecoin: return "Litecoin Mainnet"
         case .ethereum: return "Ethereum Sepolia"
+        case .polygon: return "Polygon Mainnet"
+        case .bnb: return "BNB Smart Chain"
         case .solana: return "Solana Devnet"
         case .xrp: return "XRP Testnet"
         case .monero: return "Monero Stagenet"
@@ -859,7 +1131,10 @@ struct SendView: View {
         switch selectedChain {
         case .bitcoinTestnet: urlString = "https://mempool.space/testnet/tx/\(txId)"
         case .bitcoinMainnet: urlString = "https://mempool.space/tx/\(txId)"
+        case .litecoin: urlString = "https://litecoinspace.org/tx/\(txId)"
         case .ethereum: urlString = "https://sepolia.etherscan.io/tx/\(txId)"
+        case .polygon: urlString = "https://polygonscan.com/tx/\(txId)"
+        case .bnb: urlString = "https://bscscan.com/tx/\(txId)"
         case .solana: urlString = "https://explorer.solana.com/tx/\(txId)?cluster=devnet"
         case .xrp: urlString = "https://testnet.xrpl.org/transactions/\(txId)"
         case .monero: urlString = "https://stagenet.xmrchain.net/search?value=\(txId)"
@@ -889,6 +1164,82 @@ struct SendView: View {
         default:
             break
         }
+        
+        // Update fee warnings when fee changes
+        updateFeeWarnings()
+    }
+    
+    private func updateFeeWarnings() {
+        guard let amountDouble = Double(amount), amountDouble > 0 else {
+            feeWarnings = []
+            return
+        }
+        
+        switch selectedChain {
+        case .bitcoinTestnet, .bitcoinMainnet:
+            updateBitcoinFeeWarnings(amount: amountDouble)
+        case .ethereum:
+            updateEthereumFeeWarnings(amount: amountDouble)
+        default:
+            feeWarnings = []
+        }
+    }
+    
+    private func updateBitcoinFeeWarnings(amount: Double) {
+        let currentFeeRate = Int64(feeRate) ?? 5
+        // Estimate tx size: P2WPKH input (68 vB) + 2 outputs (31 vB each) + overhead (11 vB) = ~141 vB
+        let estimatedTxSize: Int64 = 141
+        let estimatedFee = currentFeeRate * estimatedTxSize
+        let amountSats = Int64(amount * 100_000_000)
+        
+        // Get fee estimates from FeeEstimationService if available
+        var bitcoinEstimate: BitcoinFeeEstimate?
+        if let fastestRate = feeEstimator.getBitcoinEstimate(for: .fast)?.feeRate,
+           let mediumRate = feeEstimator.getBitcoinEstimate(for: .average)?.feeRate,
+           let slowRate = feeEstimator.getBitcoinEstimate(for: .slow)?.feeRate {
+            bitcoinEstimate = BitcoinFeeEstimate(
+                fastest: FeeLevel(satPerByte: Int(fastestRate), estimatedMinutes: 10, label: "Fast"),
+                fast: FeeLevel(satPerByte: Int(fastestRate * 0.8), estimatedMinutes: 20, label: "Fast"),
+                medium: FeeLevel(satPerByte: Int(mediumRate), estimatedMinutes: 60, label: "Medium"),
+                slow: FeeLevel(satPerByte: Int(slowRate), estimatedMinutes: 120, label: "Slow"),
+                minimum: FeeLevel(satPerByte: 1, estimatedMinutes: 1440, label: "Min")
+            )
+        }
+        
+        feeWarnings = feeWarningService.analyzeBitcoinFee(
+            amount: amountSats,
+            fee: estimatedFee,
+            feeRate: currentFeeRate,
+            currentFeeEstimates: bitcoinEstimate
+        )
+    }
+    
+    private func updateEthereumFeeWarnings(amount: Double) {
+        let currentGasPrice = UInt64(gasPrice) ?? 20
+        let currentGasLimit = UInt64(gasLimit) ?? 21000
+        let gasPriceWei = currentGasPrice * 1_000_000_000 // Convert gwei to wei
+        let amountWei = UInt64(amount * 1_000_000_000_000_000_000) // Convert ETH to wei
+        
+        // Get fee estimates from FeeEstimationService if available
+        var ethereumEstimate: EthereumFeeEstimate?
+        if let fastRate = feeEstimator.getEthereumEstimate(for: .fast)?.feeRate,
+           let mediumRate = feeEstimator.getEthereumEstimate(for: .average)?.feeRate,
+           let slowRate = feeEstimator.getEthereumEstimate(for: .slow)?.feeRate {
+            ethereumEstimate = EthereumFeeEstimate(
+                baseFee: mediumRate * 0.5,
+                fast: GasLevel(gasPrice: fastRate, maxPriorityFee: 2.0, estimatedSeconds: 15, label: "Fast"),
+                medium: GasLevel(gasPrice: mediumRate, maxPriorityFee: 1.5, estimatedSeconds: 30, label: "Medium"),
+                slow: GasLevel(gasPrice: slowRate, maxPriorityFee: 1.0, estimatedSeconds: 60, label: "Slow")
+            )
+        }
+        
+        feeWarnings = feeWarningService.analyzeEVMFee(
+            amount: amountWei,
+            gasPrice: gasPriceWei,
+            gasLimit: currentGasLimit,
+            chainId: selectedChain.chainId,
+            currentFeeEstimates: ethereumEstimate
+        )
     }
     
     private var effectiveBitcoinFeeRate: UInt64 {
@@ -942,7 +1293,13 @@ struct SendView: View {
             let fee = (rate * Double(txSizeVBytes)) / 100_000_000
             let time = feeEstimator.getBitcoinEstimate(for: selectedFeePriority)?.estimatedTime ?? "~30 min"
             return (fee, rate, "sat/vB", time)
-        case .ethereum:
+        case .litecoin:
+            // Litecoin uses similar fee structure to Bitcoin (sat/vB)
+            let rate = Double(effectiveBitcoinFeeRate)
+            let txSizeVBytes = 140
+            let fee = (rate * Double(txSizeVBytes)) / 100_000_000
+            return (fee, rate, "lit/vB", "~2.5 min")
+        case .ethereum, .polygon, .bnb:
             let rate = Double(effectiveGasPrice)
             let limit = UInt64(gasLimit) ?? 21000
             let fee = (rate * Double(limit)) / 1_000_000_000
@@ -1088,6 +1445,27 @@ struct SendView: View {
                     txId = try await broadcaster.broadcastBitcoin(rawTxHex: signedHex, isTestnet: false)
                     print("[SendView] Broadcast successful! TxID: \(txId)")
                     
+                case .litecoin:
+                    // Litecoin Mainnet - similar to Bitcoin but with LTC-specific WIF
+                    let fee = effectiveBitcoinFeeRate  // Litecoin uses similar fee structure
+                    capturedFeeRate = Int(fee)
+                    
+                    // Convert LTC amount to litoshis (1 LTC = 100,000,000 litoshis)
+                    let amountLits = UInt64((Double(amount) ?? 0) * 100_000_000)
+                    
+                    print("[SendView] Signing Litecoin transaction...")
+                    let signedHex = try RustCLIBridge.shared.signLitecoin(
+                        recipient: recipientAddress,
+                        amountLits: amountLits,
+                        feeRate: fee,
+                        senderWIF: keys.litecoin.privateWif,
+                        senderAddress: keys.litecoin.address
+                    )
+                    
+                    print("[SendView] Broadcasting to Litecoin network...")
+                    txId = try await broadcaster.broadcastLitecoin(rawTxHex: signedHex)
+                    print("[SendView] Broadcast successful! TxID: \(txId)")
+                    
                 case .ethereum:
                     // Sepolia testnet
                     let amountEth = Double(amount) ?? 0
@@ -1112,6 +1490,54 @@ struct SendView: View {
                     
                     txId = try await broadcaster.broadcastEthereum(rawTxHex: signedHex, isTestnet: true)
                     
+                case .polygon:
+                    // Polygon Mainnet (chainId 137)
+                    let amountMatic = Double(amount) ?? 0
+                    let amountWei = String(format: "%.0f", amountMatic * 1_000_000_000_000_000_000)
+                    let gwei = effectiveGasPrice
+                    let gasPriceWei = String(gwei * 1_000_000_000)
+                    let limit = UInt64(gasLimit) ?? 21000
+                    capturedFeeRate = Int(gwei)
+                    
+                    let nonce = try await broadcaster.getEthereumNonceForChain(address: keys.ethereum.address, chainId: 137)
+                    capturedNonce = Int(nonce)
+                    
+                    let signedHex = try RustCLIBridge.shared.signEthereum(
+                        recipient: recipientAddress,
+                        amountWei: amountWei,
+                        chainId: 137,
+                        senderKey: keys.ethereum.privateHex,
+                        nonce: nonce,
+                        gasLimit: limit,
+                        gasPrice: gasPriceWei
+                    )
+                    
+                    txId = try await broadcaster.broadcastEthereumToChain(rawTxHex: signedHex, chainId: 137)
+                    
+                case .bnb:
+                    // BNB Smart Chain (chainId 56)
+                    let amountBnb = Double(amount) ?? 0
+                    let amountWei = String(format: "%.0f", amountBnb * 1_000_000_000_000_000_000)
+                    let gwei = effectiveGasPrice
+                    let gasPriceWei = String(gwei * 1_000_000_000)
+                    let limit = UInt64(gasLimit) ?? 21000
+                    capturedFeeRate = Int(gwei)
+                    
+                    let nonce = try await broadcaster.getEthereumNonceForChain(address: keys.ethereum.address, chainId: 56)
+                    capturedNonce = Int(nonce)
+                    
+                    let signedHex = try RustCLIBridge.shared.signEthereum(
+                        recipient: recipientAddress,
+                        amountWei: amountWei,
+                        chainId: 56,
+                        senderKey: keys.ethereum.privateHex,
+                        nonce: nonce,
+                        gasLimit: limit,
+                        gasPrice: gasPriceWei
+                    )
+                    
+                    txId = try await broadcaster.broadcastEthereumToChain(rawTxHex: signedHex, chainId: 56)
+                    
                 case .solana:
                     let amountSol = Double(amount) ?? 0
                     let blockhash = try await broadcaster.getSolanaBlockhash(isDevnet: true)
@@ -1130,11 +1556,15 @@ struct SendView: View {
                     let drops = UInt64(amountXrp * 1_000_000)
                     let sequence = try await broadcaster.getXRPSequence(address: keys.xrp.classicAddress, isTestnet: true)
                     
+                    // Parse optional destination tag
+                    let destTag: UInt32? = destinationTag.isEmpty ? nil : UInt32(destinationTag)
+                    
                     let signedHex = try RustCLIBridge.shared.signXRP(
                         recipient: recipientAddress,
                         amountDrops: drops,
                         senderSeedHex: keys.xrp.privateHex,
-                        sequence: sequence
+                        sequence: sequence,
+                        destinationTag: destTag
                     )
                     
                     txId = try await broadcaster.broadcastXRP(rawTxHex: signedHex, isTestnet: true)
@@ -1187,6 +1617,9 @@ struct SendView: View {
                 )
                 // Note: onSuccess is called when success sheet is dismissed
                 
+                // Start tracking confirmations for this transaction
+                TransactionConfirmationTracker.shared.track(txid: txId, chainId: selectedChain.chainId)
+                
             } catch let error as RustCLIError {
                 print("[SendView] RUST CLI ERROR: \(error)")
                 let errorDesc: String
@@ -1223,11 +1656,17 @@ struct SendView: View {
             let feeSats = rate * 140
             let feeBTC = Double(feeSats) / 100_000_000.0
             return (String(format: "%.8f BTC", feeBTC), "sat/vB")
-        case .ethereum:
+        case .litecoin:
+            // Litecoin uses similar fee structure (140 vB typical)
+            let feeLits = rate * 140
+            let feeLTC = Double(feeLits) / 100_000_000.0
+            return (String(format: "%.8f LTC", feeLTC), "lit/vB")
+        case .ethereum, .polygon, .bnb:
             // Gas price in Gwei, typical 21000 gas for transfer
             let feeGwei = Double(rate) * 21000.0
             let feeETH = feeGwei / 1_000_000_000.0
-            return (String(format: "%.6f ETH", feeETH), "Gwei")
+            let symbol = selectedChain == .polygon ? "MATIC" : selectedChain == .bnb ? "BNB" : "ETH"
+            return (String(format: "%.6f \(symbol)", feeETH), "Gwei")
         case .solana:
             return ("0.000005 SOL", "lamports")
         case .xrp:
@@ -1241,7 +1680,8 @@ struct SendView: View {
         switch selectedChain {
         case .bitcoinTestnet: return keys.bitcoinTestnet.address
         case .bitcoinMainnet: return keys.bitcoin.address
-        case .ethereum: return keys.ethereum.address
+        case .litecoin: return keys.litecoin.address
+        case .ethereum, .polygon, .bnb: return keys.ethereum.address
         case .solana: return keys.solana.publicKeyBase58
         case .xrp: return keys.xrp.classicAddress
         case .monero: return keys.monero.address
@@ -1301,7 +1741,10 @@ struct TransactionSuccessDetails {
         switch chain {
         case .bitcoinTestnet: urlString = "https://mempool.space/testnet/tx/\(txId)"
         case .bitcoinMainnet: urlString = "https://mempool.space/tx/\(txId)"
+        case .litecoin: urlString = "https://litecoinspace.org/tx/\(txId)"
         case .ethereum: urlString = "https://sepolia.etherscan.io/tx/\(txId)"
+        case .polygon: urlString = "https://polygonscan.com/tx/\(txId)"
+        case .bnb: urlString = "https://bscscan.com/tx/\(txId)"
         case .solana: urlString = "https://explorer.solana.com/tx/\(txId)?cluster=devnet"
         case .xrp: urlString = "https://testnet.xrpl.org/transactions/\(txId)"
         case .monero: urlString = "https://stagenet.xmrchain.net/search?value=\(txId)"
@@ -1312,7 +1755,10 @@ struct TransactionSuccessDetails {
     var explorerName: String {
         switch chain {
         case .bitcoinTestnet, .bitcoinMainnet: return "Mempool.space"
+        case .litecoin: return "LitecoinSpace"
         case .ethereum: return "Etherscan"
+        case .polygon: return "PolygonScan"
+        case .bnb: return "BscScan"
         case .solana: return "Solana Explorer"
         case .xrp: return "XRPL Explorer"
         case .monero: return "XMRChain"
@@ -1322,7 +1768,10 @@ struct TransactionSuccessDetails {
     var currencySymbol: String {
         switch chain {
         case .bitcoinTestnet, .bitcoinMainnet: return "BTC"
+        case .litecoin: return "LTC"
         case .ethereum: return "ETH"
+        case .polygon: return "MATIC"
+        case .bnb: return "BNB"
         case .solana: return "SOL"
         case .xrp: return "XRP"
         case .monero: return "XMR"
@@ -1333,7 +1782,10 @@ struct TransactionSuccessDetails {
         switch chain {
         case .bitcoinTestnet: return "Bitcoin Testnet"
         case .bitcoinMainnet: return "Bitcoin Mainnet"
+        case .litecoin: return "Litecoin Mainnet"
         case .ethereum: return "Ethereum Sepolia"
+        case .polygon: return "Polygon Mainnet"
+        case .bnb: return "BNB Smart Chain"
         case .solana: return "Solana Devnet"
         case .xrp: return "XRP Testnet"
         case .monero: return "Monero Stagenet"

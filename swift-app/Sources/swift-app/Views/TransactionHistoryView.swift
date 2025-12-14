@@ -544,6 +544,8 @@ struct TransactionRowView: View {
         case .pending: return HawalaTheme.Colors.warning
         case .confirmed: return HawalaTheme.Colors.success
         case .failed: return HawalaTheme.Colors.error
+        case .replaced: return HawalaTheme.Colors.textTertiary
+        case .cancelled: return HawalaTheme.Colors.textTertiary
         }
     }
     
@@ -552,6 +554,42 @@ struct TransactionRowView: View {
         case .pending: return "Pending"
         case .confirmed: return transaction.confirmations > 0 ? "\(transaction.confirmations) conf" : "Confirmed"
         case .failed: return "Failed"
+        case .replaced: return "Replaced"
+        case .cancelled: return "Cancelled"
+        }
+    }
+    
+    // Show replacement indicator for replaced/replacement transactions
+    @ViewBuilder
+    private var replacementIndicator: some View {
+        if transaction.isReplaced {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 9))
+                Text("Replaced by newer tx")
+                    .font(.system(size: 9))
+            }
+            .foregroundColor(HawalaTheme.Colors.textTertiary)
+            .padding(.top, 2)
+        } else if transaction.isReplacement {
+            HStack(spacing: 4) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 9))
+                Text(replacementTypeText)
+                    .font(.system(size: 9))
+            }
+            .foregroundColor(HawalaTheme.Colors.accent)
+            .padding(.top, 2)
+        }
+    }
+    
+    private var replacementTypeText: String {
+        guard let type = transaction.replacementType else { return "Replacement" }
+        switch type {
+        case .rbfSpeedUp: return "Speed-up (RBF)"
+        case .rbfCancel: return "Cancelled (RBF)"
+        case .cpfp: return "Boosted (CPFP)"
+        case .nonceReplace: return "Replacement tx"
         }
     }
 }
@@ -574,6 +612,54 @@ struct TransactionDisplayItem: Identifiable {
     let confirmations: Int
     let blockHeight: Int?
     let note: String?
+    
+    // RBF/CPFP tracking
+    let replacementTxHash: String?      // If this tx was replaced, points to replacement
+    let replacedTxHash: String?         // If this tx is a replacement, points to original
+    let replacementType: ReplacementType?
+    
+    init(
+        id: String,
+        txHash: String,
+        chainId: String,
+        chainName: String,
+        type: TransactionType,
+        status: TransactionStatus,
+        amount: Double,
+        symbol: String,
+        fromAddress: String? = nil,
+        toAddress: String? = nil,
+        fee: Double? = nil,
+        timestamp: Date? = nil,
+        confirmations: Int = 0,
+        blockHeight: Int? = nil,
+        note: String? = nil,
+        replacementTxHash: String? = nil,
+        replacedTxHash: String? = nil,
+        replacementType: ReplacementType? = nil
+    ) {
+        self.id = id
+        self.txHash = txHash
+        self.chainId = chainId
+        self.chainName = chainName
+        self.type = type
+        self.status = status
+        self.amount = amount
+        self.symbol = symbol
+        self.fromAddress = fromAddress
+        self.toAddress = toAddress
+        self.fee = fee
+        self.timestamp = timestamp
+        self.confirmations = confirmations
+        self.blockHeight = blockHeight
+        self.note = note
+        self.replacementTxHash = replacementTxHash
+        self.replacedTxHash = replacedTxHash
+        self.replacementType = replacementType
+    }
+    
+    var isReplaced: Bool { replacementTxHash != nil }
+    var isReplacement: Bool { replacedTxHash != nil }
     
     var formattedAmount: String {
         if amount < 0.0001 {
@@ -619,6 +705,15 @@ struct TransactionDisplayItem: Identifiable {
         case pending
         case confirmed
         case failed
+        case replaced      // Transaction was replaced by RBF/CPFP
+        case cancelled     // Transaction was cancelled (RBF to self)
+    }
+    
+    enum ReplacementType {
+        case rbfSpeedUp    // RBF speed-up (same destination, higher fee)
+        case rbfCancel     // RBF cancel (send to self)
+        case cpfp          // Child-Pays-For-Parent
+        case nonceReplace  // EVM nonce replacement
     }
 }
 

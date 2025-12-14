@@ -1,0 +1,391 @@
+import Foundation
+import SwiftUI
+
+// MARK: - Wallet Manager
+
+/// Central manager for wallet operations.
+/// Coordinates between UI, key derivation, secure storage, and wallet store.
+@MainActor
+final class WalletManager: ObservableObject {
+    
+    // MARK: - Published State
+    
+    /// Currently active HD wallet (if any)
+    @Published private(set) var activeHDWallet: HDWallet?
+    
+    /// All HD wallets
+    @Published private(set) var hdWallets: [HDWallet] = []
+    
+    /// All imported accounts
+    @Published private(set) var importedAccounts: [ImportedAccount] = []
+    
+    /// Loading state
+    @Published private(set) var isLoading = false
+    
+    /// Last error
+    @Published var lastError: WalletManagerError?
+    
+    // MARK: - Dependencies
+    
+    private let keyDerivation: KeyDerivationService
+    private let secureStorage: SecureStorageProtocol
+    private let walletStore: WalletStoreProtocol
+    
+    // MARK: - Singleton
+    
+    static let shared = WalletManager()
+    
+    // MARK: - Initialization
+    
+    init(
+        keyDerivation: KeyDerivationService = .shared,
+        secureStorage: SecureStorageProtocol = KeychainSecureStorage.shared,
+        walletStore: WalletStoreProtocol = UserDefaultsWalletStore()
+    ) {
+        self.keyDerivation = keyDerivation
+        self.secureStorage = secureStorage
+        self.walletStore = walletStore
+    }
+    
+    // MARK: - Wallet Loading
+    
+    /// Load all wallets from storage on app launch
+    func loadWallets() async {
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            hdWallets = try await walletStore.loadAllHDWallets()
+            importedAccounts = try await walletStore.loadAllImportedAccounts()
+            
+            // Set first HD wallet as active if none selected
+            if activeHDWallet == nil, let first = hdWallets.first {
+                activeHDWallet = first
+            }
+        } catch {
+            lastError = .loadFailed(error)
+        }
+    }
+    
+    /// Check if any wallets exist
+    func hasWallets() async -> Bool {
+        do {
+            return try await walletStore.hasWallets()
+        } catch {
+            return false
+        }
+    }
+    
+    // MARK: - Wallet Creation
+    
+    /// Create a new HD wallet with fresh seed phrase
+    /// - Parameters:
+    ///   - name: User-provided wallet name
+    ///   - passphrase: Optional BIP39 passphrase
+    /// - Returns: The created wallet and its seed phrase (show to user!)
+    func createNewWallet(
+        name: String,
+        passphrase: String = ""
+    ) async throws -> (wallet: HDWallet, seedPhrase: String) {
+        isLoading = true
+        defer { isLoading = false }
+        
+        // Generate new wallet via Rust
+        let (mnemonic, keys) = try await keyDerivation.generateNewWallet()
+        
+        // Derive seed for fingerprint
+        guard let seed = keyDerivation.deriveSeed(from: mnemonic, passphrase: passphrase) else {
+            throw WalletManagerError.seedDerivationFailed
+        }
+        let fingerprint = keyDerivation.calculateFingerprint(seed: seed)
+        
+        // Create wallet model
+        var wallet = HDWallet(
+            seedFingerprint: fingerprint,
+            name: name,
+            derivationScheme: .bip84,
+            hasPassphrase: !passphrase.isEmpty
+        )
+        
+        // Add accounts for each chain
+        wallet = addAccounts(to: wallet, from: keys)
+        
+        // Store seed phrase securely
+        let seedKey = SecureStorageKey.seedPhrase(walletId: wallet.id)
+        guard let seedData = mnemonic.data(using: .utf8) else {
+            throw WalletManagerError.encodingFailed
+        }
+        try await secureStorage.save(seedData, forKey: seedKey, requireBiometric: true)
+        
+        // Store passphrase if used
+        if !passphrase.isEmpty {
+            let passphraseKey = SecureStorageKey.passphrase(walletId: wallet.id)
+            guard let passphraseData = passphrase.data(using: .utf8) else {
+                throw WalletManagerError.encodingFailed
+            }
+            try await secureStorage.save(passphraseData, forKey: passphraseKey, requireBiometric: true)
+        }
+        
+        // Save wallet metadata
+        try await walletStore.saveHDWallet(wallet)
+        
+        // Update local state
+        hdWallets.append(wallet)
+        if activeHDWallet == nil {
+            activeHDWallet = wallet
+        }
+        
+        return (wallet, mnemonic)
+    }
+    
+    // MARK: - Wallet Restoration
+    
+    /// Restore wallet from seed phrase
+    /// - Parameters:
+    ///   - seedPhrase: BIP39 mnemonic
+    ///   - name: User-provided wallet name
+    ///   - passphrase: Optional BIP39 passphrase
+    /// - Returns: The restored wallet
+    func restoreWallet(
+        from seedPhrase: String,
+        name: String,
+        passphrase: String = ""
+    ) async throws -> HDWallet {
+        isLoading = true
+        defer { isLoading = false }
+        
+        // Validate mnemonic
+        let validation = MnemonicValidator.validate(seedPhrase)
+        guard validation.isValid else {
+            throw WalletManagerError.invalidSeedPhrase(validation.errorMessage ?? "Invalid seed phrase")
+        }
+        
+        // Derive keys
+        let keys = try await keyDerivation.restoreWallet(from: seedPhrase, passphrase: passphrase)
+        
+        // Derive seed for fingerprint
+        guard let seed = keyDerivation.deriveSeed(from: seedPhrase, passphrase: passphrase) else {
+            throw WalletManagerError.seedDerivationFailed
+        }
+        let fingerprint = keyDerivation.calculateFingerprint(seed: seed)
+        
+        // Check for duplicate wallet
+        let potentialId = HDWallet.deriveWalletID(from: fingerprint)
+        if hdWallets.contains(where: { $0.id == potentialId }) {
+            throw WalletManagerError.walletAlreadyExists
+        }
+        
+        // Create wallet model
+        var wallet = HDWallet(
+            seedFingerprint: fingerprint,
+            name: name,
+            derivationScheme: .bip84,
+            hasPassphrase: !passphrase.isEmpty
+        )
+        
+        // Add accounts
+        wallet = addAccounts(to: wallet, from: keys)
+        
+        // Store seed phrase
+        let seedKey = SecureStorageKey.seedPhrase(walletId: wallet.id)
+        let normalizedPhrase = MnemonicValidator.normalizePhrase(seedPhrase).joined(separator: " ")
+        guard let seedData = normalizedPhrase.data(using: .utf8) else {
+            throw WalletManagerError.encodingFailed
+        }
+        try await secureStorage.save(seedData, forKey: seedKey, requireBiometric: true)
+        
+        // Store passphrase if used
+        if !passphrase.isEmpty {
+            let passphraseKey = SecureStorageKey.passphrase(walletId: wallet.id)
+            guard let passphraseData = passphrase.data(using: .utf8) else {
+                throw WalletManagerError.encodingFailed
+            }
+            try await secureStorage.save(passphraseData, forKey: passphraseKey, requireBiometric: true)
+        }
+        
+        // Save wallet
+        try await walletStore.saveHDWallet(wallet)
+        
+        // Update state
+        hdWallets.append(wallet)
+        activeHDWallet = wallet
+        
+        return wallet
+    }
+    
+    // MARK: - Seed Phrase Access
+    
+    /// Retrieve seed phrase for display (requires biometric)
+    /// - Parameter walletId: The wallet ID
+    /// - Returns: The seed phrase
+    func getSeedPhrase(for walletId: UUID) async throws -> String {
+        let seedKey = SecureStorageKey.seedPhrase(walletId: walletId)
+        guard let data = try await secureStorage.load(forKey: seedKey),
+              let phrase = String(data: data, encoding: .utf8) else {
+            throw WalletManagerError.seedPhraseNotFound
+        }
+        return phrase
+    }
+    
+    // MARK: - Wallet Deletion
+    
+    /// Delete an HD wallet and all associated data
+    func deleteWallet(id: UUID) async throws {
+        // Delete seed phrase from secure storage
+        let seedKey = SecureStorageKey.seedPhrase(walletId: id)
+        try await secureStorage.delete(forKey: seedKey)
+        
+        // Delete passphrase if exists
+        let passphraseKey = SecureStorageKey.passphrase(walletId: id)
+        try? await secureStorage.delete(forKey: passphraseKey)
+        
+        // Delete from wallet store
+        try await walletStore.deleteHDWallet(id: id)
+        
+        // Update state
+        hdWallets.removeAll { $0.id == id }
+        if activeHDWallet?.id == id {
+            activeHDWallet = hdWallets.first
+        }
+    }
+    
+    /// Delete all wallets (factory reset)
+    func deleteAllWallets() async throws {
+        try await secureStorage.deleteAll()
+        try await walletStore.deleteAll()
+        
+        hdWallets = []
+        importedAccounts = []
+        activeHDWallet = nil
+    }
+    
+    // MARK: - Imported Accounts
+    
+    /// Import a standalone account from private key
+    func importAccount(
+        privateKey: String,
+        chain: ChainIdentifier,
+        name: String? = nil
+    ) async throws -> ImportedAccount {
+        // TODO: Validate private key format and derive address
+        // For now, this is a placeholder
+        throw WalletManagerError.notImplemented("Private key import")
+    }
+    
+    // MARK: - Helpers
+    
+    private func addAccounts(to wallet: HDWallet, from keys: DerivedKeys) -> HDWallet {
+        var mutableWallet = wallet
+        
+        // Bitcoin
+        let btcAccount = HDAccount(
+            chainId: .bitcoin,
+            accountIndex: 0,
+            derivationPath: "m/84'/0'/0'/0/0",
+            address: keys.bitcoin.address
+        )
+        mutableWallet.setAccount(btcAccount)
+        
+        // Bitcoin Testnet
+        let btcTestAccount = HDAccount(
+            chainId: .bitcoinTestnet,
+            accountIndex: 0,
+            derivationPath: "m/84'/1'/0'/0/0",
+            address: keys.bitcoinTestnet.address
+        )
+        mutableWallet.setAccount(btcTestAccount)
+        
+        // Ethereum
+        let ethAccount = HDAccount(
+            chainId: .ethereum,
+            accountIndex: 0,
+            derivationPath: "m/44'/60'/0'/0/0",
+            address: keys.ethereum.address
+        )
+        mutableWallet.setAccount(ethAccount)
+        
+        // Litecoin
+        let ltcAccount = HDAccount(
+            chainId: .litecoin,
+            accountIndex: 0,
+            derivationPath: "m/84'/2'/0'/0/0",
+            address: keys.litecoin.address
+        )
+        mutableWallet.setAccount(ltcAccount)
+        
+        // Solana
+        let solAccount = HDAccount(
+            chainId: .solana,
+            accountIndex: 0,
+            derivationPath: "m/44'/501'/0'/0'",
+            address: keys.solana.address
+        )
+        mutableWallet.setAccount(solAccount)
+        
+        // XRP
+        let xrpAccount = HDAccount(
+            chainId: .xrp,
+            accountIndex: 0,
+            derivationPath: "m/44'/144'/0'/0/0",
+            address: keys.xrp.address
+        )
+        mutableWallet.setAccount(xrpAccount)
+        
+        // Monero
+        let xmrAccount = HDAccount(
+            chainId: .monero,
+            accountIndex: 0,
+            derivationPath: "m/44'/128'/0'",
+            address: keys.monero.address
+        )
+        mutableWallet.setAccount(xmrAccount)
+        
+        // BNB
+        let bnbAccount = HDAccount(
+            chainId: .bnb,
+            accountIndex: 0,
+            derivationPath: "m/44'/714'/0'/0/0",
+            address: keys.bnb.address
+        )
+        mutableWallet.setAccount(bnbAccount)
+        
+        return mutableWallet
+    }
+}
+
+// MARK: - Wallet Manager Errors
+
+enum WalletManagerError: LocalizedError {
+    case loadFailed(Error)
+    case saveFailed(Error)
+    case seedDerivationFailed
+    case encodingFailed
+    case invalidSeedPhrase(String)
+    case walletAlreadyExists
+    case seedPhraseNotFound
+    case walletNotFound
+    case notImplemented(String)
+    
+    var errorDescription: String? {
+        switch self {
+        case .loadFailed(let error):
+            return "Failed to load wallets: \(error.localizedDescription)"
+        case .saveFailed(let error):
+            return "Failed to save wallet: \(error.localizedDescription)"
+        case .seedDerivationFailed:
+            return "Failed to derive seed from mnemonic"
+        case .encodingFailed:
+            return "Failed to encode wallet data"
+        case .invalidSeedPhrase(let reason):
+            return reason
+        case .walletAlreadyExists:
+            return "A wallet with this seed phrase already exists"
+        case .seedPhraseNotFound:
+            return "Seed phrase not found in secure storage"
+        case .walletNotFound:
+            return "Wallet not found"
+        case .notImplemented(let feature):
+            return "\(feature) is not yet implemented"
+        }
+    }
+}

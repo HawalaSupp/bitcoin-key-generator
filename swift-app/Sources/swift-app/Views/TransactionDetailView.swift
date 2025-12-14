@@ -386,6 +386,8 @@ struct TransactionDetailViewModern: View {
         case .pending: return "clock"
         case .confirmed: return "checkmark.circle.fill"
         case .failed: return "xmark.circle.fill"
+        case .replaced: return "arrow.triangle.2.circlepath"
+        case .cancelled: return "xmark.circle"
         }
     }
     
@@ -394,6 +396,8 @@ struct TransactionDetailViewModern: View {
         case .pending: return HawalaTheme.Colors.warning
         case .confirmed: return HawalaTheme.Colors.success
         case .failed: return HawalaTheme.Colors.error
+        case .replaced: return HawalaTheme.Colors.textTertiary
+        case .cancelled: return HawalaTheme.Colors.textTertiary
         }
     }
     
@@ -402,6 +406,8 @@ struct TransactionDetailViewModern: View {
         case .pending: return "Pending"
         case .confirmed: return "Confirmed"
         case .failed: return "Failed"
+        case .replaced: return "Replaced"
+        case .cancelled: return "Cancelled"
         }
     }
     

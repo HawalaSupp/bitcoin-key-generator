@@ -150,6 +150,122 @@ final class FeeEstimationService: ObservableObject {
         }
     }
     
+    // MARK: - Gas Limit Estimation
+    
+    /// Estimate gas limit for an EVM transaction
+    /// - Parameters:
+    ///   - from: Sender address
+    ///   - to: Recipient address
+    ///   - value: Amount in wei (hex string)
+    ///   - data: Transaction data (hex string, empty for simple transfers)
+    ///   - chainId: Chain ID (1 for mainnet, 11155111 for Sepolia, etc.)
+    /// - Returns: Estimated gas limit with safety buffer, or nil on failure
+    func estimateGasLimit(
+        from: String,
+        to: String,
+        value: String = "0x0",
+        data: String = "0x",
+        chainId: Int = 1
+    ) async -> GasEstimateResult? {
+        let rpcURL: String
+        switch chainId {
+        case 1:
+            rpcURL = "https://eth.llamarpc.com"
+        case 11155111:
+            rpcURL = "https://rpc.sepolia.org"
+        case 56:
+            rpcURL = "https://bsc-dataseed.binance.org"
+        case 137:
+            rpcURL = "https://polygon-rpc.com"
+        default:
+            rpcURL = "https://eth.llamarpc.com"
+        }
+        
+        guard let url = URL(string: rpcURL) else { return nil }
+        
+        let params: [String: Any] = [
+            "from": from,
+            "to": to,
+            "value": value,
+            "data": data
+        ]
+        
+        let requestBody: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_estimateGas",
+            "params": [params],
+            "id": 1
+        ]
+        
+        do {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+            
+            let (data, _) = try await URLSession.shared.data(for: request)
+            
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return nil
+            }
+            
+            // Check for error
+            if let error = json["error"] as? [String: Any] {
+                let message = error["message"] as? String ?? "Unknown error"
+                print("Gas estimation error: \(message)")
+                return GasEstimateResult(
+                    estimatedGas: 21000, // Default for simple transfer
+                    recommendedGas: 25200, // 20% buffer
+                    isEstimated: false,
+                    errorMessage: message
+                )
+            }
+            
+            // Parse result (hex string)
+            if let resultHex = json["result"] as? String {
+                let hexValue = resultHex.hasPrefix("0x") ? String(resultHex.dropFirst(2)) : resultHex
+                if let estimatedGas = UInt64(hexValue, radix: 16) {
+                    // Add 20% safety buffer
+                    let bufferedGas = UInt64(Double(estimatedGas) * 1.2)
+                    return GasEstimateResult(
+                        estimatedGas: estimatedGas,
+                        recommendedGas: bufferedGas,
+                        isEstimated: true,
+                        errorMessage: nil
+                    )
+                }
+            }
+            
+            return nil
+        } catch {
+            print("Gas estimation request error: \(error)")
+            return GasEstimateResult(
+                estimatedGas: 21000,
+                recommendedGas: 25200,
+                isEstimated: false,
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+    
+    /// Get recommended gas limit for common transaction types
+    func recommendedGasLimit(for transactionType: EVMTransactionType) -> UInt64 {
+        switch transactionType {
+        case .ethTransfer:
+            return 21000
+        case .erc20Transfer:
+            return 65000
+        case .erc20Approval:
+            return 50000
+        case .nftTransfer:
+            return 100000
+        case .contractInteraction:
+            return 150000
+        case .swap:
+            return 250000
+        }
+    }
+    
     // MARK: - Litecoin Fee Estimation
     
     func fetchLitecoinFees() async -> LitecoinFeeEstimate? {
@@ -475,6 +591,7 @@ struct XRPFeeEstimate {
     }
 }
 
+
 // MARK: - API Response Models
 
 private struct MempoolFeeResponse: Decodable {
@@ -483,4 +600,32 @@ private struct MempoolFeeResponse: Decodable {
     let hourFee: Int
     let economyFee: Int
     let minimumFee: Int
+}
+
+// MARK: - Gas Estimation Models
+
+/// Result of gas limit estimation
+struct GasEstimateResult {
+    let estimatedGas: UInt64
+    let recommendedGas: UInt64 // Includes safety buffer
+    let isEstimated: Bool // false if using fallback
+    let errorMessage: String?
+    
+    var formattedEstimate: String {
+        "\(estimatedGas) gas"
+    }
+    
+    var formattedRecommended: String {
+        "\(recommendedGas) gas"
+    }
+}
+
+/// Common EVM transaction types for gas estimation
+enum EVMTransactionType {
+    case ethTransfer       // Simple ETH/BNB/MATIC transfer
+    case erc20Transfer     // ERC-20 token transfer
+    case erc20Approval     // Token approval
+    case nftTransfer       // ERC-721/ERC-1155 transfer
+    case contractInteraction // Generic contract call
+    case swap              // DEX swap
 }

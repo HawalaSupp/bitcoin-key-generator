@@ -466,6 +466,111 @@ final class TransactionBroadcaster: ObservableObject {
         return UInt64(result.dropFirst(2), radix: 16) ?? 0
     }
     
+    /// Get nonce for any EVM chain by chainId
+    func getEthereumNonceForChain(address: String, chainId: Int) async throws -> UInt64 {
+        let rpcURL = getRPCEndpoint(for: chainId)
+        guard let url = URL(string: rpcURL) else { throw BroadcastError.invalidURL }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getTransactionCount",
+            "params": [address, "latest"],
+            "id": 1
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = json["result"] as? String else {
+            throw BroadcastError.invalidResponse
+        }
+        
+        return UInt64(result.dropFirst(2), radix: 16) ?? 0
+    }
+    
+    /// Broadcast a signed transaction to any EVM chain
+    func broadcastEthereumToChain(rawTxHex: String, chainId: Int) async throws -> String {
+        isBroadcasting = true
+        defer { isBroadcasting = false }
+        
+        let rpcEndpoints = getRPCEndpoints(for: chainId)
+        var lastError: Error = BroadcastError.allEndpointsFailed
+        
+        for endpoint in rpcEndpoints {
+            do {
+                let txid = try await broadcastEthereumViaRPC(rawTxHex, rpcURL: endpoint)
+                
+                let (explorerBase, chainName) = getExplorerInfo(for: chainId)
+                lastBroadcast = BroadcastResult(
+                    chainId: chainName,
+                    txid: txid,
+                    success: true,
+                    errorMessage: nil,
+                    timestamp: Date(),
+                    explorerURL: URL(string: "\(explorerBase)\(txid)")
+                )
+                return txid
+            } catch {
+                lastError = error
+                continue
+            }
+        }
+        
+        let (_, chainName) = getExplorerInfo(for: chainId)
+        lastBroadcast = BroadcastResult(
+            chainId: chainName,
+            txid: "",
+            success: false,
+            errorMessage: lastError.localizedDescription,
+            timestamp: Date(),
+            explorerURL: nil
+        )
+        
+        throw lastError
+    }
+    
+    /// Get the primary RPC endpoint for a chain
+    private func getRPCEndpoint(for chainId: Int) -> String {
+        switch chainId {
+        case 1: return "https://eth.llamarpc.com"
+        case 11155111: return "https://rpc.sepolia.org"
+        case 137: return "https://polygon-rpc.com"
+        case 56: return "https://bsc-dataseed.binance.org"
+        default: return "https://eth.llamarpc.com"
+        }
+    }
+    
+    /// Get multiple RPC endpoints for redundancy
+    private func getRPCEndpoints(for chainId: Int) -> [String] {
+        switch chainId {
+        case 1:
+            return ["https://eth.llamarpc.com", "https://ethereum.publicnode.com", "https://rpc.ankr.com/eth"]
+        case 11155111:
+            return ["https://rpc.sepolia.org", "https://ethereum-sepolia.publicnode.com"]
+        case 137:
+            return ["https://polygon-rpc.com", "https://rpc.ankr.com/polygon", "https://polygon.llamarpc.com"]
+        case 56:
+            return ["https://bsc-dataseed.binance.org", "https://bsc-dataseed1.defibit.io", "https://rpc.ankr.com/bsc"]
+        default:
+            return ["https://eth.llamarpc.com"]
+        }
+    }
+    
+    /// Get explorer info for a chain
+    private func getExplorerInfo(for chainId: Int) -> (baseURL: String, chainName: String) {
+        switch chainId {
+        case 1: return ("https://etherscan.io/tx/", "ethereum")
+        case 11155111: return ("https://sepolia.etherscan.io/tx/", "ethereum-sepolia")
+        case 137: return ("https://polygonscan.com/tx/", "polygon")
+        case 56: return ("https://bscscan.com/tx/", "bnb")
+        default: return ("https://etherscan.io/tx/", "ethereum")
+        }
+    }
+    
     func getSolanaBlockhash(isDevnet: Bool) async throws -> String {
         let rpcURL = isDevnet ? "https://api.devnet.solana.com" : "https://api.mainnet-beta.solana.com"
         guard let url = URL(string: rpcURL) else { throw BroadcastError.invalidURL }

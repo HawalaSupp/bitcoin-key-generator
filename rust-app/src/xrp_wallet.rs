@@ -11,6 +11,7 @@ pub fn prepare_xrp_transaction(
     amount_drops: u64,
     sender_seed_hex: &str,
     sequence: u32,
+    destination_tag: Option<u32>,
 ) -> Result<String, Box<dyn Error>> {
     // 1. Create Wallet from seed
     let wallet = Wallet::new(sender_seed_hex, sequence as u64)
@@ -42,7 +43,7 @@ pub fn prepare_xrp_transaction(
         amount_xrp.into(),                                    // amount
         recipient_owned,                                      // destination
         None,                                                 // deliver_min
-        None,                                                 // destination_tag
+        destination_tag,                                      // destination_tag (optional)
         None,                                                 // invoice_id
         None,                                                 // paths
         None,                                                 // send_max
@@ -71,7 +72,7 @@ mod tests {
         let amount_drops = 1_000_000; // 1 XRP = 1,000,000 drops
         let sequence = 1;
 
-        let result = prepare_xrp_transaction(recipient, amount_drops, test_seed, sequence);
+        let result = prepare_xrp_transaction(recipient, amount_drops, test_seed, sequence, None);
         
         assert!(result.is_ok(), "XRP transaction signing failed: {:?}", result.err());
         
@@ -97,7 +98,7 @@ mod tests {
         let amounts = vec![12, 1_000_000, 100_000_000, 1_000_000_000];
         
         for (seq, amount) in amounts.iter().enumerate() {
-            let result = prepare_xrp_transaction(recipient, *amount, test_seed, (seq + 1) as u32);
+            let result = prepare_xrp_transaction(recipient, *amount, test_seed, (seq + 1) as u32, None);
             assert!(result.is_ok(), "Failed for amount {}: {:?}", amount, result.err());
         }
     }

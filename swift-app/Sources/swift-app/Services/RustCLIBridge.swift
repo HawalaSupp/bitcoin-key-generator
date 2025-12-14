@@ -202,13 +202,32 @@ final class RustCLIBridge: Sendable {
     
     // MARK: - XRP
     
-    func signXRP(recipient: String, amountDrops: UInt64, senderSeedHex: String, sequence: UInt32) throws -> String {
-        let args = [
+    func signXRP(recipient: String, amountDrops: UInt64, senderSeedHex: String, sequence: UInt32, destinationTag: UInt32? = nil) throws -> String {
+        var args = [
             "sign-xrp",
             "--recipient", recipient,
             "--amount-drops", String(amountDrops),
             "--sender-seed-hex", senderSeedHex,
             "--sequence", String(sequence)
+        ]
+        
+        if let tag = destinationTag {
+            args.append(contentsOf: ["--destination-tag", String(tag)])
+        }
+        
+        return try runCommand(args: args)
+    }
+    
+    // MARK: - Litecoin
+    
+    func signLitecoin(recipient: String, amountLits: UInt64, feeRate: UInt64, senderWIF: String, senderAddress: String) throws -> String {
+        let args = [
+            "sign-ltc",
+            "--recipient", recipient,
+            "--amount-lits", String(amountLits),
+            "--fee-rate", String(feeRate),
+            "--sender-wif", senderWIF,
+            "--sender-address", senderAddress
         ]
         return try runCommand(args: args)
     }

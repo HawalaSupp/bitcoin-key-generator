@@ -1,0 +1,88 @@
+name: Swift CI
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'swift-app/**'
+      - '.github/workflows/swift.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'swift-app/**'
+      - '.github/workflows/swift.yml'
+
+jobs:
+  build-and-test:
+    runs-on: macos-14
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Setup Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: '15.0'
+    
+    - name: Cache SPM
+      uses: actions/cache@v4
+      with:
+        path: |
+          swift-app/.build
+          ~/Library/Caches/org.swift.swiftpm
+        key: ${{ runner.os }}-spm-${{ hashFiles('swift-app/Package.resolved') }}
+        restore-keys: |
+          ${{ runner.os }}-spm-
+    
+    - name: Build
+      run: |
+        cd swift-app
+        swift build -v
+    
+    - name: Run Tests
+      run: |
+        cd swift-app
+        swift test -v
+    
+    - name: Check for Secrets in Logs
+      run: |
+        # Ensure no private keys, seeds, or sensitive data patterns in source
+        echo "Checking for potential secret patterns in source..."
+        
+        # Check for hardcoded hex keys (64+ chars)
+        if grep -rE '[0-9a-fA-F]{64,}' swift-app/Sources --include="*.swift" | grep -v "test" | grep -v "example" | grep -v "REDACTED"; then
+          echo "⚠️ Warning: Found potential hardcoded keys in source"
+        fi
+        
+        # Check for print statements with sensitive words
+        if grep -rE 'print\(.*\b(private|secret|seed|mnemonic|wif)\b' swift-app/Sources --include="*.swift" -i; then
+          echo "⚠️ Warning: Found print statements with sensitive keywords"
+          echo "Consider using Log.debug() with automatic redaction instead"
+        fi
+        
+        echo "✅ Secret pattern check complete"
+
+  lint:
+    runs-on: macos-14
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Check Swift Formatting
+      run: |
+        # Basic formatting checks
+        echo "Checking for common formatting issues..."
+        
+        # Check for trailing whitespace
+        if grep -rn '[[:blank:]]$' swift-app/Sources --include="*.swift"; then
+          echo "⚠️ Found trailing whitespace"
+        fi
+        
+        # Check for very long lines (>150 chars)
+        if awk 'length > 150' swift-app/Sources/**/*.swift 2>/dev/null | head -10; then
+          echo "⚠️ Found lines over 150 characters"
+        fi
+        
+        echo "✅ Lint check complete"

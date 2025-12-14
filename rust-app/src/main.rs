@@ -84,6 +84,21 @@ enum Commands {
         sender_seed_hex: String,
         #[arg(long)]
         sequence: u32,
+        #[arg(long)]
+        destination_tag: Option<u32>,
+    },
+    /// Sign a Litecoin transaction
+    SignLtc {
+        #[arg(long)]
+        recipient: String,
+        #[arg(long)]
+        amount_lits: u64,
+        #[arg(long)]
+        fee_rate: u64,
+        #[arg(long)]
+        sender_wif: String,
+        #[arg(long)]
+        sender_address: String,
     },
 }
 
@@ -117,9 +132,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
             println!("{}", tx_hex);
         }
-        Commands::SignXrp { recipient, amount_drops, sender_seed_hex, sequence } => {
+        Commands::SignXrp { recipient, amount_drops, sender_seed_hex, sequence, destination_tag } => {
             let tx_hex = rust_app::xrp_wallet::prepare_xrp_transaction(
-                recipient, *amount_drops, sender_seed_hex, *sequence
+                recipient, *amount_drops, sender_seed_hex, *sequence, *destination_tag
+            )?;
+            println!("{}", tx_hex);
+        }
+        Commands::SignLtc { recipient, amount_lits, fee_rate, sender_wif, sender_address } => {
+            let tx_hex = rust_app::litecoin_wallet::prepare_litecoin_transaction(
+                recipient, *amount_lits, *fee_rate, sender_wif, sender_address
             )?;
             println!("{}", tx_hex);
         }

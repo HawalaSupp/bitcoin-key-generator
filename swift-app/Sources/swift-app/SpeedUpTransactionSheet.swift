@@ -342,10 +342,32 @@ struct SpeedUpTransactionSheet: View {
     }
     
     private func speedUpBitcoinTransaction() async throws -> String {
-        // For Bitcoin RBF, we need to rebuild the transaction with higher fee
-        // This requires the original UTXOs, which we'd need to fetch and rebuild
-        // For now, throw an error indicating the feature needs more implementation
-        throw SpeedUpError.featureInProgress("Bitcoin RBF requires rebuilding the transaction. Coming soon!")
+        // Use TransactionCancellationManager for Bitcoin RBF
+        let cancellationManager = TransactionCancellationManager.shared
+        
+        // Get the private key WIF for the appropriate chain
+        let privateWIF: String
+        switch pendingTx.chainId {
+        case "litecoin":
+            privateWIF = keys.litecoin.privateWif
+        case "bitcoin-testnet":
+            privateWIF = keys.bitcoinTestnet.privateWif
+        default: // "bitcoin"
+            privateWIF = keys.bitcoin.privateWif
+        }
+        
+        // Call the speed-up method
+        let result = try await cancellationManager.speedUpBitcoinTransaction(
+            pendingTx: pendingTx,
+            privateKeyWIF: privateWIF,
+            newFeeRate: Int(newFeeRate)
+        )
+        
+        guard result.success, let newTxid = result.replacementTxid else {
+            throw SpeedUpError.broadcastFailed(result.message)
+        }
+        
+        return newTxid
     }
     
     private func speedUpEthereumTransaction() async throws -> String {

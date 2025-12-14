@@ -414,6 +414,11 @@ struct HawalaMainView: View {
     // MARK: - Main Content (with Liquid Glass Transitions)
     private var mainContentView: some View {
         VStack(spacing: 0) {
+            // Provider status banner (shows when degraded/offline)
+            ProviderStatusBanner()
+                .padding(.horizontal, HawalaTheme.Spacing.lg)
+                .padding(.bottom, HawalaTheme.Spacing.sm)
+            
             // Content based on selected tab with smooth scrolling
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 0) {
