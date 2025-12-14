@@ -1474,10 +1474,10 @@ struct BentoAssetCard: View {
                     if #available(macOS 12.0, *) {
                         RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
                             .fill(.ultraThinMaterial)
-                            .opacity(0.6)
+                            .opacity(0.4) // Reduced opacity for cleaner look
                     } else {
                         RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                            .fill(Color(white: 0.12, opacity: 0.9))
+                            .fill(Color(white: 0.12, opacity: 0.8))
                     }
                     
                     // Border with gradient
