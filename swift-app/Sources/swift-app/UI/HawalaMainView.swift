@@ -415,32 +415,17 @@ struct HawalaMainView: View {
             // Content based on selected tab with smooth scrolling
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 0) {
-                    Group {
-                        switch selectedTab {
-                        case .portfolio:
-                            portfolioView
-                        case .activity:
-                            activityView
-                        case .discover:
-                            discoverView
-                        }
+                    switch selectedTab {
+                    case .portfolio:
+                        portfolioView
+                    case .activity:
+                        activityView
+                    case .discover:
+                        discoverView
                     }
-                    .id(selectedTab)
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .scale(scale: 0.98)).animation(.easeOut(duration: 0.25)),
-                        removal: .opacity.animation(.easeIn(duration: 0.15))
-                    ))
                 }
             }
-            .scrollDismissesKeyboard(.interactively)
             .scrollIndicators(.hidden)
-            .refreshable {
-                // Pull-to-refresh triggers balance reload
-                await refreshData()
-            }
-        }
-        .onChange(of: selectedTab) { newTab in
-            previousTab = selectedTab
         }
     }
     
@@ -1437,14 +1422,16 @@ struct BentoAssetCard: View {
                 
                 Spacer()
                 
-                // Sparkline chart - monochrome
+                // Sparkline chart - use Canvas for best performance
                 if !sparklineData.isEmpty {
-                    EnhancedSparkline(data: sparklineData, color: .white, showGradient: isHovered)
+                    BentoSparklineChart(data: sparklineData, color: .white, isPositive: priceChange >= 0)
                         .frame(height: 50)
                         .padding(.vertical, 8)
                 } else {
                     // Placeholder for no data
-                    SkeletonView(height: 50)
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.white.opacity(0.03))
+                        .frame(height: 50)
                         .padding(.vertical, 8)
                 }
                 
@@ -1498,9 +1485,7 @@ struct BentoAssetCard: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isHovered = hovering
-            }
+            isHovered = hovering // No animation for instant response
         }
         .contextMenu {
             // Quick actions context menu
