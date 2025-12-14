@@ -275,19 +275,19 @@ struct HawalaMainView: View {
                 // Network status indicator
                 NetworkStatusBar()
                 
-                GlassIconButton(icon: "arrow.up.arrow.down") {
+                GlassIconButton(icon: "arrow.up.arrow.down", tooltip: "Send & Receive") {
                     showSendPicker = true
                 }
                 
-                GlassIconButton(icon: "qrcode") {
+                GlassIconButton(icon: "qrcode", tooltip: "Receive Funds") {
                     showReceiveSheet = true
                 }
                 
-                GlassIconButton(icon: "gearshape") {
+                GlassIconButton(icon: "gearshape", tooltip: "Settings") {
                     showSettingsPanel = true
                 }
                 
-                GlassIconButton(icon: "bell", badge: NotificationManager.shared.unreadCount) {
+                GlassIconButton(icon: "bell", badge: NotificationManager.shared.unreadCount, tooltip: "Notifications") {
                     showNotificationsSheet = true
                 }
             }
@@ -356,11 +356,11 @@ struct HawalaMainView: View {
                 }
             )
             .scaleEffect(isHovered ? 1.05 : 1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHovered)
+            .animation(OptimizedAnimations.snappySpring, value: isHovered) // 120fps optimized
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(OptimizedAnimations.quick) { // 120fps optimized
                 hoveredTab = hovering ? tab : nil
             }
         }
@@ -370,6 +370,7 @@ struct HawalaMainView: View {
     struct GlassIconButton: View {
         let icon: String
         var badge: Int? = nil
+        var tooltip: String? = nil
         let action: () -> Void
         
         @State private var isHovered = false
@@ -401,6 +402,7 @@ struct HawalaMainView: View {
                 }
             }
             .buttonStyle(.plain)
+            .help(tooltip ?? "")
             .onHover { hovering in
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
                     isHovered = hovering
@@ -415,17 +417,28 @@ struct HawalaMainView: View {
             // Content based on selected tab with smooth scrolling
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 0) {
-                    switch selectedTab {
-                    case .portfolio:
-                        portfolioView
-                    case .activity:
-                        activityView
-                    case .discover:
-                        discoverView
+                    Group {
+                        switch selectedTab {
+                        case .portfolio:
+                            portfolioView
+                        case .activity:
+                            activityView
+                        case .discover:
+                            discoverView
+                        }
                     }
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .trailing)),
+                        removal: .opacity.combined(with: .move(edge: .leading))
+                    ))
+                    .id(selectedTab) // Force view recreation for animation
                 }
+                .animation(OptimizedAnimations.page, value: selectedTab) // 120fps page transition
             }
             .scrollIndicators(.hidden)
+            .refreshable {
+                await refreshData()
+            }
         }
     }
     
@@ -966,25 +979,17 @@ struct HawalaMainView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, HawalaTheme.Spacing.xxl)
                 } else if historyEntries.isEmpty {
-                    // Empty state
-                    VStack(spacing: HawalaTheme.Spacing.md) {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .font(.system(size: 32))
-                            .foregroundColor(HawalaTheme.Colors.textTertiary)
-                        
-                        Text("No transactions yet")
-                            .font(HawalaTheme.Typography.body)
-                            .foregroundColor(HawalaTheme.Colors.textPrimary)
-                        
-                        Text("Your activity will appear here once you make your first transaction.")
-                            .font(HawalaTheme.Typography.caption)
-                            .foregroundColor(HawalaTheme.Colors.textSecondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
+                    // Empty state with illustration
+                    EmptyStateIllustration(
+                        icon: "clock.arrow.circlepath",
+                        title: "No transactions yet",
+                        subtitle: "Your activity will appear here once you make your first transaction.",
+                        actionTitle: "Send Crypto",
+                        action: { showSendPicker = true }
+                    )
                     .padding(.vertical, HawalaTheme.Spacing.xxl)
                 } else {
-                    // Real transaction list
+                    // Real transaction list with fixed heights for performance
                     ForEach(historyEntries.prefix(10)) { entry in
                         Button {
                             selectedTransaction = entry
@@ -1000,6 +1005,7 @@ struct HawalaMainView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .frame(height: 56) // Fixed height for cell reuse optimization
                         
                         if entry.id != historyEntries.prefix(10).last?.id {
                             Divider()
@@ -1635,6 +1641,7 @@ struct BentoSparklineChart: View {
                 )
             )
         }
+        .drawingGroup() // GPU acceleration for Canvas rendering - improves 120fps performance
     }
 }
 
@@ -1706,3 +1713,443 @@ extension EnvironmentValues {
         set { self[TrafficLightHoveredKey.self] = newValue }
     }
 }
+
+// MARK: - Empty State Illustration Component
+struct EmptyStateIllustration: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+    
+    @State private var iconScale: CGFloat = 0.8
+    @State private var iconOpacity: Double = 0
+    @State private var textOpacity: Double = 0
+    @State private var isHovered = false
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            // Animated icon with floating effect
+            ZStack {
+                // Glow background (reduced blur for performance)
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                HawalaTheme.Colors.accent.opacity(0.15),
+                                Color.clear
+                            ],
+                            center: .center,
+                            startRadius: 0,
+                            endRadius: 50
+                        )
+                    )
+                    .frame(width: 100, height: 100)
+                    .blur(radius: 6) // Reduced from 10 for GPU performance
+                
+                // Icon container
+                Circle()
+                    .fill(Color.white.opacity(0.05))
+                    .frame(width: 80, height: 80)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                    )
+                
+                // Icon
+                Image(systemName: icon)
+                    .font(.system(size: 32, weight: .light))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [HawalaTheme.Colors.accent, HawalaTheme.Colors.accent.opacity(0.6)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+            .scaleEffect(iconScale)
+            .opacity(iconOpacity)
+            .modifier(FloatingEffect())
+            
+            // Text content
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                
+                Text(subtitle)
+                    .font(.system(size: 13))
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+            }
+            .opacity(textOpacity)
+            
+            // Optional action button
+            if let actionTitle = actionTitle, let action = action {
+                Button(action: action) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(actionTitle)
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [HawalaTheme.Colors.accent, HawalaTheme.Colors.accent.opacity(0.8)],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                    )
+                    .scaleEffect(isHovered ? 1.05 : 1.0)
+                    .shadow(color: HawalaTheme.Colors.accent.opacity(isHovered ? 0.4 : 0.2), radius: isHovered ? 12 : 8, y: 4)
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        isHovered = hovering
+                    }
+                }
+                .opacity(textOpacity)
+            }
+        }
+        .padding(.vertical, 40)
+        .frame(maxWidth: .infinity)
+        .onAppear {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1)) {
+                iconScale = 1.0
+                iconOpacity = 1.0
+            }
+            withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
+                textOpacity = 1.0
+            }
+        }
+    }
+}
+
+// Floating animation effect modifier
+struct FloatingEffect: ViewModifier {
+    @State private var offset: CGFloat = 0
+    
+    func body(content: Content) -> some View {
+        content
+            .offset(y: offset)
+            .onAppear {
+                withAnimation(
+                    Animation
+                        .easeInOut(duration: 2.0)
+                        .repeatForever(autoreverses: true)
+                ) {
+                    offset = -6
+                }
+            }
+    }
+}
+
+// MARK: - Error Shake Modifier
+struct ErrorShakeModifier: ViewModifier {
+    @Binding var shake: Bool
+    
+    func body(content: Content) -> some View {
+        content
+            .offset(x: shake ? -10 : 0)
+            .animation(
+                // 120fps optimized shake - tighter spring for snappier feedback
+                shake ? Animation.interpolatingSpring(stiffness: 400, damping: 12).repeatCount(3) : .default,
+                value: shake
+            )
+            .onChange(of: shake) { newValue in
+                if newValue {
+                    // Haptic feedback for error
+                    #if os(macOS)
+                    NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+                    #endif
+                    
+                    // Reset after animation - faster reset for 120fps
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        shake = false
+                    }
+                }
+            }
+    }
+}
+
+extension View {
+    func errorShake(_ shake: Binding<Bool>) -> some View {
+        modifier(ErrorShakeModifier(shake: shake))
+    }
+}
+
+// MARK: - Error Toast Badge
+struct ErrorToastBadge: View {
+    let message: String
+    @State private var opacity: Double = 0
+    @State private var offset: CGFloat = -20
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 14, weight: .semibold))
+            
+            Text(message)
+                .font(.system(size: 13, weight: .medium))
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            Capsule()
+                .fill(HawalaTheme.Colors.error)
+                .shadow(color: HawalaTheme.Colors.error.opacity(0.4), radius: 10, y: 4)
+        )
+        .opacity(opacity)
+        .offset(y: offset)
+        .onAppear {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                opacity = 1.0
+                offset = 0
+            }
+            
+            // Auto dismiss after 3 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                withAnimation(.easeOut(duration: 0.3)) {
+                    opacity = 0
+                    offset = -20
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Haptic Feedback Helper
+struct HapticFeedback {
+    static func light() {
+        #if os(macOS)
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        #endif
+    }
+    
+    static func medium() {
+        #if os(macOS)
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+        #endif
+    }
+    
+    static func heavy() {
+        #if os(macOS)
+        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        #endif
+    }
+    
+    static func success() {
+        #if os(macOS)
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+        #endif
+    }
+    
+    static func error() {
+        #if os(macOS)
+        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        }
+        #endif
+    }
+    
+    static func selection() {
+        #if os(macOS)
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        #endif
+    }
+}
+
+// MARK: - Animated Number Display
+struct AnimatedNumberDisplay: View {
+    let value: Double
+    let format: String
+    let prefix: String
+    
+    @State private var displayValue: Double = 0
+    
+    init(_ value: Double, format: String = "%.2f", prefix: String = "$") {
+        self.value = value
+        self.format = format
+        self.prefix = prefix
+    }
+    
+    var body: some View {
+        Text(prefix + String(format: format, displayValue))
+            .monospacedDigit()
+            .onAppear {
+                animateValue()
+            }
+            .onChange(of: value) { _ in
+                animateValue()
+            }
+    }
+    
+    private func animateValue() {
+        let startValue = displayValue
+        let endValue = value
+        let duration: Double = 0.6
+        let steps = 30
+        let stepDuration = duration / Double(steps)
+        
+        for step in 0...steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + stepDuration * Double(step)) {
+                let progress = Double(step) / Double(steps)
+                let eased = 1 - pow(1 - progress, 3) // Ease out cubic
+                displayValue = startValue + (endValue - startValue) * eased
+            }
+        }
+    }
+}
+
+// MARK: - Parallax Scroll Effect
+struct ParallaxScrollModifier: ViewModifier {
+    let speed: CGFloat
+    @State private var offset: CGFloat = 0
+    
+    func body(content: Content) -> some View {
+        GeometryReader { geometry in
+            content
+                .offset(y: calculateOffset(geometry))
+        }
+    }
+    
+    private func calculateOffset(_ geometry: GeometryProxy) -> CGFloat {
+        let minY = geometry.frame(in: .global).minY
+        return minY > 0 ? -minY * speed : 0
+    }
+}
+
+extension View {
+    func parallaxEffect(speed: CGFloat = 0.5) -> some View {
+        modifier(ParallaxScrollModifier(speed: speed))
+    }
+}
+
+// MARK: - Scroll Offset Preference Key
+struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+// MARK: - Scroll View with Offset Tracking
+struct ScrollViewWithOffset<Content: View>: View {
+    let axes: Axis.Set
+    let showsIndicators: Bool
+    let onOffsetChange: (CGFloat) -> Void
+    let content: () -> Content
+    
+    init(
+        _ axes: Axis.Set = .vertical,
+        showsIndicators: Bool = true,
+        onOffsetChange: @escaping (CGFloat) -> Void = { _ in },
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.axes = axes
+        self.showsIndicators = showsIndicators
+        self.onOffsetChange = onOffsetChange
+        self.content = content
+    }
+    
+    var body: some View {
+        ScrollView(axes, showsIndicators: showsIndicators) {
+            GeometryReader { geometry in
+                Color.clear.preference(
+                    key: ScrollOffsetPreferenceKey.self,
+                    value: geometry.frame(in: .named("scrollView")).minY
+                )
+            }
+            .frame(height: 0)
+            
+            content()
+        }
+        .coordinateSpace(name: "scrollView")
+        .onPreferenceChange(ScrollOffsetPreferenceKey.self, perform: onOffsetChange)
+    }
+}
+
+// MARK: - Staggered Animation Modifier
+struct StaggeredAnimation: ViewModifier {
+    let index: Int
+    let totalCount: Int
+    @State private var appeared = false
+    
+    func body(content: Content) -> some View {
+        content
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 20)
+            .onAppear {
+                let delay = Double(index) * 0.05
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8).delay(delay)) {
+                    appeared = true
+                }
+            }
+    }
+}
+
+extension View {
+    func staggeredAppearance(index: Int, total: Int = 10) -> some View {
+        modifier(StaggeredAnimation(index: index, totalCount: total))
+    }
+}
+
+// MARK: - Bounce Effect on Press (120fps optimized)
+struct BouncePress: ViewModifier {
+    @State private var isPressed = false
+    
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isPressed ? 0.95 : 1.0)
+            .animation(OptimizedAnimations.snappySpring, value: isPressed) // 120fps optimized
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        if !isPressed {
+                            isPressed = true
+                            HapticFeedback.light()
+                        }
+                    }
+                    .onEnded { _ in
+                        isPressed = false
+                    }
+            )
+    }
+}
+
+extension View {
+    func bounceOnPress() -> some View {
+        modifier(BouncePress())
+    }
+}
+
+// MARK: - Glow Effect Modifier (Optimized for 120fps - single shadow)
+struct GlowEffect: ViewModifier {
+    let color: Color
+    let radius: CGFloat
+    let isActive: Bool
+    
+    func body(content: Content) -> some View {
+        content
+            // Single shadow instead of double for better GPU performance
+            .shadow(color: isActive ? color.opacity(0.45) : Color.clear, radius: radius * 1.5)
+            .animation(OptimizedAnimations.standard, value: isActive) // 120fps optimized
+    }
+}
+
+extension View {
+    func glowEffect(color: Color, radius: CGFloat = 10, isActive: Bool = true) -> some View {
+        modifier(GlowEffect(color: color, radius: radius, isActive: isActive))
+    }
+}
+

@@ -617,6 +617,7 @@ struct MiniSparkline: View {
                     }
                 }
                 .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                .drawingGroup() // GPU acceleration for 120fps
             }
         }
     }
@@ -665,7 +666,7 @@ struct EnhancedSparkline: View {
                                 endPoint: .bottom
                             )
                         )
-                        .animation(.easeOut(duration: 0.3), value: showGradient)
+                        .animation(OptimizedAnimations.standard, value: showGradient) // 120fps
                     }
                     
                     // Line
@@ -1323,7 +1324,7 @@ struct AnimatedTabView<Content: View>: View {
                     )
                 )
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: selection)
+        .animation(OptimizedAnimations.page, value: selection) // 120fps page transition
         .onChange(of: selection) { newValue in
             previousSelection = selection
         }
@@ -1440,7 +1441,7 @@ struct PortfolioPieChart: View {
                             .foregroundColor(HawalaTheme.Colors.textPrimary)
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: selectedSegment?.id)
+                .animation(OptimizedAnimations.quick, value: selectedSegment?.id) // 120fps
             }
             .frame(width: 160, height: 160)
             
@@ -2149,7 +2150,7 @@ struct DraggableAssetRow: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(isHovered ? HawalaTheme.Colors.textSecondary : HawalaTheme.Colors.textTertiary)
                 .offset(x: isHovered ? 2 : 0)
-                .animation(.easeOut(duration: 0.15), value: isHovered)
+                .animation(OptimizedAnimations.quick, value: isHovered) // 120fps
         }
         .padding(.horizontal, HawalaTheme.Spacing.lg)
         .padding(.vertical, HawalaTheme.Spacing.md)
@@ -2407,7 +2408,7 @@ struct ToastView: View {
         .background(
             RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
                 .fill(Color(white: 0.12, opacity: 0.95))
-                .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 10)
+                .shadow(color: Color.black.opacity(0.25), radius: 12, x: 0, y: 6) // Reduced from radius 20 for performance
         )
         .overlay(
             RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
@@ -2431,7 +2432,7 @@ struct ToastContainer: View {
             }
             Spacer()
         }
-        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: toastManager.currentToast)
+        .animation(OptimizedAnimations.page, value: toastManager.currentToast) // 120fps
     }
 }
 
@@ -2836,7 +2837,7 @@ struct HawalaToggleStyle: ToggleStyle {
                         .padding(2)
                         .offset(x: configuration.isOn ? 9 : -9)
                 )
-                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isOn)
+                .animation(OptimizedAnimations.snappySpring, value: configuration.isOn) // 120fps
                 .onTapGesture {
                     configuration.isOn.toggle()
                 }
@@ -2868,7 +2869,7 @@ struct CopyButton: View {
             )
         }
         .buttonStyle(.plain)
-        .animation(.easeInOut(duration: 0.2), value: showCopied)
+        .animation(OptimizedAnimations.quick, value: showCopied) // 120fps
     }
     
     private func copyToClipboard() {
@@ -3221,7 +3222,7 @@ struct SmoothTabSwitcher<Content: View>: View {
                         .combined(with: .opacity)
                 ))
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: selection)
+        .animation(OptimizedAnimations.page, value: selection) // 120fps page transition
         .onChange(of: selection) { newValue in
             previousSelection = selection
         }

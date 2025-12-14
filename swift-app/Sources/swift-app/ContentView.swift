@@ -298,6 +298,10 @@ struct ContentView: View {
     @State private var lastActivityTimestamp = Date()
     @State private var autoLockTask: Task<Void, Never>?
     @State private var showPrivacyBlur = false
+    // Debug: Show FPS performance overlay in DEBUG builds
+    #if DEBUG
+    @State private var showPerformanceOverlay = true  // Enabled for 120fps testing
+    #endif
     #if canImport(AppKit)
     @State private var activityMonitor: UserActivityMonitor?
     #endif
@@ -399,9 +403,30 @@ struct ContentView: View {
                     .padding(.top, 12)
                     .padding(.trailing, 12)
                     .allowsHitTesting(false)
+                
+                // DEBUG: Performance overlay (tap badge to toggle, or start with environment variable)
+                #if DEBUG
+                if showPerformanceOverlay {
+                    PerformanceOverlay()
+                        .padding(.top, 50)
+                        .padding(.trailing, 12)
+                        .zIndex(200)
+                        .onTapGesture(count: 2) {
+                            showPerformanceOverlay = false
+                        }
+                }
+                #endif
             }
             .opacity(showSplashScreen ? 0 : 1)
         }
+        #if DEBUG
+        .onAppear {
+            // Enable with environment variable: HAWALA_PERF_OVERLAY=1
+            if ProcessInfo.processInfo.environment["HAWALA_PERF_OVERLAY"] == "1" {
+                showPerformanceOverlay = true
+            }
+        }
+        #endif
         .animation(.easeInOut(duration: 0.3), value: showSplashScreen)
         .animation(.easeInOut(duration: 0.3), value: onboardingCompleted)
         .animation(.easeInOut(duration: 0.3), value: onboardingStep)
