@@ -39,6 +39,7 @@ struct SettingsView: View {
     @State private var showScheduledTransactions = false
     @State private var showFeeIntelligence = false
     @State private var showTransactionIntentDemo = false
+    @State private var showAddressIntelligence = false
     
     // Debug/Developer info
     @StateObject private var debugLogger = DebugLogger.shared
@@ -141,6 +142,10 @@ struct SettingsView: View {
         .sheet(isPresented: $showTransactionIntentDemo) {
             TransactionIntentDemoView()
                 .frame(width: 550, height: 750)
+        }
+        .sheet(isPresented: $showAddressIntelligence) {
+            AddressIntelligenceView()
+                .frame(width: 600, height: 700)
         }
         .alert("Reset Wallet", isPresented: $showResetConfirm) {
             Button("Cancel", role: .cancel) { }
@@ -484,6 +489,20 @@ struct SettingsView: View {
             ) {
                 triggerHaptic()
                 showTransactionIntentDemo = true
+            }
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
+            SettingsRow(
+                icon: "shield.lefthalf.filled.badge.checkmark",
+                iconColor: .cyan,
+                title: "Address Intelligence",
+                subtitle: "Analyze addresses for risks"
+            ) {
+                triggerHaptic()
+                showAddressIntelligence = true
             }
             
             Divider()
