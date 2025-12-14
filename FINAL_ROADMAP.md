@@ -272,3 +272,135 @@ If you want a realistic v1 without slipping forever:
 - Ship **XMR send** only when it meets a high bar (or keep it disabled until it does).
 
 This matches your “stuck tx tools” priority and keeps the first release coherent.
+
+---
+
+## 📆 Week‑by‑week sprint plan (macOS)
+
+This is a practical 12‑week plan. If you want to compress to 8 weeks, we can merge sprints 1+2 and 5+6, but it increases risk.
+
+### Sprint 1 (Week 1): Stabilize + CI + log hygiene
+Deliverables
+- CI pipeline: build + unit tests on PRs
+- App logging boundary: debug vs release, no secrets in logs
+- Provider health state (healthy/degraded/offline) surfaced in UI
+
+Acceptance
+- Fresh clone can run `swift test` reliably.
+- Turning off network doesn’t crash the app.
+
+### Sprint 2 (Week 2): Provider settings + “degraded mode” UX
+Deliverables
+- Provider Settings screen (keys, network toggles, fallback order)
+- Unified error copy (“temporarily unavailable”) + retry policy
+- Caching policy for prices and balances (last-known-good)
+
+Acceptance
+- App communicates provider failures without scary/technical wording.
+
+### Sprint 3 (Weeks 3–4): Wallet Core v1 (HD + passphrase + Imported Accounts)
+Deliverables
+- Finalize wallet data model (HD wallet + Imported Accounts separation)
+- Secure at-rest storage contract + migration/versioning
+- Onboarding with backup confirmation
+
+Acceptance
+- Create wallet → backup confirmation
+- Restore reproduces addresses
+
+### Sprint 4 (Week 5): `.hawala` backup/export/import
+Deliverables
+- Encrypted `.hawala` export (versioned)
+- Import + integrity verification + safe overwrite rules
+
+Acceptance
+- Export/import round-trip passes tests
+- Export requires auth (passcode/biometric)
+
+### Sprint 5 (Weeks 6–7): Bitcoin send/receive + fee engine
+Deliverables
+- UTXO model + fee estimation
+- Send flow (beginner + advanced)
+- Receive flow (address display, copy/QR if applicable)
+
+Acceptance
+- Can build and broadcast BTC tx (testnet supported)
+
+### Sprint 6 (Week 8): BTC stuck‑tx tools (RBF + CPFP)
+Deliverables
+- RBF bump UI + policy checks
+- CPFP builder for stuck tx
+- Safety warnings and confirmations
+
+Acceptance
+- Can bump fee reliably; CPFP available when RBF isn’t
+
+### Sprint 7 (Weeks 9–10): EVM engine + cancel/speed‑up (ETH + BSC + Polygon)
+Deliverables
+- Nonce management and pending tx tracker
+- Gas estimator + EIP‑1559/legacy support
+- Speed‑up/cancel replacement transactions
+
+Acceptance
+- Replacement tx behavior is correct and consistent
+
+### Sprint 8 (Week 11): Privacy Mode + Duress (decoy) foundations
+Deliverables
+- Global Privacy Mode toggle (redaction + snapshot/clipboard hygiene)
+- Decoy wallet storage + decoy passcode gate
+
+Acceptance
+- Switching modes doesn’t leak real balances in UI captures
+
+### Sprint 9 (Week 12): Release Engineering (auto‑update + notarization)
+Deliverables
+- Code signing + notarization pipeline
+- Auto‑update (signed feed + verification + rollback strategy)
+
+Acceptance
+- Update signature verified before install
+- Rollback/kill-switch process documented
+
+---
+
+## ✅ Definition of Done (per milestone)
+
+Use this checklist every time we say something is “done”.
+
+### DoD — Milestone 0 (Stabilize & Measure)
+- [ ] CI passes (build + unit tests)
+- [ ] No secrets in logs
+- [ ] Offline launch works (no crash)
+- [ ] Provider failures show friendly UI state
+
+### DoD — Milestone 1 (Wallet Core)
+- [ ] Deterministic derivation covered by test vectors
+- [ ] Seed/passphrase gated behind auth
+- [ ] Imported Accounts are clearly separated in UI + storage
+- [ ] Restore flows tested (seed+passphrase, `.hawala`)
+
+### DoD — Milestone 2 (BTC + EVM Transaction Engine)
+- [ ] Build/sign/send works on testnet and mainnet (where enabled)
+- [ ] Stuck-tx tools implemented and can be demonstrated
+- [ ] Fee/gas warnings are clear and prevent common mistakes
+- [ ] No key material or raw tx secrets appear in logs
+
+### DoD — Milestone 3 (Chain Expansion)
+- [ ] ChainAdapter implemented with consistent UX
+- [ ] Chain-specific footguns handled (XRP tags, Cosmos memo, SOL blockhash, etc.)
+- [ ] Testnets are clearly labeled and never default
+
+### DoD — Milestone 4 (Privacy + Duress)
+- [ ] Privacy redaction works across the app
+- [ ] Decoy wallet cannot access real wallets without real passcode
+- [ ] Clear recovery UX (what duress is, how to exit safely)
+
+### DoD — Milestone 5 (Monero)
+- [ ] Either “fully correct” or “disabled/view-only” (no partial unsafe send)
+- [ ] Threat model reviewed (privacy expectations are accurate)
+
+### DoD — Milestone 6 (Release Engineering)
+- [ ] Signed/notarized builds
+- [ ] Auto-update signature verification mandatory
+- [ ] Rollback + kill-switch plan tested
+
