@@ -110,6 +110,12 @@ struct HawalaMainView: View {
             mainContentView
                 .padding(.top, 70) // Space for floating nav bar
             
+            // Traffic light buttons (close, minimize, zoom) integrated into app
+            TrafficLightButtons()
+                .padding(.top, 12)
+                .padding(.leading, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            
             // Floating liquid glass navigation bar
             liquidGlassNavBar
                 .padding(.top, HawalaTheme.Spacing.lg)
@@ -1469,35 +1475,26 @@ struct BentoAssetCard: View {
             .padding(14)
             .frame(height: 175)
             .background(
-                ZStack {
-                    // Glassmorphism card background
-                    if #available(macOS 12.0, *) {
-                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                            .fill(.ultraThinMaterial)
-                            .opacity(0.4) // Reduced opacity for cleaner look
-                    } else {
-                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                            .fill(Color(white: 0.12, opacity: 0.8))
-                    }
-                    
-                    // Border with gradient
-                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [
-                                    .white.opacity(isSelected ? 0.3 : (isHovered ? 0.15 : 0.1)),
-                                    .white.opacity(isSelected ? 0.1 : (isHovered ? 0.05 : 0.02))
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: isSelected ? 1.5 : 1
-                        )
-                }
-                .compositingGroup() // Optimize shadow rendering
-                .shadow(color: Color.black.opacity(isHovered ? 0.2 : 0.1), radius: isHovered ? 15 : 10, x: 0, y: isHovered ? 8 : 5)
+                // Professional dark gray semi-transparent background
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                    .fill(Color(red: 0.12, green: 0.12, blue: 0.14).opacity(0.85))
             )
-            .drawingGroup() // GPU-accelerated rendering for smooth scrolling
+            .overlay(
+                // Border with gradient
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                .white.opacity(isSelected ? 0.25 : (isHovered ? 0.12 : 0.08)),
+                                .white.opacity(isSelected ? 0.08 : (isHovered ? 0.04 : 0.02))
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: isSelected ? 1.5 : 1
+                    )
+            )
+            .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -1653,5 +1650,74 @@ struct BentoSparklineChart: View {
                 )
             )
         }
+    }
+}
+
+// MARK: - Traffic Light Buttons (Close, Minimize, Zoom)
+struct TrafficLightButtons: View {
+    @State private var isHovered = false
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            // Close button (red)
+            TrafficLightButton(color: Color(red: 1.0, green: 0.38, blue: 0.35), icon: "xmark") {
+                NSApplication.shared.terminate(nil)
+            }
+            
+            // Minimize button (yellow)
+            TrafficLightButton(color: Color(red: 1.0, green: 0.75, blue: 0.25), icon: "minus") {
+                NSApplication.shared.windows.first?.miniaturize(nil)
+            }
+            
+            // Zoom button (green)
+            TrafficLightButton(color: Color(red: 0.35, green: 0.78, blue: 0.35), icon: "plus") {
+                NSApplication.shared.windows.first?.zoom(nil)
+            }
+        }
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .environment(\.trafficLightHovered, isHovered)
+    }
+}
+
+struct TrafficLightButton: View {
+    let color: Color
+    let icon: String
+    let action: () -> Void
+    
+    @Environment(\.trafficLightHovered) var isGroupHovered
+    @State private var isButtonHovered = false
+    
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(color)
+                    .frame(width: 12, height: 12)
+                
+                if isGroupHovered {
+                    Image(systemName: icon)
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundColor(Color.black.opacity(0.6))
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isButtonHovered = hovering
+        }
+    }
+}
+
+// Environment key for traffic light hover state
+private struct TrafficLightHoveredKey: EnvironmentKey {
+    static let defaultValue: Bool = false
+}
+
+extension EnvironmentValues {
+    var trafficLightHovered: Bool {
+        get { self[TrafficLightHoveredKey.self] }
+        set { self[TrafficLightHoveredKey.self] = newValue }
     }
 }

@@ -14,6 +14,7 @@ struct KeyGeneratorApp: App {
             AppRootView()
                 .environmentObject(passcodeManager)
         }
+        .windowStyle(.hiddenTitleBar) // Hide the gray title bar
     }
 }
 
