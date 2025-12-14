@@ -11,10 +11,18 @@ struct HawalaMainView: View {
     @Binding var priceStates: [String: ChainPriceState]
     @StateObject var sparklineCache: SparklineCache
     
+    // Privacy
+    @ObservedObject private var privacyManager = PrivacyManager.shared
+    
     // Settings
     @AppStorage("showBalances") private var showBalances = true
     @AppStorage("showTestnets") private var showTestnets = false
     @AppStorage("selectedBackgroundType") private var selectedBackgroundType = "none"
+    
+    // Computed property for hiding balances (respects both settings and privacy mode)
+    private var shouldHideBalances: Bool {
+        !showBalances || privacyManager.shouldHideBalances
+    }
     
     // Navigation
     @State private var selectedTab: NavigationTab = .portfolio
@@ -581,7 +589,7 @@ struct HawalaMainView: View {
                             fiatValue: formatFiatValue(for: chain.id),
                             sparklineData: sparklineCache.sparklines[chain.id] ?? [],
                             isSelected: selectedChain?.id == chain.id,
-                            hideBalance: !showBalances,
+                            hideBalance: shouldHideBalances,
                             onSelect: {
                                 withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
                                     selectedChain = chain
@@ -635,10 +643,10 @@ struct HawalaMainView: View {
                     let total = calculateTotalBalance()
                     
                     // Animated balance counter
-                    AnimatedCounter(value: total, prefix: selectedFiatSymbol, duration: 1.0, hideBalance: !showBalances)
+                    AnimatedCounter(value: total, prefix: selectedFiatSymbol, duration: 1.0, hideBalance: shouldHideBalances)
                     
                     // P&L indicator (simulated for now - would need purchase history)
-                    if showBalances {
+                    if !shouldHideBalances {
                         ProfitLossIndicator(
                             currentValue: total,
                             purchaseValue: total * 0.95, // Simulated 5% gain
@@ -772,7 +780,7 @@ struct HawalaMainView: View {
                                     sparklineData: sparklineCache.sparklines[chain.id] ?? [],
                                     isSelected: selectedChain?.id == chain.id,
                                     isDragging: draggedAsset == chain.id,
-                                    hideBalance: !showBalances,
+                                    hideBalance: shouldHideBalances,
                                     onSelect: {
                                         withAnimation(HawalaTheme.Animation.fast) {
                                             selectedChain = chain
@@ -896,7 +904,7 @@ struct HawalaMainView: View {
                             balance: formatBalance(for: chain.id),
                             fiatValue: formatFiatValue(for: chain.id),
                             isSelected: selectedChain?.id == chain.id,
-                            hideBalance: !showBalances
+                            hideBalance: shouldHideBalances
                         ) {
                             selectedChain = chain
                         }

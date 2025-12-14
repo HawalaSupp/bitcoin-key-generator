@@ -9491,6 +9491,7 @@ private struct SettingsPanelView: View {
 
                     keysButton
                     securityButton
+                    privacyButton
 
                     Spacer()
                 }
@@ -9577,6 +9578,37 @@ private struct SettingsPanelView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.bordered)
+    }
+    
+    @State private var showPrivacySettings = false
+    @ObservedObject private var privacyManager = PrivacyManager.shared
+    
+    private var privacyButton: some View {
+        Button {
+            showPrivacySettings = true
+        } label: {
+            HStack {
+                Label("Privacy", systemImage: privacyManager.isPrivacyModeEnabled ? "eye.slash.fill" : "eye.fill")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if privacyManager.isPrivacyModeEnabled {
+                    Circle()
+                        .fill(Color.orange)
+                        .frame(width: 8, height: 8)
+                }
+            }
+        }
+        .buttonStyle(.bordered)
+        .sheet(isPresented: $showPrivacySettings) {
+            NavigationStack {
+                PrivacySettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close") { showPrivacySettings = false }
+                        }
+                    }
+            }
+            .frame(width: 450, height: 550)
+        }
     }
 }
 
