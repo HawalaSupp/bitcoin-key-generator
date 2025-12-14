@@ -2259,6 +2259,12 @@ struct DraggableAssetRow: View {
     }
 }
 
+// MARK: - Scroll Performance Note
+// DraggableAssetRow is optimized for scroll performance:
+// 1. MiniSparkline uses Canvas rendering
+// 2. Hover animations use OptimizedAnimations.quick (120fps)
+// 3. GPU compositing via .drawingGroup would break drag-drop, so we use lightweight components instead
+
 // MARK: - Toast Notification System
 enum ToastType {
     case success

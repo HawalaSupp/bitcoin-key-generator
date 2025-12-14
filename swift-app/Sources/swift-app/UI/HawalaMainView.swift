@@ -1488,6 +1488,8 @@ struct BentoAssetCard: View {
                     )
             )
             .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+            // GPU-accelerated compositing for smooth scrolling
+            .drawingGroup(opaque: false)
         }
         .buttonStyle(.plain)
         .onHover { hovering in
