@@ -14,6 +14,7 @@ struct HawalaMainView: View {
     // Settings
     @AppStorage("showBalances") private var showBalances = true
     @AppStorage("showTestnets") private var showTestnets = false
+    @AppStorage("selectedBackgroundType") private var selectedBackgroundType = "none"
     
     // Navigation
     @State private var selectedTab: NavigationTab = .portfolio
@@ -60,6 +61,11 @@ struct HawalaMainView: View {
         "bitcoin", "bitcoin-testnet", "litecoin", "ethereum", "ethereum-sepolia", "bnb", "solana"
     ]
     
+    // Computed property for background type
+    private var backgroundType: AnimatedBackgroundType {
+        AnimatedBackgroundType(rawValue: selectedBackgroundType) ?? .none
+    }
+    
     enum NavigationTab: String, CaseIterable, Comparable {
         case portfolio = "Portfolio"
         case activity = "Activity"
@@ -96,17 +102,9 @@ struct HawalaMainView: View {
     
     var body: some View {
         ZStack(alignment: .top) {
-            // Simple static gradient background (optimized - no animations)
-            LinearGradient(
-                colors: [
-                    HawalaTheme.Colors.background,
-                    HawalaTheme.Colors.backgroundSecondary.opacity(0.3),
-                    HawalaTheme.Colors.background
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            // Background - Animated or Simple Gradient
+            backgroundView
+                .ignoresSafeArea()
             
             // Main content (full width now)
             mainContentView
@@ -129,6 +127,38 @@ struct HawalaMainView: View {
         }
         .sheet(item: $selectedTransaction) { transaction in
             TransactionDetailSheet(transaction: transaction)
+        }
+    }
+    
+    // MARK: - Background View
+    @ViewBuilder
+    private var backgroundView: some View {
+        ZStack {
+            // Base background color
+            HawalaTheme.Colors.background
+            
+            // Animated background based on selection
+            switch backgroundType {
+            case .none:
+                // Simple static gradient background (optimized - no animations)
+                LinearGradient(
+                    colors: [
+                        HawalaTheme.Colors.background,
+                        HawalaTheme.Colors.backgroundSecondary.opacity(0.3),
+                        HawalaTheme.Colors.background
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            case .aurora:
+                // Exact ReactBits Aurora background
+                AuroraBackground(
+                    colorStops: ["#00D4FF", "#7C3AED", "#00D4FF"],
+                    amplitude: 1.0,
+                    blend: 0.5,
+                    speed: 1.0
+                )
+            }
         }
     }
     

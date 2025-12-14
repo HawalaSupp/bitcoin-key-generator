@@ -19,6 +19,7 @@ struct SettingsView: View {
     @AppStorage("hapticFeedback") private var hapticFeedback = true
     @AppStorage("hawala.selectedFiatCurrency") private var currency = "USD"
     @AppStorage("showTestnets") private var showTestnets = false
+    @AppStorage("selectedBackgroundType") private var selectedBackgroundType = "none"
     
     @State private var showAbout = false
     @State private var showBackupSheet = false
@@ -395,6 +396,39 @@ struct SettingsView: View {
         SettingsSection("Appearance") {
             // Theme Picker
             ThemePickerRow()
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
+            // Animated Background Picker
+            VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
+                HStack(spacing: HawalaTheme.Spacing.md) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.purple.opacity(0.15))
+                            .frame(width: 36, height: 36)
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 16))
+                            .foregroundColor(.purple)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Animated Background")
+                            .font(HawalaTheme.Typography.body)
+                            .foregroundColor(HawalaTheme.Colors.textPrimary)
+                        Text("Choose background animation style")
+                            .font(HawalaTheme.Typography.caption)
+                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    }
+                }
+                .padding(.horizontal, HawalaTheme.Spacing.md)
+                .padding(.top, HawalaTheme.Spacing.sm)
+                
+                BackgroundTypePicker(selectedBackground: $selectedBackgroundType)
+                    .padding(.horizontal, HawalaTheme.Spacing.md)
+                    .padding(.bottom, HawalaTheme.Spacing.sm)
+            }
             
             Divider()
                 .background(HawalaTheme.Colors.border)
