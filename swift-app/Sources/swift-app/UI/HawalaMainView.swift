@@ -484,6 +484,7 @@ struct HawalaMainView: View {
                     if showBalances {
                         Text(selectedFiatSymbol + formatLargeNumber(total))
                             .font(.system(size: 56, weight: .light, design: .rounded))
+                            .monospacedDigit()
                             .foregroundColor(.white)
                     } else {
                         Text("••••••")
@@ -1432,19 +1433,12 @@ struct BentoAssetCard: View {
                 
                 // Sparkline chart - monochrome
                 if !sparklineData.isEmpty {
-                    BentoSparklineChart(data: sparklineData, color: Color.white.opacity(0.3), isPositive: priceChange >= 0)
+                    EnhancedSparkline(data: sparklineData, color: .white, showGradient: isHovered)
                         .frame(height: 50)
                         .padding(.vertical, 8)
                 } else {
                     // Placeholder for no data
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.white.opacity(0.03))
-                        .frame(height: 50)
-                        .overlay(
-                            Text("Loading...")
-                                .font(.system(size: 10))
-                                .foregroundColor(HawalaTheme.Colors.textTertiary)
-                        )
+                    SkeletonView(height: 50)
                         .padding(.vertical, 8)
                 }
                 
@@ -1460,6 +1454,7 @@ struct BentoAssetCard: View {
                         } else {
                             Text(fiatValue)
                                 .font(.system(size: 18, weight: .bold, design: .rounded))
+                                .monospacedDigit()
                                 .foregroundColor(HawalaTheme.Colors.textPrimary)
                             
                             Text("\(balance) \(chainSymbol)")
@@ -1500,14 +1495,13 @@ struct BentoAssetCard: View {
                         )
                 }
             )
-            .scaleEffect(isHovered ? 1.02 : 1.0)
-            .shadow(color: Color.black.opacity(isHovered ? 0.2 : 0.1), radius: isHovered ? 15 : 10, x: 0, y: isHovered ? 8 : 5)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
             .drawingGroup() // GPU-accelerated rendering for smooth scrolling
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            isHovered = hovering
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isHovered = hovering
+            }
         }
         .contextMenu {
             // Quick actions context menu
