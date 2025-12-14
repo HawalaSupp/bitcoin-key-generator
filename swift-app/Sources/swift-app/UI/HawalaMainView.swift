@@ -110,11 +110,11 @@ struct HawalaMainView: View {
             mainContentView
                 .padding(.top, 70) // Space for floating nav bar
             
-            // Traffic light buttons (close, minimize, zoom) integrated into app
+            // Traffic light buttons (close, minimize, zoom) integrated into app - positioned at very top left
             TrafficLightButtons()
-                .padding(.top, 12)
-                .padding(.leading, 12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.top, 6)
+                .padding(.leading, 8)
             
             // Floating liquid glass navigation bar
             liquidGlassNavBar
