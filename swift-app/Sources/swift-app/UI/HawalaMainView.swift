@@ -269,19 +269,19 @@ struct HawalaMainView: View {
                 // Network status indicator
                 NetworkStatusBar()
                 
-                glassIconButton("arrow.up.arrow.down") {
+                GlassIconButton(icon: "arrow.up.arrow.down") {
                     showSendPicker = true
                 }
                 
-                glassIconButton("qrcode") {
+                GlassIconButton(icon: "qrcode") {
                     showReceiveSheet = true
                 }
                 
-                glassIconButton("gearshape") {
+                GlassIconButton(icon: "gearshape") {
                     showSettingsPanel = true
                 }
                 
-                glassIconButton("bell", badge: NotificationManager.shared.unreadCount) {
+                GlassIconButton(icon: "bell", badge: NotificationManager.shared.unreadCount) {
                     showNotificationsSheet = true
                 }
             }
@@ -291,13 +291,26 @@ struct HawalaMainView: View {
         .fixedSize(horizontal: true, vertical: false) // Prevents stretching
         .background(
             ZStack {
-                // Optimized glass effect - single layer instead of ultraThinMaterial
-                Capsule()
-                    .fill(Color(white: 0.15, opacity: 0.85))
+                // Glassmorphism effect
+                if #available(macOS 12.0, *) {
+                    Capsule()
+                        .fill(.ultraThinMaterial)
+                        .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
+                } else {
+                    Capsule()
+                        .fill(Color(white: 0.15, opacity: 0.85))
+                }
                 
-                // Simple border
+                // Simple border with gradient
                 Capsule()
-                    .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [.white.opacity(0.2), .white.opacity(0.05)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
             }
         )
         .shadow(color: Color.black.opacity(0.25), radius: 12, x: 0, y: 6) // Single optimized shadow
@@ -309,7 +322,7 @@ struct HawalaMainView: View {
         let isHovered = hoveredTab == tab
         
         return Button(action: {
-            withAnimation(.easeOut(duration: 0.2)) {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                 selectedTab = tab
             }
         }) {
@@ -336,40 +349,58 @@ struct HawalaMainView: View {
                     }
                 }
             )
+            .scaleEffect(isHovered ? 1.05 : 1.0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHovered)
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            hoveredTab = hovering ? tab : nil // No animation on hover - instant response
+            withAnimation(.easeInOut(duration: 0.2)) {
+                hoveredTab = hovering ? tab : nil
+            }
         }
     }
     
     // MARK: - Glass Icon Button
-    private func glassIconButton(_ icon: String, badge: Int? = nil, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: icon)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
-                    .frame(width: 26, height: 26)
-                    .background(
-                        Circle()
-                            .fill(Color.white.opacity(0.05))
-                    )
-                
-                if let badge = badge, badge > 0 {
-                    Circle()
-                        .fill(HawalaTheme.Colors.accent)
-                        .frame(width: 12, height: 12)
-                        .overlay(
-                            Text("\(min(badge, 9))")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.white)
+    struct GlassIconButton: View {
+        let icon: String
+        var badge: Int? = nil
+        let action: () -> Void
+        
+        @State private var isHovered = false
+        
+        var body: some View {
+            Button(action: action) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: icon)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                        .frame(width: 26, height: 26)
+                        .background(
+                            Circle()
+                                .fill(isHovered ? Color.white.opacity(0.1) : Color.white.opacity(0.05))
                         )
-                        .offset(x: 4, y: -4)
+                        .scaleEffect(isHovered ? 1.1 : 1.0)
+                    
+                    if let badge = badge, badge > 0 {
+                        Circle()
+                            .fill(HawalaTheme.Colors.accent)
+                            .frame(width: 12, height: 12)
+                            .overlay(
+                                Text("\(min(badge, 9))")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(.white)
+                            )
+                            .offset(x: 4, y: -4)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                    isHovered = hovering
                 }
             }
         }
-        .buttonStyle(.plain)
     }
     
     // MARK: - Main Content (with Liquid Glass Transitions)
@@ -389,7 +420,10 @@ struct HawalaMainView: View {
                         }
                     }
                     .id(selectedTab)
-                    .transition(.opacity)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.98)).animation(.easeOut(duration: 0.25)),
+                        removal: .opacity.animation(.easeIn(duration: 0.15))
+                    ))
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -1441,24 +1475,39 @@ struct BentoAssetCard: View {
             .frame(height: 175)
             .background(
                 ZStack {
-                    // Optimized solid background instead of ultraThinMaterial
-                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                        .fill(Color(white: 0.12, opacity: 0.9))
+                    // Glassmorphism card background
+                    if #available(macOS 12.0, *) {
+                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                            .fill(.ultraThinMaterial)
+                            .opacity(0.6)
+                    } else {
+                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                            .fill(Color(white: 0.12, opacity: 0.9))
+                    }
                     
-                    // Border - simple, no condition checks in rendering
+                    // Border with gradient
                     RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
                         .strokeBorder(
-                            Color.white.opacity(isSelected ? 0.25 : (isHovered ? 0.12 : 0.06)),
+                            LinearGradient(
+                                colors: [
+                                    .white.opacity(isSelected ? 0.3 : (isHovered ? 0.15 : 0.1)),
+                                    .white.opacity(isSelected ? 0.1 : (isHovered ? 0.05 : 0.02))
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
                             lineWidth: isSelected ? 1.5 : 1
                         )
                 }
             )
-            .shadow(color: Color.black.opacity(0.08), radius: 4, y: 2) // Single light shadow
+            .scaleEffect(isHovered ? 1.02 : 1.0)
+            .shadow(color: Color.black.opacity(isHovered ? 0.2 : 0.1), radius: isHovered ? 15 : 10, x: 0, y: isHovered ? 8 : 5)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
             .drawingGroup() // GPU-accelerated rendering for smooth scrolling
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            isHovered = hovering // No animation - instant response
+            isHovered = hovering
         }
         .contextMenu {
             // Quick actions context menu
