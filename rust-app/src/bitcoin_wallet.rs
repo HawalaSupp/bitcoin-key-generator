@@ -31,15 +31,66 @@ pub struct UtxoStatus {
 }
 
 pub fn fetch_utxos(address: &str, network: Network) -> Result<Vec<Utxo>, Box<dyn Error>> {
-    let base_url = match network {
-        Network::Bitcoin => "https://blockstream.info/api",
-        Network::Testnet => "https://blockstream.info/testnet/api",
+    use std::time::Duration;
+    
+    // Try mempool.space first (more reliable), then blockstream as fallback
+    let apis: Vec<(&str, &str)> = match network {
+        Network::Bitcoin => vec![
+            ("https://mempool.space/api", "mempool.space"),
+            ("https://blockstream.info/api", "blockstream"),
+        ],
+        Network::Testnet => vec![
+            ("https://mempool.space/testnet/api", "mempool.space testnet"),
+            ("https://blockstream.info/testnet/api", "blockstream testnet"),
+        ],
         _ => return Err("Unsupported network for UTXO fetch".into()),
     };
-    let url = format!("{}/address/{}/utxo", base_url, address);
-    let resp = reqwest::blocking::get(&url)?.text()?;
-    let utxos: Vec<Utxo> = serde_json::from_str(&resp)?;
-    Ok(utxos)
+    
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(8))  // Reduced timeout for faster response
+        .connect_timeout(Duration::from_secs(5))
+        .build()?;
+    
+    let mut last_error: Option<Box<dyn Error>> = None;
+    
+    for (base_url, api_name) in apis {
+        let url = format!("{}/address/{}/utxo", base_url, address);
+        eprintln!("Fetching UTXOs from {}...", api_name);
+        
+        match client.get(&url).send() {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    match resp.text() {
+                        Ok(text) => {
+                            match serde_json::from_str::<Vec<Utxo>>(&text) {
+                                Ok(utxos) => {
+                                    eprintln!("Found {} UTXOs from {}", utxos.len(), api_name);
+                                    return Ok(utxos);
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to parse response from {}: {}", api_name, e);
+                                    last_error = Some(Box::new(e));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to read response from {}: {}", api_name, e);
+                            last_error = Some(Box::new(e));
+                        }
+                    }
+                } else {
+                    eprintln!("{} returned status {}", api_name, resp.status());
+                    last_error = Some(format!("HTTP {}", resp.status()).into());
+                }
+            }
+            Err(e) => {
+                eprintln!("{} request failed: {}", api_name, e);
+                last_error = Some(Box::new(e));
+            }
+        }
+    }
+    
+    Err(last_error.unwrap_or_else(|| "All UTXO APIs failed".into()))
 }
 
 pub fn prepare_transaction(
@@ -60,25 +111,38 @@ pub fn prepare_transaction(
         .map_err(|_| "Failed to compress public key")?;
 
     let sender_address = Address::p2wpkh(&compressed_public_key, network);
+    eprintln!("Sender address: {}", sender_address);
 
     // 1. Fetch UTXOs
     let utxos = fetch_utxos(&sender_address.to_string(), network)?;
+    eprintln!("Fetched {} UTXOs total", utxos.len());
+    
+    if utxos.is_empty() {
+        return Err("No UTXOs available for this address".into());
+    }
 
     // 2. Select Inputs (Simple FIFO)
-    let mut inputs = Vec::new();
-    let mut total_input_value = 0;
+    let mut inputs: Vec<Utxo> = Vec::new();
+    let mut total_input_value: u64 = 0;
     let target_value = amount_sats; // We'll add fee later
 
     for utxo in utxos {
+        eprintln!("UTXO: txid={}, vout={}, value={} sats", utxo.txid, utxo.vout, utxo.value);
+        total_input_value += utxo.value;
         inputs.push(utxo);
-        total_input_value += inputs.last().unwrap().value;
         if total_input_value >= target_value {
             break;
         }
     }
+    
+    eprintln!("Selected {} inputs with total {} sats", inputs.len(), total_input_value);
+
+    if inputs.is_empty() {
+        return Err("No inputs selected - no UTXOs available".into());
+    }
 
     if total_input_value < target_value {
-        return Err("Insufficient funds".into());
+        return Err(format!("Insufficient funds: have {} sats, need {} sats", total_input_value, target_value).into());
     }
 
     // 3. Estimate Fee (Simple approximation: 1 input ~68 vbytes, 1 output ~31 vbytes, overhead ~10 vbytes)
@@ -132,6 +196,12 @@ pub fn prepare_transaction(
         input: tx_inputs,
         output: tx_outputs,
     };
+    
+    eprintln!("Transaction built: {} inputs, {} outputs", tx.input.len(), tx.output.len());
+    
+    if tx.input.is_empty() {
+        return Err("Transaction has no inputs - this should not happen".into());
+    }
 
     // 5. Sign Inputs
     let mut sighasher = SighashCache::new(&mut tx);
@@ -163,5 +233,6 @@ pub fn prepare_transaction(
 
     // 6. Serialize
     let raw_hex = hex::encode(encode::serialize(&tx));
+    eprintln!("Signed transaction hex ({} chars): {}...", raw_hex.len(), &raw_hex[..std::cmp::min(80, raw_hex.len())]);
     Ok(raw_hex)
 }

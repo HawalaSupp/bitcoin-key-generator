@@ -34,6 +34,8 @@ struct SettingsView: View {
     @State private var showDebugConsole = false
     @State private var isForceSyncing = false
     @State private var showCustomTokensSheet = false
+    @State private var showAddressManagement = false
+    @State private var showStealthAddresses = false
     
     // Debug/Developer info
     @StateObject private var debugLogger = DebugLogger.shared
@@ -119,6 +121,12 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showCustomTokensSheet) {
             CustomTokensSheet()
+        }
+        .sheet(isPresented: $showAddressManagement) {
+            AddressManagementView()
+        }
+        .sheet(isPresented: $showStealthAddresses) {
+            StealthAddressView()
         }
         .alert("Reset Wallet", isPresented: $showResetConfirm) {
             Button("Cancel", role: .cancel) { }
@@ -214,6 +222,32 @@ struct SettingsView: View {
                     set: { showBalances = !$0 }
                 )
             )
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
+            SettingsRow(
+                icon: "list.bullet.rectangle",
+                iconColor: HawalaTheme.Colors.accent,
+                title: "Address Management",
+                subtitle: "HD wallet addresses, reuse warnings"
+            ) {
+                showAddressManagement = true
+            }
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
+            SettingsRow(
+                icon: "eye.slash.circle.fill",
+                iconColor: HawalaTheme.Colors.success,
+                title: "Stealth Addresses",
+                subtitle: "One-time addresses for maximum privacy"
+            ) {
+                showStealthAddresses = true
+            }
         }
     }
     

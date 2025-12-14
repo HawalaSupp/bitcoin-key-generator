@@ -335,6 +335,24 @@ struct FilterPill: View {
 
 struct TransactionRowView: View {
     let transaction: TransactionDisplayItem
+    var onSpeedUp: (() -> Void)? = nil
+    var onCancel: (() -> Void)? = nil
+    var onViewExplorer: (() -> Void)? = nil
+    
+    /// Whether this transaction can be sped up/cancelled
+    private var canSpeedUp: Bool {
+        guard transaction.status == .pending else { return false }
+        // Bitcoin/Litecoin: RBF enabled transactions can be replaced
+        // Ethereum: pending transactions can be replaced with higher gas
+        switch transaction.chainId {
+        case "bitcoin", "bitcoin-testnet", "litecoin":
+            return true // Assume RBF enabled
+        case "ethereum", "ethereum-sepolia", "bnb":
+            return true // Can always replace pending ETH
+        default:
+            return false
+        }
+    }
     
     var body: some View {
         HStack(spacing: HawalaTheme.Spacing.md) {
@@ -386,12 +404,79 @@ struct TransactionRowView: View {
                     // Status badge
                     statusBadge
                 }
+                
+                // RBF Action buttons for pending sent transactions
+                if canSpeedUp && transaction.type == .send {
+                    HStack(spacing: 8) {
+                        Button {
+                            onSpeedUp?()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "bolt.fill")
+                                    .font(.system(size: 10))
+                                Text("Speed Up")
+                                    .font(.system(size: 10, weight: .semibold))
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.orange.opacity(0.15))
+                            .foregroundColor(.orange)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        
+                        Button {
+                            onCancel?()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 10))
+                                Text("Cancel")
+                                    .font(.system(size: 10, weight: .semibold))
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.red.opacity(0.15))
+                            .foregroundColor(.red)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        
+                        Spacer()
+                    }
+                    .padding(.top, 6)
+                }
             }
         }
         .padding(HawalaTheme.Spacing.md)
         .background(HawalaTheme.Colors.backgroundSecondary)
         .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
         .padding(.horizontal, HawalaTheme.Spacing.lg)
+        .contextMenu {
+            if let explorer = onViewExplorer {
+                Button {
+                    explorer()
+                } label: {
+                    Label("View on Explorer", systemImage: "arrow.up.right.square")
+                }
+            }
+            
+            if canSpeedUp && transaction.type == .send {
+                Divider()
+                
+                Button {
+                    onSpeedUp?()
+                } label: {
+                    Label("Speed Up", systemImage: "bolt.fill")
+                }
+                
+                Button(role: .destructive) {
+                    onCancel?()
+                } label: {
+                    Label("Cancel Transaction", systemImage: "xmark.circle.fill")
+                }
+            }
+        }
     }
     
     // MARK: - Computed Properties

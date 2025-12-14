@@ -63,7 +63,7 @@ class WalletConnectService: ObservableObject {
     // MARK: - Initialization
     
     init(projectId: String = "") {
-        self.projectId = projectId.isEmpty ? Self.defaultProjectId : projectId
+        self.projectId = projectId.isEmpty ? APIConfig.walletConnectProjectId : projectId
         self.metadata = WCAppMetadata(
             name: "Hawala Wallet",
             description: "Secure self-custody crypto wallet",
@@ -77,6 +77,12 @@ class WalletConnectService: ObservableObject {
         self.urlSession = URLSession(configuration: config)
         
         loadSavedSessions()
+        
+        if self.projectId.isEmpty {
+            print("⚠️ WalletConnect: No project ID configured. Get one at https://cloud.walletconnect.com/")
+        } else {
+            print("🔗 WalletConnect: Initialized with project ID: \(self.projectId.prefix(8))...")
+        }
     }
     
     // Default project ID (should be configured in production)

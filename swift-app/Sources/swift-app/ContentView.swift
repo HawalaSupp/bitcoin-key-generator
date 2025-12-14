@@ -527,8 +527,8 @@ struct ContentView: View {
             }
         }
         .sheet(item: $sendChainContext, onDismiss: { sendChainContext = nil }) { chain in
-            if keys != nil {
-                SendView(initialChain: mapToChain(chain.id), onSuccess: { result in
+            if let keys {
+                SendView(keys: keys, initialChain: mapToChain(chain.id), onSuccess: { result in
                     handleTransactionSuccess(result)
                 })
             } else {
@@ -3561,12 +3561,13 @@ struct ContentView: View {
     }
 
     private func mapToChain(_ chainId: String) -> Chain {
-        if chainId.starts(with: "bitcoin") { return .bitcoin }
+        if chainId == "bitcoin-testnet" { return .bitcoinTestnet }
+        if chainId == "bitcoin" || chainId == "bitcoin-mainnet" { return .bitcoinMainnet }
         if chainId.starts(with: "ethereum") { return .ethereum }
         if chainId == "solana" { return .solana }
         if chainId == "xrp" { return .xrp }
         if chainId == "monero" { return .monero }
-        return .bitcoin
+        return .bitcoinTestnet
     }
 
     private func sendEligibleChains(from keys: AllKeys) -> [ChainInfo] {
@@ -10173,6 +10174,26 @@ private struct SecuritySettingsView: View {
                             .foregroundStyle(.orange)
                     }
                 }
+                
+                // Duress Protection Section
+                Section(header: Text("Duress Protection")) {
+                    DuressProtectionRow(hasPasscode: hasPasscode)
+                }
+                
+                // Inheritance Protocol Section
+                Section(header: Text("Inheritance Protocol")) {
+                    InheritanceProtocolRow()
+                }
+                
+                // Geographic Security Section
+                Section(header: Text("Location Security")) {
+                    GeographicSecurityRow()
+                }
+                
+                // Social Recovery Section
+                Section(header: Text("Social Recovery")) {
+                    SocialRecoveryRow()
+                }
             }
             .navigationTitle("Security Settings")
             .toolbar {
@@ -10181,7 +10202,7 @@ private struct SecuritySettingsView: View {
                 }
             }
         }
-        .frame(width: 420, height: 520)
+        .frame(width: 420, height: 750)
     }
 
     private func validateAndSave() {
@@ -10211,6 +10232,212 @@ private struct SecuritySettingsView: View {
             return kind.iconName
         }
         return "lock.circle"
+    }
+}
+
+// MARK: - Duress Protection Row
+
+private struct DuressProtectionRow: View {
+    let hasPasscode: Bool
+    @StateObject private var duressManager = DuressWalletManager.shared
+    @State private var showDuressSetup = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: duressManager.isConfigured ? "shield.checkered" : "exclamationmark.shield")
+                    .foregroundColor(duressManager.isConfigured ? .green : .orange)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Duress PIN")
+                        .font(.body)
+                    
+                    Text(duressManager.isConfigured ? "Protected with decoy wallet" : "Not configured")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                Button(duressManager.isConfigured ? "Manage" : "Set Up") {
+                    showDuressSetup = true
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!hasPasscode)
+            }
+            
+            if !hasPasscode {
+                Text("Set a passcode first to enable duress protection.")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            } else {
+                Text("Create a secondary PIN that opens a decoy wallet with minimal funds. Use in coercion scenarios for plausible deniability.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            
+            // Show duress mode indicator (only visible in real mode)
+            if duressManager.isInDuressMode {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.red)
+                    Text("Currently in duress mode")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+                .padding(.top, 4)
+            }
+        }
+        .sheet(isPresented: $showDuressSetup) {
+            DuressSetupView()
+        }
+    }
+}
+
+// MARK: - Inheritance Protocol Row
+
+private struct InheritanceProtocolRow: View {
+    @StateObject private var manager = DeadMansSwitchManager.shared
+    @State private var showInheritanceSetup = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: manager.isConfigured ? "person.2.badge.gearshape.fill" : "person.2.badge.gearshape")
+                    .foregroundColor(manager.isConfigured ? .green : .blue)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Dead Man's Switch")
+                        .font(.body)
+                    
+                    if manager.isConfigured {
+                        Text("\(manager.daysUntilTrigger ?? 0) days until trigger")
+                            .font(.caption)
+                            .foregroundColor(manager.warningLevel == .critical ? .red : 
+                                           manager.warningLevel == .warning ? .orange : .secondary)
+                    } else {
+                        Text("Not configured")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                Spacer()
+                
+                if manager.isConfigured && manager.warningLevel != .none {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(manager.warningLevel == .critical ? .red : .orange)
+                }
+                
+                Button(manager.isConfigured ? "Manage" : "Set Up") {
+                    showInheritanceSetup = true
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            
+            Text("Automatically transfer funds to designated heirs after a period of inactivity. Trustless inheritance using blockchain timelocks.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .sheet(isPresented: $showInheritanceSetup) {
+            DeadMansSwitchView()
+        }
+    }
+}
+
+// MARK: - Geographic Security Row
+
+private struct GeographicSecurityRow: View {
+    @StateObject private var manager = GeographicSecurityManager.shared
+    @State private var showGeoSecurity = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: manager.isEnabled ? "location.shield.fill" : "location.slash")
+                    .font(.title2)
+                    .foregroundStyle(manager.isEnabled ? .blue : .secondary)
+                
+                VStack(alignment: .leading) {
+                    Text("Geographic Security")
+                        .font(.headline)
+                    
+                    if manager.travelModeActive {
+                        Text("Travel Mode Active")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    } else if manager.isEnabled {
+                        Text("\(manager.trustedZones.count) trusted zone(s)")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    } else {
+                        Text("Location protection disabled")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                
+                Spacer()
+                
+                Button(manager.isEnabled ? "Manage" : "Enable") {
+                    showGeoSecurity = true
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            
+            Text("Restrict wallet access based on geographic location. Set trusted zones, enable travel mode, and add location-based transaction limits.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .sheet(isPresented: $showGeoSecurity) {
+            GeographicSecurityView()
+        }
+    }
+}
+
+// MARK: - Social Recovery Row
+
+private struct SocialRecoveryRow: View {
+    @StateObject private var multisigManager = MultisigManager.shared
+    @State private var showSocialRecovery = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "person.3.fill")
+                    .font(.title2)
+                    .foregroundStyle(.purple)
+                
+                VStack(alignment: .leading) {
+                    Text("Social Recovery")
+                        .font(.headline)
+                    
+                    if !multisigManager.wallets.isEmpty {
+                        Text("\(multisigManager.wallets.count) multisig wallet(s)")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    } else {
+                        Text("No multisig wallets configured")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                
+                Spacer()
+                
+                Button("Configure") {
+                    showSocialRecovery = true
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            
+            Text("Use trusted guardians to help recover your wallet if you lose access. Add friends, family, or hardware keys as recovery partners.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .sheet(isPresented: $showSocialRecovery) {
+            SocialRecoveryView()
+        }
     }
 }
 

@@ -6,6 +6,22 @@ struct APIConfig {
     // See APIKeys.swift.template for setup instructions
     static let alchemyAPIKey = APIKeys.alchemyAPIKey
     
+    // MARK: - WalletConnect Configuration
+    // Project ID from https://cloud.walletconnect.com/
+    static var walletConnectProjectId: String {
+        // Try to get from APIKeys first, then environment variable
+        if let apiKeysId = (APIKeys.self as AnyObject).value(forKey: "walletConnectProjectId") as? String,
+           !apiKeysId.isEmpty && apiKeysId != "YOUR_WALLETCONNECT_PROJECT_ID_HERE" {
+            return apiKeysId
+        }
+        return ProcessInfo.processInfo.environment["WALLETCONNECT_PROJECT_ID"] ?? ""
+    }
+    
+    static func isWalletConnectConfigured() -> Bool {
+        let projectId = walletConnectProjectId
+        return !projectId.isEmpty && projectId != "YOUR_WALLETCONNECT_PROJECT_ID_HERE"
+    }
+    
     // Alchemy endpoints
     static var alchemyMainnetURL: String {
         "https://eth-mainnet.g.alchemy.com/v2/\(alchemyAPIKey)"

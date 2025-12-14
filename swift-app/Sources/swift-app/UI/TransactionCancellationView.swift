@@ -50,13 +50,13 @@ struct TransactionCancellationSheet: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var cancellationManager = TransactionCancellationManager.shared
     
-    // State
+    // State - use safe defaults to prevent Slider crash before async load completes
     @State private var mode: CancellationMode = .cancel
-    @State private var newFeeRate: Double = 0
-    @State private var minFeeRate: Double = 0
-    @State private var maxFeeRate: Double = 0
-    @State private var recommendedFeeRate: Double = 0
-    @State private var isLoading = false
+    @State private var newFeeRate: Double = 10
+    @State private var minFeeRate: Double = 1
+    @State private var maxFeeRate: Double = 100  // Safe default > minFeeRate
+    @State private var recommendedFeeRate: Double = 20
+    @State private var isLoading = true  // Start as loading
     @State private var errorMessage: String?
     @State private var mempoolInfo: TransactionCancellationManager.MempoolInfo?
     @State private var estimatedCost: String = "—"
@@ -323,6 +323,13 @@ struct TransactionCancellationSheet: View {
     
     // MARK: - Fee Section
     
+    /// Safe slider range - ensures maxFeeRate > minFeeRate to prevent SwiftUI crash
+    private var safeSliderRange: ClosedRange<Double> {
+        let safeMin = max(1, minFeeRate)
+        let safeMax = max(safeMin + 1, maxFeeRate)
+        return safeMin...safeMax
+    }
+    
     private var feeSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
@@ -335,9 +342,10 @@ struct TransactionCancellationSheet: View {
                     .foregroundStyle(mode.color)
             }
             
-            // Slider
-            Slider(value: $newFeeRate, in: minFeeRate...maxFeeRate, step: 1)
+            // Slider - use safe range to prevent crash when max <= min
+            Slider(value: $newFeeRate, in: safeSliderRange, step: 1)
                 .tint(mode.color)
+                .disabled(maxFeeRate <= minFeeRate) // Disable if range invalid
                 .onChange(of: newFeeRate) { _ in
                     updateEstimates()
                 }

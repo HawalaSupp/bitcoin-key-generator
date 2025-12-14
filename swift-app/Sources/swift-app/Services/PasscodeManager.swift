@@ -53,13 +53,29 @@ final class PasscodeManager: ObservableObject {
     }
     
     /// Verify entered passcode against stored hash
+    /// Returns true if the passcode matches (either real or duress PIN)
     func verifyPasscode(_ passcode: String) -> Bool {
+        // First check if it's the duress PIN
+        if DuressWalletManager.shared.isDuressPin(passcode) {
+            // Activate duress mode - decoy wallet will be shown
+            DuressWalletManager.shared.activateDuressMode()
+            return true // Allow unlock, but into duress mode
+        }
+        
+        // Check real passcode
         guard let storedHash = loadPasscodeHash() else {
             return false
         }
         
         let inputHash = hashPasscode(passcode)
-        return inputHash == storedHash
+        let isValid = inputHash == storedHash
+        
+        // If real PIN entered successfully and was in duress mode, deactivate it
+        if isValid && DuressWalletManager.shared.isInDuressMode {
+            DuressWalletManager.shared.deactivateDuressMode()
+        }
+        
+        return isValid
     }
     
     /// Set a new passcode

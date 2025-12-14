@@ -13,15 +13,16 @@ final class RustCLIBridge: Sendable {
     private let binaryPath: String?
     
     private init() {
-        // Try to locate the binary relative to the current working directory
-        // When running via `swift run`, we are in the package root.
-        // The binary is in ../rust-app/target/debug/rust-app
+        // Try to locate the binary
+        // Priority: absolute path first (most reliable), then relative paths
         
         let possiblePaths = [
+            // Absolute path - most reliable
+            "/Users/x/Desktop/888/rust-app/target/debug/rust-app",
+            "/Users/x/Desktop/888/rust-app/target/release/rust-app",
+            // Relative paths from swift-app directory
             "../rust-app/target/debug/rust-app",
-            "../rust-app/target/release/rust-app",
-            "./rust-app",
-            "/Users/x/Desktop/888/rust-app/target/debug/rust-app" // Fallback absolute path for this environment
+            "../rust-app/target/release/rust-app"
         ]
         
         var foundPath: String?
@@ -35,9 +36,10 @@ final class RustCLIBridge: Sendable {
         self.binaryPath = foundPath
         
         if let path = self.binaryPath {
-            print("Found Rust binary at: \(path)")
+            print("✅ Found Rust binary at: \(path)")
         } else {
-            print("Warning: Rust binary not found in expected locations.")
+            print("⚠️ Warning: Rust binary not found. Please run 'cargo build' in rust-app directory.")
+            print("   Searched paths: \(possiblePaths)")
         }
     }
     
@@ -50,9 +52,10 @@ final class RustCLIBridge: Sendable {
         process.executableURL = URL(fileURLWithPath: binaryPath)
         process.arguments = args
         
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
         
         do {
             try process.run()
@@ -62,13 +65,21 @@ final class RustCLIBridge: Sendable {
         
         process.waitUntilExit()
         
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else {
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        
+        // Log stderr for debugging but don't include in output
+        if let stderrOutput = String(data: stderrData, encoding: .utf8), !stderrOutput.isEmpty {
+            print("[Rust stderr] \(stderrOutput)")
+        }
+        
+        guard let output = String(data: stdoutData, encoding: .utf8) else {
             throw RustCLIError.outputParsingFailed
         }
         
         if process.terminationStatus != 0 {
-            throw RustCLIError.executionFailed(Int(process.terminationStatus), output)
+            let errorOutput = String(data: stderrData, encoding: .utf8) ?? output
+            throw RustCLIError.executionFailed(Int(process.terminationStatus), errorOutput)
         }
         
         return output.trimmingCharacters(in: .whitespacesAndNewlines)

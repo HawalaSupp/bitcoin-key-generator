@@ -9,4 +9,10 @@ struct APIKeys {
     // 2. Create a new app (Ethereum → Mainnet)
     // 3. Copy your API key here
     static let alchemyAPIKey = "YOUR_ALCHEMY_API_KEY_HERE"
+    
+    // Get your project ID from: https://cloud.walletconnect.com/
+    // 1. Sign up or log in
+    // 2. Create a new project
+    // 3. Copy your project ID here
+    static let walletConnectProjectId = "YOUR_WALLETCONNECT_PROJECT_ID_HERE"
 }
