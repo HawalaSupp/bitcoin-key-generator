@@ -8,6 +8,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var passcodeManager = PasscodeManager.shared
     @ObservedObject var themeManager = ThemeManager.shared
+    @ObservedObject var privacyManager = PrivacyManager.shared
     
     // Settings State
     @AppStorage("biometricLockEnabled") private var biometricLockEnabled = false
@@ -42,6 +43,7 @@ struct SettingsView: View {
     @State private var showTransactionIntentDemo = false
     @State private var showAddressIntelligence = false
     @State private var showProviderSettings = false
+    @State private var showPrivacySettings = false
     
     // Debug/Developer info
     @StateObject private var debugLogger = DebugLogger.shared
@@ -149,6 +151,17 @@ struct SettingsView: View {
             AddressIntelligenceView()
                 .frame(width: 600, height: 700)
         }
+        .sheet(isPresented: $showPrivacySettings) {
+            NavigationStack {
+                PrivacySettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close") { showPrivacySettings = false }
+                        }
+                    }
+            }
+            .frame(width: 500, height: 650)
+        }
         .alert("Reset Wallet", isPresented: $showResetConfirm) {
             Button("Cancel", role: .cancel) { }
             Button("Reset", role: .destructive) {
@@ -233,6 +246,33 @@ struct SettingsView: View {
     // MARK: - Privacy Section
     private var privacySection: some View {
         SettingsSection("Privacy") {
+            // Privacy Mode Toggle (new)
+            SettingsToggleRow(
+                icon: privacyManager.isPrivacyModeEnabled ? "eye.slash.fill" : "eye.fill",
+                iconColor: privacyManager.isPrivacyModeEnabled ? HawalaTheme.Colors.warning : HawalaTheme.Colors.info,
+                title: "Privacy Mode",
+                subtitle: "Hide all sensitive information",
+                isOn: $privacyManager.isPrivacyModeEnabled
+            )
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
+            // Privacy Settings Row (new)
+            SettingsRow(
+                icon: "hand.raised.fill",
+                iconColor: HawalaTheme.Colors.warning,
+                title: "Privacy & Duress Settings",
+                subtitle: "Decoy wallet, panic wipe, screenshot prevention"
+            ) {
+                showPrivacySettings = true
+            }
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
             SettingsToggleRow(
                 icon: "eye.slash.fill",
                 iconColor: HawalaTheme.Colors.info,
