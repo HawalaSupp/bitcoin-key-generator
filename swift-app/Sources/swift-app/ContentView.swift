@@ -305,7 +305,7 @@ struct ContentView: View {
     #if canImport(AppKit)
     @State private var activityMonitor: UserActivityMonitor?
     #endif
-    private let moneroBalancePlaceholder = "Balance protected – open your Monero wallet"
+    private let moneroBalancePlaceholder = "View-only · Open Monero GUI wallet for full access"
     private let trackedPriceChainIDs = [
         "bitcoin", "bitcoin-testnet", "ethereum", "ethereum-sepolia", "litecoin", "monero",
         "solana", "xrp", "bnb", "usdt-erc20", "usdc-erc20", "dai-erc20"

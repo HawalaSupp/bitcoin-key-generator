@@ -97,6 +97,23 @@ enum Chain: String, CaseIterable, Identifiable {
         case .monero: return "XMR"
         }
     }
+    
+    /// Whether this chain supports sending in v1
+    /// Monero requires ring signatures with blockchain state - view-only for v1
+    var supportsSending: Bool {
+        switch self {
+        case .monero: return false
+        default: return true
+        }
+    }
+    
+    /// Reason why sending is not supported (if applicable)
+    var sendingDisabledReason: String? {
+        switch self {
+        case .monero: return "Monero sending requires ring signatures with blockchain sync. View-only mode in v1."
+        default: return nil
+        }
+    }
 }
 
 struct SendView: View {
@@ -184,6 +201,11 @@ struct SendView: View {
                     VStack(spacing: HawalaTheme.Spacing.lg) {
                         // Chain Selector
                         chainSelectorSection
+                        
+                        // View-Only Warning (for chains that don't support sending)
+                        if !selectedChain.supportsSending {
+                            viewOnlyWarningBanner
+                        }
                         
                         // Recipient Address
                         recipientSection
@@ -789,6 +811,61 @@ struct SendView: View {
         .hawalaCard()
     }
     
+    // MARK: - View-Only Warning Banner
+    
+    private var viewOnlyWarningBanner: some View {
+        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
+            HStack(spacing: HawalaTheme.Spacing.sm) {
+                Image(systemName: "eye.fill")
+                    .font(.title2)
+                    .foregroundColor(HawalaTheme.Colors.warning)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("View-Only Mode")
+                        .font(HawalaTheme.Typography.h4)
+                        .foregroundColor(HawalaTheme.Colors.warning)
+                    
+                    Text("Sending is not available for this chain")
+                        .font(HawalaTheme.Typography.caption)
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                }
+                
+                Spacer()
+            }
+            
+            if let reason = selectedChain.sendingDisabledReason {
+                Text(reason)
+                    .font(HawalaTheme.Typography.bodySmall)
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .padding(HawalaTheme.Spacing.sm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(HawalaTheme.Colors.backgroundTertiary)
+                    .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm, style: .continuous))
+            }
+            
+            // Show what IS supported
+            VStack(alignment: .leading, spacing: HawalaTheme.Spacing.xs) {
+                Text("Available features:")
+                    .font(HawalaTheme.Typography.caption)
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                
+                HStack(spacing: HawalaTheme.Spacing.md) {
+                    Label("View Address", systemImage: "qrcode")
+                    Label("Copy Address", systemImage: "doc.on.doc")
+                }
+                .font(HawalaTheme.Typography.bodySmall)
+                .foregroundColor(HawalaTheme.Colors.success)
+            }
+        }
+        .padding(HawalaTheme.Spacing.md)
+        .background(HawalaTheme.Colors.warning.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                .strokeBorder(HawalaTheme.Colors.warning.opacity(0.3), lineWidth: 1)
+        )
+    }
+    
     // MARK: - Error Banner
     
     private func errorBanner(_ error: String) -> some View {
@@ -1042,6 +1119,7 @@ struct SendView: View {
     // MARK: - Computed Properties
     
     private var canSend: Bool {
+        guard selectedChain.supportsSending else { return false }
         guard !isLoading else { return false }
         guard !recipientAddress.isEmpty else { return false }
         guard !amount.isEmpty else { return false }
