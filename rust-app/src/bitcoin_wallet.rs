@@ -98,6 +98,7 @@ pub fn prepare_transaction(
     amount_sats: u64,
     fee_rate_sats_per_vbyte: u64,
     sender_wif: &str,
+    manual_utxos: Option<Vec<Utxo>>,
 ) -> Result<String, Box<dyn Error>> {
     let secp = Secp256k1::new();
     let private_key = bitcoin::PrivateKey::from_wif(sender_wif)?;
@@ -113,25 +114,40 @@ pub fn prepare_transaction(
     let sender_address = Address::p2wpkh(&compressed_public_key, network);
     eprintln!("Sender address: {}", sender_address);
 
-    // 1. Fetch UTXOs
-    let utxos = fetch_utxos(&sender_address.to_string(), network)?;
-    eprintln!("Fetched {} UTXOs total", utxos.len());
+    // 1. Fetch UTXOs (or use manual)
+    let (utxos, is_manual) = if let Some(u) = manual_utxos {
+        eprintln!("Using {} manual UTXOs", u.len());
+        (u, true)
+    } else {
+        (fetch_utxos(&sender_address.to_string(), network)?, false)
+    };
+    eprintln!("Available UTXOs: {}", utxos.len());
     
     if utxos.is_empty() {
-        return Err("No UTXOs available for this address".into());
+        return Err("No UTXOs available".into());
     }
 
-    // 2. Select Inputs (Simple FIFO)
+    // 2. Select Inputs
     let mut inputs: Vec<Utxo> = Vec::new();
     let mut total_input_value: u64 = 0;
     let target_value = amount_sats; // We'll add fee later
 
-    for utxo in utxos {
-        eprintln!("UTXO: txid={}, vout={}, value={} sats", utxo.txid, utxo.vout, utxo.value);
-        total_input_value += utxo.value;
-        inputs.push(utxo);
-        if total_input_value >= target_value {
-            break;
+    if is_manual {
+        // If manual UTXOs provided, use ALL of them (Coin Control)
+        for utxo in utxos {
+            eprintln!("Using Manual UTXO: txid={}, vout={}, value={} sats", utxo.txid, utxo.vout, utxo.value);
+            total_input_value += utxo.value;
+            inputs.push(utxo);
+        }
+    } else {
+        // Auto-selection (FIFO)
+        for utxo in utxos {
+            eprintln!("UTXO: txid={}, vout={}, value={} sats", utxo.txid, utxo.vout, utxo.value);
+            total_input_value += utxo.value;
+            inputs.push(utxo);
+            if total_input_value >= target_value {
+                break;
+            }
         }
     }
     

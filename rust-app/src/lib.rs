@@ -583,6 +583,7 @@ struct TransactionRequest {
     amount_sats: u64,
     fee_rate: u64,
     sender_wif: String,
+    utxos: Option<Vec<bitcoin_wallet::Utxo>>,
 }
 
 #[unsafe(no_mangle)]
@@ -611,6 +612,7 @@ pub extern "C" fn prepare_transaction_ffi(json_input: *const c_char) -> *mut c_c
         request.amount_sats,
         request.fee_rate,
         &request.sender_wif,
+        request.utxos,
     ) {
         Ok(hex) => CString::new(format!("{{\"success\": true, \"tx_hex\": \"{}\"}}", hex))
             .unwrap()

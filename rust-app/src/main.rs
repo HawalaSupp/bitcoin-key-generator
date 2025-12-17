@@ -32,6 +32,8 @@ enum Commands {
         fee_rate: u64,
         #[arg(long)]
         sender_wif: String,
+        #[arg(long)]
+        utxos: Option<String>, // JSON string of UTXOs
     },
     /// Sign an Ethereum transaction
     SignEth {
@@ -109,8 +111,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         Commands::GenKeys { mnemonic, json } => {
             handle_gen_keys(mnemonic.as_deref(), *json)?;
         }
-        Commands::SignBtc { recipient, amount_sats, fee_rate, sender_wif } => {
-             let tx_hex = rust_app::bitcoin_wallet::prepare_transaction(recipient, *amount_sats, *fee_rate, sender_wif)?;
+        Commands::SignBtc { recipient, amount_sats, fee_rate, sender_wif, utxos } => {
+             let manual_utxos = if let Some(json) = utxos {
+                 Some(serde_json::from_str::<Vec<rust_app::bitcoin_wallet::Utxo>>(json)?)
+             } else {
+                 None
+             };
+             let tx_hex = rust_app::bitcoin_wallet::prepare_transaction(recipient, *amount_sats, *fee_rate, sender_wif, manual_utxos)?;
              println!("{}", tx_hex);
         }
         Commands::SignEth { recipient, amount_wei, chain_id, sender_key, nonce, gas_limit, gas_price, data } => {
