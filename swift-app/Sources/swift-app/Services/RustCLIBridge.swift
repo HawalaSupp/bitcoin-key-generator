@@ -127,6 +127,21 @@ final class RustCLIBridge: Sendable {
         let classic_address: String
     }
     
+    // Helper structs for Rust interop
+    struct RustUTXO: Codable {
+        let txid: String
+        let vout: UInt32
+        let value: UInt64
+        let status: RustUTXOStatus
+    }
+    
+    struct RustUTXOStatus: Codable {
+        let confirmed: Bool
+        let block_height: UInt32?
+        let block_hash: String?
+        let block_time: UInt64?
+    }
+    
     func generateKeys(mnemonic: String) throws -> AllKeys {
         let args = ["gen-keys", "--mnemonic", mnemonic, "--json"]
         let jsonString = try runCommand(args: args)
@@ -141,14 +156,24 @@ final class RustCLIBridge: Sendable {
 
     // MARK: - Bitcoin
     
-    func signBitcoin(recipient: String, amountSats: UInt64, feeRate: UInt64, senderWIF: String) throws -> String {
-        let args = [
+    func signBitcoin(recipient: String, amountSats: UInt64, feeRate: UInt64, senderWIF: String, utxos: [RustUTXO]? = nil) throws -> String {
+        var args = [
             "sign-btc",
             "--recipient", recipient,
             "--amount-sats", String(amountSats),
             "--fee-rate", String(feeRate),
             "--sender-wif", senderWIF
         ]
+        
+        if let utxos = utxos {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(utxos)
+            if let jsonString = String(data: data, encoding: .utf8) {
+                args.append("--utxos")
+                args.append(jsonString)
+            }
+        }
+        
         return try runCommand(args: args)
     }
     

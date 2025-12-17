@@ -262,12 +262,28 @@ struct SendView: View {
             Task {
                 await feeEstimator.fetchBitcoinFees(isTestnet: true)
                 await feeEstimator.fetchEthereumFees()
+                
+                // Refresh UTXOs for Bitcoin chains
+                if selectedChain == .bitcoinTestnet {
+                    await UTXOCoinControlManager.shared.refreshUTXOs(for: keys.bitcoinTestnet.address, network: .testnet)
+                } else if selectedChain == .bitcoinMainnet {
+                    await UTXOCoinControlManager.shared.refreshUTXOs(for: keys.bitcoin.address, network: .mainnet)
+                }
             }
         }
-        .onChange(of: selectedChain) { _ in
+        .onChange(of: selectedChain) { newChain in
             updateFeeFromPriority()
             if !recipientAddress.isEmpty {
                 validateAddressAsync()
+            }
+            
+            // Refresh UTXOs when switching to Bitcoin
+            Task {
+                if newChain == .bitcoinTestnet {
+                    await UTXOCoinControlManager.shared.refreshUTXOs(for: keys.bitcoinTestnet.address, network: .testnet)
+                } else if newChain == .bitcoinMainnet {
+                    await UTXOCoinControlManager.shared.refreshUTXOs(for: keys.bitcoin.address, network: .mainnet)
+                }
             }
         }
         .onChange(of: selectedFeePriority) { _ in
@@ -1413,11 +1429,32 @@ struct SendView: View {
                     let recipient = await MainActor.run { self.recipientAddress }
                     let wif = await MainActor.run { self.keys.bitcoinTestnet.privateWif }
                     
+                    // Select UTXOs
+                    let rustUTXOs = await MainActor.run {
+                        let manager = UTXOCoinControlManager.shared
+                        let targetAmount = amountSats + (fee * 200) + 1000
+                        let selected = manager.selectUTXOs(for: targetAmount)
+                        return selected.map { u in
+                            RustCLIBridge.RustUTXO(
+                                txid: u.txid,
+                                vout: UInt32(u.vout),
+                                value: u.value,
+                                status: RustCLIBridge.RustUTXOStatus(
+                                    confirmed: u.confirmations > 0,
+                                    block_height: nil,
+                                    block_hash: nil,
+                                    block_time: nil
+                                )
+                            )
+                        }
+                    }
+                    
                     signedHex = try RustCLIBridge.shared.signBitcoin(
                         recipient: recipient,
                         amountSats: amountSats,
                         feeRate: fee,
-                        senderWIF: wif
+                        senderWIF: wif,
+                        utxos: rustUTXOs
                     )
                     
                 case .bitcoinMainnet:
@@ -1426,11 +1463,32 @@ struct SendView: View {
                     let recipient = await MainActor.run { self.recipientAddress }
                     let wif = await MainActor.run { self.keys.bitcoin.privateWif }
                     
+                    // Select UTXOs
+                    let rustUTXOs = await MainActor.run {
+                        let manager = UTXOCoinControlManager.shared
+                        let targetAmount = amountSats + (fee * 200) + 1000
+                        let selected = manager.selectUTXOs(for: targetAmount)
+                        return selected.map { u in
+                            RustCLIBridge.RustUTXO(
+                                txid: u.txid,
+                                vout: UInt32(u.vout),
+                                value: u.value,
+                                status: RustCLIBridge.RustUTXOStatus(
+                                    confirmed: u.confirmations > 0,
+                                    block_height: nil,
+                                    block_hash: nil,
+                                    block_time: nil
+                                )
+                            )
+                        }
+                    }
+                    
                     signedHex = try RustCLIBridge.shared.signBitcoin(
                         recipient: recipient,
                         amountSats: amountSats,
                         feeRate: fee,
-                        senderWIF: wif
+                        senderWIF: wif,
+                        utxos: rustUTXOs
                     )
                     
                 default:
@@ -1489,11 +1547,37 @@ struct SendView: View {
                     } else {
                         print("[SendView] No pre-signed tx, signing now...")
                         let amountSats = UInt64((Double(amount) ?? 0) * 100_000_000)
+                        
+                        // Fetch and select UTXOs for Coin Control
+                        let manager = UTXOCoinControlManager.shared
+                        print("[SendView] Refreshing UTXOs...")
+                        await manager.refreshUTXOs(for: keys.bitcoinTestnet.address, network: .testnet)
+                        
+                        // Select UTXOs (Amount + Fee Buffer)
+                        let targetAmount = amountSats + (fee * 200) + 1000
+                        let selected = manager.selectUTXOs(for: targetAmount)
+                        print("[SendView] Selected \(selected.count) UTXOs for transaction")
+                        
+                        let rustUTXOs = selected.map { u in
+                            RustCLIBridge.RustUTXO(
+                                txid: u.txid,
+                                vout: UInt32(u.vout),
+                                value: u.value,
+                                status: RustCLIBridge.RustUTXOStatus(
+                                    confirmed: u.confirmations > 0,
+                                    block_height: nil,
+                                    block_hash: nil,
+                                    block_time: nil
+                                )
+                            )
+                        }
+                        
                         signedHex = try RustCLIBridge.shared.signBitcoin(
                             recipient: recipientAddress,
                             amountSats: amountSats,
                             feeRate: fee,
-                            senderWIF: keys.bitcoinTestnet.privateWif
+                            senderWIF: keys.bitcoinTestnet.privateWif,
+                            utxos: rustUTXOs
                         )
                     }
                     print("[SendView] Broadcasting to Bitcoin Testnet...")
@@ -1512,11 +1596,36 @@ struct SendView: View {
                     } else {
                         print("[SendView] No pre-signed tx, signing now...")
                         let amountSats = UInt64((Double(amount) ?? 0) * 100_000_000)
+                        
+                        // Fetch and select UTXOs for Coin Control
+                        let manager = UTXOCoinControlManager.shared
+                        print("[SendView] Refreshing UTXOs...")
+                        await manager.refreshUTXOs(for: keys.bitcoin.address, network: .mainnet)
+                        
+                        let targetAmount = amountSats + (fee * 200) + 1000
+                        let selected = manager.selectUTXOs(for: targetAmount)
+                        print("[SendView] Selected \(selected.count) UTXOs for transaction")
+                        
+                        let rustUTXOs = selected.map { u in
+                            RustCLIBridge.RustUTXO(
+                                txid: u.txid,
+                                vout: UInt32(u.vout),
+                                value: u.value,
+                                status: RustCLIBridge.RustUTXOStatus(
+                                    confirmed: u.confirmations > 0,
+                                    block_height: nil,
+                                    block_hash: nil,
+                                    block_time: nil
+                                )
+                            )
+                        }
+                        
                         signedHex = try RustCLIBridge.shared.signBitcoin(
                             recipient: recipientAddress,
                             amountSats: amountSats,
                             feeRate: fee,
-                            senderWIF: keys.bitcoin.privateWif
+                            senderWIF: keys.bitcoin.privateWif,
+                            utxos: rustUTXOs
                         )
                     }
                     print("[SendView] Broadcasting to Bitcoin Mainnet...")
