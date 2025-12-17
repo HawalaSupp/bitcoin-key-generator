@@ -25,13 +25,13 @@ public final class UTXOCoinControlManager: ObservableObject {
     // MARK: - Public Methods
     
     /// Refresh UTXOs for an address
-    public func refreshUTXOs(for address: String, network: BitcoinNetwork) async {
+    func refreshUTXOs(for address: String, chain: Chain) async {
         isLoading = true
         lastError = nil
         defer { isLoading = false }
         
         do {
-            let rawUTXOs = try await fetchUTXOs(address: address, network: network)
+            let rawUTXOs = try await fetchUTXOs(address: address, chain: chain)
             
             // Enrich with metadata
             utxos = rawUTXOs.map { utxo in
@@ -149,12 +149,16 @@ public final class UTXOCoinControlManager: ObservableObject {
     
     // MARK: - Private Methods
     
-    private func fetchUTXOs(address: String, network: BitcoinNetwork) async throws -> [RawUTXO] {
-        let baseURL = network == .testnet
-            ? "https://mempool.space/testnet/api"
-            : "https://mempool.space/api"
+    private func fetchUTXOs(address: String, chain: Chain) async throws -> [RawUTXO] {
+        let urlString: String
+        switch chain {
+        case .bitcoinMainnet: urlString = "https://mempool.space/api/address/\(address)/utxo"
+        case .bitcoinTestnet: urlString = "https://mempool.space/testnet/api/address/\(address)/utxo"
+        case .litecoin: urlString = "https://litecoinspace.org/api/address/\(address)/utxo"
+        default: throw UTXOError.invalidAddress
+        }
         
-        guard let url = URL(string: "\(baseURL)/address/\(address)/utxo") else {
+        guard let url = URL(string: urlString) else {
             throw UTXOError.invalidAddress
         }
         

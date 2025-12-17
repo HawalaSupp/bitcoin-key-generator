@@ -43,6 +43,10 @@ struct FeeEstimate: Equatable {
     let estimatedTime: String
     let fiatValue: Double? // USD equivalent
     
+    // EIP-1559 fields (Ethereum only)
+    var maxFeePerGas: Double? = nil // Gwei
+    var maxPriorityFeePerGas: Double? = nil // Gwei
+    
     var formattedFeeRate: String {
         if feeRate < 1 {
             return String(format: "%.2f", feeRate)

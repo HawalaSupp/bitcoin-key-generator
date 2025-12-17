@@ -50,7 +50,11 @@ enum Commands {
         #[arg(long)]
         gas_limit: u64,
         #[arg(long)]
-        gas_price: String,
+        gas_price: Option<String>,
+        #[arg(long)]
+        max_fee_per_gas: Option<String>,
+        #[arg(long)]
+        max_priority_fee_per_gas: Option<String>,
         #[arg(long, default_value = "")]
         data: String,
     },
@@ -101,6 +105,8 @@ enum Commands {
         sender_wif: String,
         #[arg(long)]
         sender_address: String,
+        #[arg(long)]
+        utxos: Option<String>, // JSON string of UTXOs
     },
 }
 
@@ -120,10 +126,10 @@ fn main() -> Result<(), Box<dyn Error>> {
              let tx_hex = rust_app::bitcoin_wallet::prepare_transaction(recipient, *amount_sats, *fee_rate, sender_wif, manual_utxos)?;
              println!("{}", tx_hex);
         }
-        Commands::SignEth { recipient, amount_wei, chain_id, sender_key, nonce, gas_limit, gas_price, data } => {
+        Commands::SignEth { recipient, amount_wei, chain_id, sender_key, nonce, gas_limit, gas_price, max_fee_per_gas, max_priority_fee_per_gas, data } => {
              let rt = tokio::runtime::Runtime::new()?;
              let tx_hex = rt.block_on(rust_app::ethereum_wallet::prepare_ethereum_transaction(
-                 recipient, amount_wei, *chain_id, sender_key, *nonce, *gas_limit, gas_price, data
+                 recipient, amount_wei, *chain_id, sender_key, *nonce, *gas_limit, gas_price.clone(), max_fee_per_gas.clone(), max_priority_fee_per_gas.clone(), data
              ))?;
              println!("{}", tx_hex);
         }
@@ -145,9 +151,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             )?;
             println!("{}", tx_hex);
         }
-        Commands::SignLtc { recipient, amount_lits, fee_rate, sender_wif, sender_address } => {
+        Commands::SignLtc { recipient, amount_lits, fee_rate, sender_wif, sender_address, utxos } => {
+            let manual_utxos = if let Some(json) = utxos {
+                Some(serde_json::from_str::<Vec<rust_app::litecoin_wallet::LitecoinUtxo>>(json)?)
+            } else {
+                None
+            };
             let tx_hex = rust_app::litecoin_wallet::prepare_litecoin_transaction(
-                recipient, *amount_lits, *fee_rate, sender_wif, sender_address
+                recipient, *amount_lits, *fee_rate, sender_wif, sender_address, manual_utxos
             )?;
             println!("{}", tx_hex);
         }

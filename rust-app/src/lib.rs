@@ -631,7 +631,9 @@ struct EthTransactionRequest {
     sender_key_hex: String,
     nonce: u64,
     gas_limit: u64,
-    gas_price: String, // Wei (hex or decimal)
+    gas_price: Option<String>, // Wei (hex or decimal)
+    max_fee_per_gas: Option<String>,
+    max_priority_fee_per_gas: Option<String>,
     data: Option<String>,
 }
 
@@ -667,7 +669,9 @@ pub extern "C" fn prepare_ethereum_transaction_ffi(json_input: *const c_char) ->
         &request.sender_key_hex,
         request.nonce,
         request.gas_limit,
-        &request.gas_price,
+        request.gas_price,
+        request.max_fee_per_gas,
+        request.max_priority_fee_per_gas,
         &data,
     )) {
         Ok(hex) => CString::new(format!("{{\"success\": true, \"tx_hex\": \"0x{}\"}}", hex))

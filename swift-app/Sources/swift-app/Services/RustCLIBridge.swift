@@ -179,7 +179,7 @@ final class RustCLIBridge: Sendable {
     
     // MARK: - Ethereum
     
-    func signEthereum(recipient: String, amountWei: String, chainId: UInt64, senderKey: String, nonce: UInt64, gasLimit: UInt64, gasPrice: String, data: String = "") throws -> String {
+    func signEthereum(recipient: String, amountWei: String, chainId: UInt64, senderKey: String, nonce: UInt64, gasLimit: UInt64, gasPrice: String? = nil, maxFeePerGas: String? = nil, maxPriorityFeePerGas: String? = nil, data: String = "") throws -> String {
         var args = [
             "sign-eth",
             "--recipient", recipient,
@@ -187,9 +187,23 @@ final class RustCLIBridge: Sendable {
             "--chain-id", String(chainId),
             "--sender-key", senderKey,
             "--nonce", String(nonce),
-            "--gas-limit", String(gasLimit),
-            "--gas-price", gasPrice
+            "--gas-limit", String(gasLimit)
         ]
+        
+        if let gasPrice = gasPrice {
+            args.append("--gas-price")
+            args.append(gasPrice)
+        }
+        
+        if let maxFee = maxFeePerGas {
+            args.append("--max-fee-per-gas")
+            args.append(maxFee)
+        }
+        
+        if let priorityFee = maxPriorityFeePerGas {
+            args.append("--max-priority-fee-per-gas")
+            args.append(priorityFee)
+        }
         
         if !data.isEmpty {
             args.append("--data")
@@ -245,8 +259,8 @@ final class RustCLIBridge: Sendable {
     
     // MARK: - Litecoin
     
-    func signLitecoin(recipient: String, amountLits: UInt64, feeRate: UInt64, senderWIF: String, senderAddress: String) throws -> String {
-        let args = [
+    func signLitecoin(recipient: String, amountLits: UInt64, feeRate: UInt64, senderWIF: String, senderAddress: String, utxos: [RustUTXO]? = nil) throws -> String {
+        var args = [
             "sign-ltc",
             "--recipient", recipient,
             "--amount-lits", String(amountLits),
@@ -254,6 +268,16 @@ final class RustCLIBridge: Sendable {
             "--sender-wif", senderWIF,
             "--sender-address", senderAddress
         ]
+        
+        if let utxos = utxos {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(utxos)
+            if let jsonString = String(data: data, encoding: .utf8) {
+                args.append("--utxos")
+                args.append(jsonString)
+            }
+        }
+        
         return try runCommand(args: args)
     }
 }

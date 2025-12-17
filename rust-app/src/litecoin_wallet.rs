@@ -10,9 +10,11 @@ use std::error::Error;
 
 // MARK: - Litecoin UTXO Models
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct LitecoinUtxo {
+    #[serde(alias = "txid")]
     pub transaction_hash: String,
+    #[serde(alias = "vout")]
     pub index: u32,
     pub value: u64,
     #[allow(dead_code)]
@@ -75,10 +77,11 @@ pub fn fetch_litecoin_utxos(address: &str) -> Result<Vec<LitecoinUtxo>, Box<dyn 
 /// - Version bytes
 pub fn prepare_litecoin_transaction(
     recipient: &str,
-    amount_sats: u64,
+    amount_lits: u64,
     fee_rate_sats_per_vbyte: u64,
     sender_wif: &str,
     sender_address: &str,
+    manual_utxos: Option<Vec<LitecoinUtxo>>,
 ) -> Result<String, Box<dyn Error>> {
     let secp = Secp256k1::new();
     
@@ -96,8 +99,17 @@ pub fn prepare_litecoin_transaction(
     // Compute pubkey hash (HASH160 = RIPEMD160(SHA256(pubkey)))
     let pubkey_hash = bitcoin::hashes::hash160::Hash::hash(&pubkey_bytes);
     
-    // 1. Fetch UTXOs
-    let utxos = fetch_litecoin_utxos(sender_address)?;
+    // 1. Fetch UTXOs (or use manual)
+    let utxos = if let Some(u) = manual_utxos {
+        eprintln!("Using {} manually provided UTXOs", u.len());
+        u
+    } else {
+        fetch_litecoin_utxos(sender_address)?
+    };
+
+    if utxos.is_empty() {
+        return Err("No UTXOs found".into());
+    }
     
     if utxos.is_empty() {
         return Err("No UTXOs available for this address".into());
@@ -109,7 +121,7 @@ pub fn prepare_litecoin_transaction(
     
     let mut inputs: Vec<LitecoinUtxo> = Vec::new();
     let mut total_input_value: u64 = 0;
-    let target_value = amount_sats;
+    let target_value = amount_lits;
     
     for utxo in sorted_utxos {
         eprintln!("UTXO: txid={}, vout={}, value={} lits", utxo.transaction_hash, utxo.index, utxo.value);

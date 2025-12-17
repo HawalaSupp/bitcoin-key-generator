@@ -152,6 +152,9 @@ struct SendView: View {
     @State private var gasPrice: String = "20" // Gwei for ETH
     @State private var gasLimit: String = "21000" // Gas limit for ETH
     @State private var destinationTag: String = "" // For XRP
+    @State private var nonce: String = "" // For ETH
+    @State private var maxFeePerGas: String = "" // For ETH EIP-1559
+    @State private var maxPriorityFeePerGas: String = "" // For ETH EIP-1559
     
     // QR Scanner state
     @State private var showingQRScanner = false
@@ -192,173 +195,180 @@ struct SendView: View {
             HawalaTheme.Colors.background
                 .ignoresSafeArea()
             
-            VStack(spacing: 0) {
-                // Custom Header
-                sendHeader
-                
-                // Scrollable Content
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: HawalaTheme.Spacing.lg) {
-                        // Chain Selector
-                        chainSelectorSection
-                        
-                        // View-Only Warning (for chains that don't support sending)
-                        if !selectedChain.supportsSending {
-                            viewOnlyWarningBanner
-                        }
-                        
-                        // Recipient Address
-                        recipientSection
-                        
-                        // Amount Input
-                        amountSection
-                        
-                        // Fee Settings (BTC/LTC/ETH only)
-                        if selectedChain.isUTXOBased || selectedChain == .ethereum {
-                            feeSection
-                            
-                            // Fee Warnings
-                            if !feeWarnings.isEmpty {
-                                feeWarningsSection
-                            }
-                        }
-                        
-                        // Fixed Fee Info (Solana/XRP)
-                        if selectedChain == .solana || selectedChain == .xrp {
-                            fixedFeeInfoSection
-                        }
-                        
-                        // XRP Destination Tag
-                        if selectedChain == .xrp {
-                            xrpOptionsSection
-                        }
-                        
-                        // Error Message
-                        if let error = errorMessage {
-                            errorBanner(error)
-                        }
-                        
-                        // Success Message
-                        if let txId = successTxId {
-                            successBanner(txId)
-                        }
-                        
-                        // Bottom spacer for button
-                        Color.clear.frame(height: 100)
-                    }
-                    .padding(.horizontal, HawalaTheme.Spacing.lg)
-                    .padding(.top, HawalaTheme.Spacing.md)
-                }
-                
-                // Bottom Action Button
-                bottomActionBar
+            mainContent
+            
+            // Loading Overlay
+            if isLoading {
+                loadingOverlay
             }
         }
         .preferredColorScheme(.dark)
-        .onAppear {
-            withAnimation(HawalaTheme.Animation.spring) {
-                appearAnimation = true
-            }
-            Task {
-                await feeEstimator.fetchBitcoinFees(isTestnet: true)
-                await feeEstimator.fetchEthereumFees()
-                
-                // Refresh UTXOs for Bitcoin chains
-                if selectedChain == .bitcoinTestnet {
-                    await UTXOCoinControlManager.shared.refreshUTXOs(for: keys.bitcoinTestnet.address, network: .testnet)
-                } else if selectedChain == .bitcoinMainnet {
-                    await UTXOCoinControlManager.shared.refreshUTXOs(for: keys.bitcoin.address, network: .mainnet)
-                }
-            }
+        .onAppear(perform: handleOnAppear)
+        .onChange(of: selectedChain, perform: handleChainChange)
+        .onChange(of: selectedFeePriority) { _ in updateFeeFromPriority() }
+        .onChange(of: amount) { _ in updateFeeWarnings() }
+        .onChange(of: feeRate) { _ in if selectedChain.isBitcoin { updateFeeWarnings() } }
+        .sheet(isPresented: $showingQRScanner, content: qrScannerSheet)
+        .sheet(isPresented: $showingReview, content: reviewSheet)
+        .sheet(isPresented: $showingSuccessSheet, content: successSheet)
+    }
+    
+    private func handleOnAppear() {
+        withAnimation(HawalaTheme.Animation.spring) {
+            appearAnimation = true
         }
-        .onChange(of: selectedChain) { newChain in
-            updateFeeFromPriority()
-            if !recipientAddress.isEmpty {
-                validateAddressAsync()
-            }
+        Task {
+            await feeEstimator.fetchBitcoinFees(isTestnet: true)
+            await feeEstimator.fetchEthereumFees()
             
-            // Refresh UTXOs when switching to Bitcoin
-            Task {
-                if newChain == .bitcoinTestnet {
-                    await UTXOCoinControlManager.shared.refreshUTXOs(for: keys.bitcoinTestnet.address, network: .testnet)
-                } else if newChain == .bitcoinMainnet {
-                    await UTXOCoinControlManager.shared.refreshUTXOs(for: keys.bitcoin.address, network: .mainnet)
-                }
+            if selectedChain == .bitcoinTestnet {
+                await UTXOCoinControlManager.shared.refreshUTXOs(for: keys.bitcoinTestnet.address, chain: .bitcoinTestnet)
+            } else if selectedChain == .bitcoinMainnet {
+                await UTXOCoinControlManager.shared.refreshUTXOs(for: keys.bitcoin.address, chain: .bitcoinMainnet)
+            } else if selectedChain == .litecoin {
+                await UTXOCoinControlManager.shared.refreshUTXOs(for: keys.litecoin.address, chain: .litecoin)
             }
         }
-        .onChange(of: selectedFeePriority) { _ in
-            updateFeeFromPriority()
+    }
+
+    private func handleChainChange(_ newChain: Chain) {
+        updateFeeFromPriority()
+        if !recipientAddress.isEmpty {
+            validateAddressAsync()
         }
-        .onChange(of: amount) { _ in
-            updateFeeWarnings()
-        }
-        .onChange(of: feeRate) { _ in
-            if selectedChain.isBitcoin {
-                updateFeeWarnings()
+        
+        Task {
+            if newChain == .bitcoinTestnet {
+                await UTXOCoinControlManager.shared.refreshUTXOs(for: keys.bitcoinTestnet.address, chain: .bitcoinTestnet)
+            } else if newChain == .bitcoinMainnet {
+                await UTXOCoinControlManager.shared.refreshUTXOs(for: keys.bitcoin.address, chain: .bitcoinMainnet)
+            } else if newChain == .litecoin {
+                await UTXOCoinControlManager.shared.refreshUTXOs(for: keys.litecoin.address, chain: .litecoin)
             }
         }
-        .onChange(of: gasPrice) { _ in
-            if selectedChain == .ethereum {
-                updateFeeWarnings()
-            }
-        }
-        .onChange(of: gasLimit) { _ in
-            if selectedChain == .ethereum {
-                updateFeeWarnings()
-            }
-        }
-        .sheet(isPresented: $showingReview, onDismiss: {
-            // Clear pre-signed tx if user cancels
-            preSignedTxHex = nil
-            preSignError = nil
-        }) {
+    }
+
+    private func qrScannerSheet() -> some View {
+        QRCameraScannerView(isPresented: $showingQRScanner, onScan: { code in
+            showingQRScanner = false
+            handleScannedQR(code)
+        })
+    }
+
+    private func reviewSheet() -> some View {
+        Group {
             if let data = reviewData {
-                TransactionReviewView(
-                    transaction: data,
-                    onConfirm: {
-                        print("[SendView] Review confirmed! Dismissing sheet and sending transaction...")
-                        showingReview = false
-                        // Small delay to ensure sheet dismissal completes
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            sendTransaction()
-                        }
-                    },
-                    onCancel: {
-                        print("[SendView] Review cancelled")
-                        showingReview = false
-                    }
-                )
-                .frame(minWidth: 400, minHeight: 600)
-                .onAppear {
-                    // Pre-sign transaction in background while user reviews
-                    preSignTransaction()
-                }
+                TransactionReviewView(transaction: data, onConfirm: {
+                    showingReview = false
+                    sendTransaction()
+                }, onCancel: {
+                    showingReview = false
+                })
+            } else {
+                EmptyView()
             }
         }
-        .sheet(isPresented: $showingSuccessSheet, onDismiss: {
-            print("[SendView] Success sheet dismissed")
-            // Only call onSuccess when user dismisses the success sheet
-            if let result = pendingSuccessResult {
-                onSuccess?(result)
-            }
-        }) {
+    }
+
+    private func successSheet() -> some View {
+        Group {
             if let details = successTransactionDetails {
                 TransactionSuccessView(
                     details: details,
                     keys: keys,
                     onDone: {
-                        print("[SendView] Done button pressed")
                         showingSuccessSheet = false
                         dismiss()
+                        let result = TransactionBroadcastResult(
+                            txid: details.txId,
+                            chainId: details.chain.chainId,
+                            chainName: details.chain.displayName,
+                            amount: details.amount,
+                            recipient: details.recipient,
+                            isRBFEnabled: details.isRBFEnabled,
+                            feeRate: details.feeRate,
+                            nonce: details.nonce
+                        )
+                        onSuccess?(result)
                     },
                     onViewExplorer: {
                         openExplorer(txId: details.txId)
                     }
                 )
-                .frame(minWidth: 420, minHeight: 600)
+            } else {
+                EmptyView()
             }
         }
     }
+    
+    private var mainContent: some View {
+        VStack(spacing: 0) {
+            // Custom Header
+            sendHeader
+            
+            // Scrollable Content
+            ScrollView(showsIndicators: false) {
+                scrollContent
+            }
+            
+            // Bottom Action Button
+            bottomActionBar
+        }
+    }
+    
+    private var scrollContent: some View {
+        VStack(spacing: HawalaTheme.Spacing.lg) {
+            // Chain Selector
+            chainSelectorSection
+            
+            // View-Only Warning (for chains that don't support sending)
+            if !selectedChain.supportsSending {
+                viewOnlyWarningBanner
+            }
+            
+            // Recipient Address
+            recipientSection
+            
+            // Amount Input
+            amountSection
+            
+            // Fee Settings (BTC/LTC/ETH only)
+            if selectedChain.isUTXOBased || selectedChain == .ethereum {
+                feeSection
+                
+                // Fee Warnings
+                if !feeWarnings.isEmpty {
+                    feeWarningsSection
+                }
+            }
+            
+            // Fixed Fee Info (Solana/XRP)
+            if selectedChain == .solana || selectedChain == .xrp {
+                fixedFeeInfoSection
+            }
+            
+            // XRP Destination Tag
+            if selectedChain == .xrp {
+                xrpOptionsSection
+            }
+            
+            // Error Message
+            if let error = errorMessage {
+                errorBanner(error)
+            }
+            
+            // Success Message
+            if let txId = successTxId {
+                successBanner(txId)
+            }
+            
+            // Bottom spacer for button
+            Color.clear.frame(height: 100)
+        }
+        .padding(.horizontal, HawalaTheme.Spacing.lg)
+        .padding(.top, HawalaTheme.Spacing.md)
+    }
+
     
     // MARK: - Header
     
@@ -1536,231 +1546,24 @@ struct SendView: View {
                 
                 switch selectedChain {
                 case .bitcoinTestnet:
-                    // Bitcoin Testnet - use pre-signed tx if available
-                    let fee = effectiveBitcoinFeeRate
-                    capturedFeeRate = Int(fee)
-                    
-                    let signedHex: String
-                    if let preSigned = preSignedTxHex {
-                        print("[SendView] Using pre-signed transaction (instant!)")
-                        signedHex = preSigned
-                    } else {
-                        print("[SendView] No pre-signed tx, signing now...")
-                        let amountSats = UInt64((Double(amount) ?? 0) * 100_000_000)
-                        
-                        // Fetch and select UTXOs for Coin Control
-                        let manager = UTXOCoinControlManager.shared
-                        print("[SendView] Refreshing UTXOs...")
-                        await manager.refreshUTXOs(for: keys.bitcoinTestnet.address, network: .testnet)
-                        
-                        // Select UTXOs (Amount + Fee Buffer)
-                        let targetAmount = amountSats + (fee * 200) + 1000
-                        let selected = manager.selectUTXOs(for: targetAmount)
-                        print("[SendView] Selected \(selected.count) UTXOs for transaction")
-                        
-                        let rustUTXOs = selected.map { u in
-                            RustCLIBridge.RustUTXO(
-                                txid: u.txid,
-                                vout: UInt32(u.vout),
-                                value: u.value,
-                                status: RustCLIBridge.RustUTXOStatus(
-                                    confirmed: u.confirmations > 0,
-                                    block_height: nil,
-                                    block_hash: nil,
-                                    block_time: nil
-                                )
-                            )
-                        }
-                        
-                        signedHex = try RustCLIBridge.shared.signBitcoin(
-                            recipient: recipientAddress,
-                            amountSats: amountSats,
-                            feeRate: fee,
-                            senderWIF: keys.bitcoinTestnet.privateWif,
-                            utxos: rustUTXOs
-                        )
-                    }
-                    print("[SendView] Broadcasting to Bitcoin Testnet...")
-                    txId = try await broadcaster.broadcastBitcoin(rawTxHex: signedHex, isTestnet: true)
-                    print("[SendView] Broadcast successful! TxID: \(txId)")
-                    
+                    (txId, capturedFeeRate) = try await sendBitcoin(isTestnet: true)
                 case .bitcoinMainnet:
-                    // Bitcoin Mainnet - use pre-signed tx if available
-                    let fee = effectiveBitcoinFeeRate
-                    capturedFeeRate = Int(fee)
-                    
-                    let signedHex: String
-                    if let preSigned = preSignedTxHex {
-                        print("[SendView] Using pre-signed transaction (instant!)")
-                        signedHex = preSigned
-                    } else {
-                        print("[SendView] No pre-signed tx, signing now...")
-                        let amountSats = UInt64((Double(amount) ?? 0) * 100_000_000)
-                        
-                        // Fetch and select UTXOs for Coin Control
-                        let manager = UTXOCoinControlManager.shared
-                        print("[SendView] Refreshing UTXOs...")
-                        await manager.refreshUTXOs(for: keys.bitcoin.address, network: .mainnet)
-                        
-                        let targetAmount = amountSats + (fee * 200) + 1000
-                        let selected = manager.selectUTXOs(for: targetAmount)
-                        print("[SendView] Selected \(selected.count) UTXOs for transaction")
-                        
-                        let rustUTXOs = selected.map { u in
-                            RustCLIBridge.RustUTXO(
-                                txid: u.txid,
-                                vout: UInt32(u.vout),
-                                value: u.value,
-                                status: RustCLIBridge.RustUTXOStatus(
-                                    confirmed: u.confirmations > 0,
-                                    block_height: nil,
-                                    block_hash: nil,
-                                    block_time: nil
-                                )
-                            )
-                        }
-                        
-                        signedHex = try RustCLIBridge.shared.signBitcoin(
-                            recipient: recipientAddress,
-                            amountSats: amountSats,
-                            feeRate: fee,
-                            senderWIF: keys.bitcoin.privateWif,
-                            utxos: rustUTXOs
-                        )
-                    }
-                    print("[SendView] Broadcasting to Bitcoin Mainnet...")
-                    txId = try await broadcaster.broadcastBitcoin(rawTxHex: signedHex, isTestnet: false)
-                    print("[SendView] Broadcast successful! TxID: \(txId)")
-                    
+                    (txId, capturedFeeRate) = try await sendBitcoin(isTestnet: false)
                 case .litecoin:
-                    // Litecoin Mainnet - similar to Bitcoin but with LTC-specific WIF
-                    let fee = effectiveBitcoinFeeRate  // Litecoin uses similar fee structure
-                    capturedFeeRate = Int(fee)
-                    
-                    // Convert LTC amount to litoshis (1 LTC = 100,000,000 litoshis)
-                    let amountLits = UInt64((Double(amount) ?? 0) * 100_000_000)
-                    
-                    print("[SendView] Signing Litecoin transaction...")
-                    let signedHex = try RustCLIBridge.shared.signLitecoin(
-                        recipient: recipientAddress,
-                        amountLits: amountLits,
-                        feeRate: fee,
-                        senderWIF: keys.litecoin.privateWif,
-                        senderAddress: keys.litecoin.address
-                    )
-                    
-                    print("[SendView] Broadcasting to Litecoin network...")
-                    txId = try await broadcaster.broadcastLitecoin(rawTxHex: signedHex)
-                    print("[SendView] Broadcast successful! TxID: \(txId)")
-                    
+                    (txId, capturedFeeRate) = try await sendLitecoin()
                 case .ethereum:
-                    // Sepolia testnet
-                    let amountEth = Double(amount) ?? 0
-                    let amountWei = String(format: "%.0f", amountEth * 1_000_000_000_000_000_000)
-                    let gwei = effectiveGasPrice
-                    let gasPriceWei = String(gwei * 1_000_000_000)
-                    let limit = UInt64(gasLimit) ?? 21000
-                    capturedFeeRate = Int(gwei)
-                    
-                    let nonce = try await broadcaster.getEthereumNonce(address: keys.ethereum.address, isTestnet: true)
-                    capturedNonce = Int(nonce)
-                    
-                    let signedHex = try RustCLIBridge.shared.signEthereum(
-                        recipient: recipientAddress,
-                        amountWei: amountWei,
-                        chainId: 11155111, // Sepolia
-                        senderKey: keys.ethereum.privateHex,
-                        nonce: nonce,
-                        gasLimit: limit,
-                        gasPrice: gasPriceWei
-                    )
-                    
-                    txId = try await broadcaster.broadcastEthereum(rawTxHex: signedHex, isTestnet: true)
-                    
+                    (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 11155111, isTestnet: true)
                 case .polygon:
-                    // Polygon Mainnet (chainId 137)
-                    let amountMatic = Double(amount) ?? 0
-                    let amountWei = String(format: "%.0f", amountMatic * 1_000_000_000_000_000_000)
-                    let gwei = effectiveGasPrice
-                    let gasPriceWei = String(gwei * 1_000_000_000)
-                    let limit = UInt64(gasLimit) ?? 21000
-                    capturedFeeRate = Int(gwei)
-                    
-                    let nonce = try await broadcaster.getEthereumNonceForChain(address: keys.ethereum.address, chainId: 137)
-                    capturedNonce = Int(nonce)
-                    
-                    let signedHex = try RustCLIBridge.shared.signEthereum(
-                        recipient: recipientAddress,
-                        amountWei: amountWei,
-                        chainId: 137,
-                        senderKey: keys.ethereum.privateHex,
-                        nonce: nonce,
-                        gasLimit: limit,
-                        gasPrice: gasPriceWei
-                    )
-                    
-                    txId = try await broadcaster.broadcastEthereumToChain(rawTxHex: signedHex, chainId: 137)
-                    
+                    (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 137, isTestnet: false)
                 case .bnb:
-                    // BNB Smart Chain (chainId 56)
-                    let amountBnb = Double(amount) ?? 0
-                    let amountWei = String(format: "%.0f", amountBnb * 1_000_000_000_000_000_000)
-                    let gwei = effectiveGasPrice
-                    let gasPriceWei = String(gwei * 1_000_000_000)
-                    let limit = UInt64(gasLimit) ?? 21000
-                    capturedFeeRate = Int(gwei)
-                    
-                    let nonce = try await broadcaster.getEthereumNonceForChain(address: keys.ethereum.address, chainId: 56)
-                    capturedNonce = Int(nonce)
-                    
-                    let signedHex = try RustCLIBridge.shared.signEthereum(
-                        recipient: recipientAddress,
-                        amountWei: amountWei,
-                        chainId: 56,
-                        senderKey: keys.ethereum.privateHex,
-                        nonce: nonce,
-                        gasLimit: limit,
-                        gasPrice: gasPriceWei
-                    )
-                    
-                    txId = try await broadcaster.broadcastEthereumToChain(rawTxHex: signedHex, chainId: 56)
-                    
+                    (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 56, isTestnet: false)
                 case .solana:
-                    let amountSol = Double(amount) ?? 0
-                    let blockhash = try await broadcaster.getSolanaBlockhash(isDevnet: true)
-                    
-                    let signedBase58 = try RustCLIBridge.shared.signSolana(
-                        recipient: recipientAddress,
-                        amountSol: amountSol,
-                        recentBlockhash: blockhash,
-                        senderBase58: keys.solana.privateKeyBase58
-                    )
-                    
-                    txId = try await broadcaster.broadcastSolana(rawTxBase64: signedBase58, isDevnet: true)
-                    
+                    txId = try await sendSolana()
                 case .xrp:
-                    let amountXrp = Double(amount) ?? 0
-                    let drops = UInt64(amountXrp * 1_000_000)
-                    let sequence = try await broadcaster.getXRPSequence(address: keys.xrp.classicAddress, isTestnet: true)
-                    
-                    // Parse optional destination tag
-                    let destTag: UInt32? = destinationTag.isEmpty ? nil : UInt32(destinationTag)
-                    
-                    let signedHex = try RustCLIBridge.shared.signXRP(
-                        recipient: recipientAddress,
-                        amountDrops: drops,
-                        senderSeedHex: keys.xrp.privateHex,
-                        sequence: sequence,
-                        destinationTag: destTag
-                    )
-                    
-                    txId = try await broadcaster.broadcastXRP(rawTxHex: signedHex, isTestnet: true)
-                    
+                    txId = try await sendXRP()
                 case .monero:
                     throw NSError(domain: "App", code: 2, userInfo: [NSLocalizedDescriptionKey: "Monero sending not yet supported"])
-                }
-                
-                // Success! Show confirmation sheet
+                }                // Success! Show confirmation sheet
                 self.isLoading = false
                 
                 print("[SendView] SUCCESS! Transaction completed with TxID: \(txId)")
@@ -1873,6 +1676,175 @@ struct SendView: View {
         case .xrp: return keys.xrp.classicAddress
         case .monero: return keys.monero.address
         }
+    }
+
+    // MARK: - Loading Overlay
+    
+    private var loadingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.6)
+                .ignoresSafeArea()
+            
+            VStack(spacing: 16) {
+                ProgressView()
+                    .scaleEffect(1.5)
+                    .tint(.white)
+                
+                Text("Processing...")
+                    .font(HawalaTheme.Typography.body)
+                    .foregroundColor(.white)
+            }
+            .padding(32)
+            .background(HawalaTheme.Colors.backgroundSecondary)
+            .cornerRadius(16)
+        }
+    }
+
+    // MARK: - Chain-Specific Send Methods
+
+    private func sendBitcoin(isTestnet: Bool) async throws -> (String, Int?) {
+        let amountSats = UInt64((Double(amount) ?? 0) * 100_000_000)
+        let fee = UInt64(effectiveBitcoinFeeRate)
+        let recipient = recipientAddress
+        let wif = isTestnet ? keys.bitcoinTestnet.privateWif : keys.bitcoin.privateWif
+        
+        // Select UTXOs
+        let manager = UTXOCoinControlManager.shared
+        let targetAmount = amountSats + (fee * 200) + 1000
+        let selected = manager.selectUTXOs(for: targetAmount)
+        
+        let rustUTXOs = selected.map { u in
+            RustCLIBridge.RustUTXO(
+                txid: u.txid,
+                vout: UInt32(u.vout),
+                value: u.value,
+                status: RustCLIBridge.RustUTXOStatus(
+                    confirmed: u.confirmations > 0,
+                    block_height: nil,
+                    block_hash: nil,
+                    block_time: nil
+                )
+            )
+        }
+        
+        let signedHex = try RustCLIBridge.shared.signBitcoin(
+            recipient: recipient,
+            amountSats: amountSats,
+            feeRate: fee,
+            senderWIF: wif,
+            utxos: rustUTXOs.isEmpty ? nil : rustUTXOs
+        )
+        
+        let txId = try await TransactionBroadcaster.shared.broadcastBitcoin(rawTxHex: signedHex, isTestnet: isTestnet)
+        return (txId, Int(fee))
+    }
+
+    private func sendLitecoin() async throws -> (String, Int?) {
+        let amountLits = UInt64((Double(amount) ?? 0) * 100_000_000)
+        let fee = UInt64(effectiveBitcoinFeeRate)
+        let recipient = recipientAddress
+        let wif = keys.litecoin.privateWif
+        let senderAddress = keys.litecoin.address
+        
+        // Select UTXOs
+        let manager = UTXOCoinControlManager.shared
+        let targetAmount = amountLits + (fee * 200) + 1000
+        let selected = manager.selectUTXOs(for: targetAmount)
+        
+        let rustUTXOs = selected.map { u in
+            RustCLIBridge.RustUTXO(
+                txid: u.txid,
+                vout: UInt32(u.vout),
+                value: u.value,
+                status: RustCLIBridge.RustUTXOStatus(
+                    confirmed: u.confirmations > 0,
+                    block_height: nil,
+                    block_hash: nil,
+                    block_time: nil
+                )
+            )
+        }
+        
+        let signedHex = try RustCLIBridge.shared.signLitecoin(
+            recipient: recipient,
+            amountLits: amountLits,
+            feeRate: fee,
+            senderWIF: wif,
+            senderAddress: senderAddress,
+            utxos: rustUTXOs.isEmpty ? nil : rustUTXOs
+        )
+        
+        let txId = try await TransactionBroadcaster.shared.broadcastLitecoin(rawTxHex: signedHex)
+        return (txId, Int(fee))
+    }
+
+    private func sendEthereum(chainId: UInt64, isTestnet: Bool) async throws -> (String, Int?, Int?) {
+        let amountWei = String(Int((Double(amount) ?? 0) * 1_000_000_000_000_000_000))
+        let recipient = recipientAddress
+        let senderKey = keys.ethereum.privateHex
+        let nonceVal = UInt64(nonce) ?? 0
+        let gasLimitVal = UInt64(gasLimit) ?? 21000
+        
+        let maxFee = maxFeePerGas.isEmpty ? nil : maxFeePerGas
+        let maxPriority = maxPriorityFeePerGas.isEmpty ? nil : maxPriorityFeePerGas
+        let gasPriceVal = gasPrice.isEmpty ? nil : gasPrice
+        
+        let signedHex = try RustCLIBridge.shared.signEthereum(
+            recipient: recipient,
+            amountWei: amountWei,
+            chainId: chainId,
+            senderKey: senderKey,
+            nonce: nonceVal,
+            gasLimit: gasLimitVal,
+            gasPrice: gasPriceVal,
+            maxFeePerGas: maxFee,
+            maxPriorityFeePerGas: maxPriority
+        )
+        
+        let txId: String
+        if chainId == 56 {
+            txId = try await TransactionBroadcaster.shared.broadcastBNB(rawTxHex: signedHex)
+        } else if chainId == 1 || chainId == 11155111 {
+             txId = try await TransactionBroadcaster.shared.broadcastEthereum(rawTxHex: signedHex, isTestnet: isTestnet)
+        } else {
+             txId = try await TransactionBroadcaster.shared.broadcastEthereumToChain(rawTxHex: signedHex, chainId: Int(chainId))
+        }
+        
+        return (txId, Int(gasPrice) ?? 0, Int(nonceVal))
+    }
+
+    private func sendSolana() async throws -> String {
+        let amountSol = Double(amount) ?? 0
+        let recipient = recipientAddress
+        let senderBase58 = keys.solana.privateKeyBase58
+        let recentBlockhash = "11111111111111111111111111111111" // Placeholder
+        
+        let signedBase64 = try RustCLIBridge.shared.signSolana(
+            recipient: recipient,
+            amountSol: amountSol,
+            recentBlockhash: recentBlockhash,
+            senderBase58: senderBase58
+        )
+        
+        return try await TransactionBroadcaster.shared.broadcastSolana(rawTxBase64: signedBase64)
+    }
+
+    private func sendXRP() async throws -> String {
+        let amountDrops = UInt64((Double(amount) ?? 0) * 1_000_000)
+        let recipient = recipientAddress
+        let senderSeed = keys.xrp.privateHex
+        let sequenceVal: UInt32 = 1 // Placeholder
+        let tag = destinationTag.isEmpty ? nil : UInt32(destinationTag)
+        
+        let signedHex = try RustCLIBridge.shared.signXRP(
+            recipient: recipient,
+            amountDrops: amountDrops,
+            senderSeedHex: senderSeed,
+            sequence: sequenceVal,
+            destinationTag: tag
+        )
+        
+        return try await TransactionBroadcaster.shared.broadcastXRP(rawTxHex: signedHex)
     }
 }
 

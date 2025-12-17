@@ -8,7 +8,7 @@ struct UTXOCoinControlView: View {
     @Environment(\.dismiss) private var dismiss
     
     let address: String
-    let network: BitcoinNetwork
+    let chain: Chain
     var onSelectionComplete: (([ManagedUTXO]) -> Void)?
     
     @State private var selectedUTXOs: Set<ManagedUTXO> = []
@@ -75,7 +75,7 @@ struct UTXOCoinControlView: View {
         }
         .frame(minWidth: 700, minHeight: 600)
         .task {
-            await manager.refreshUTXOs(for: address, network: network)
+            await manager.refreshUTXOs(for: address, chain: chain)
         }
         .sheet(item: $selectedUTXOForEdit) { utxo in
             UTXODetailSheet(utxo: utxo, manager: manager)
@@ -109,7 +109,7 @@ struct UTXOCoinControlView: View {
             
             Button(action: {
                 Task {
-                    await manager.refreshUTXOs(for: address, network: network)
+                    await manager.refreshUTXOs(for: address, chain: chain)
                 }
             }) {
                 Image(systemName: "arrow.clockwise")
@@ -645,6 +645,6 @@ struct UTXODetailSheet: View {
 #Preview {
     UTXOCoinControlView(
         address: "tb1qv629dc9dm623hywx0wrfq3ezfm64yylhh87ty3",
-        network: .testnet
+        chain: .bitcoinTestnet
     )
 }
