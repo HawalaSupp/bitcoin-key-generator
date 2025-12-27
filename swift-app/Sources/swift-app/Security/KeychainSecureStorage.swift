@@ -31,7 +31,8 @@ final class KeychainSecureStorage: SecureStorageProtocol, @unchecked Sendable {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
-            kSecValueData as String: data
+            kSecValueData as String: data,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
         ]
         
         // Add access group if specified
@@ -56,6 +57,11 @@ final class KeychainSecureStorage: SecureStorageProtocol, @unchecked Sendable {
         
         let status = SecItemAdd(query as CFDictionary, nil)
         
+        // Handle user cancellation gracefully
+        if status == errSecUserCanceled {
+            throw SecureStorageError.biometricFailed
+        }
+        
         guard status == errSecSuccess else {
             throw SecureStorageError.keychainError(status)
         }
@@ -67,7 +73,8 @@ final class KeychainSecureStorage: SecureStorageProtocol, @unchecked Sendable {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
         ]
         
         if let accessGroup = accessGroup {
