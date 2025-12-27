@@ -229,10 +229,17 @@ final class DuressWalletManager: ObservableObject {
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
         ]
         
         let status = SecItemAdd(addQuery as CFDictionary, nil)
+        
+        // Handle user cancellation gracefully
+        if status == errSecUserCanceled {
+            return false
+        }
+        
         return status == errSecSuccess
     }
     
@@ -242,11 +249,17 @@ final class DuressWalletManager: ObservableObject {
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: key,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
         ]
         
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        // Handle user cancellation gracefully
+        if status == errSecUserCanceled {
+            return nil
+        }
         
         guard status == errSecSuccess else {
             return nil

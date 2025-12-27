@@ -264,13 +264,20 @@ final class WalletRepository: ObservableObject {
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: walletId.uuidString,
             kSecValueData as String: dataToStore,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
         ]
         
         // Delete existing if any
         SecItemDelete(query as CFDictionary)
         
         let status = SecItemAdd(query as CFDictionary, nil)
+        
+        // Handle user cancellation gracefully
+        if status == errSecUserCanceled {
+            throw WalletError.userCancelled
+        }
+        
         guard status == errSecSuccess else {
             throw WalletError.keychainError(status)
         }
@@ -281,11 +288,17 @@ final class WalletRepository: ObservableObject {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: walletId.uuidString,
-            kSecReturnData as String: true
+            kSecReturnData as String: true,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
         ]
         
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        // Handle user cancellation gracefully
+        if status == errSecUserCanceled {
+            throw WalletError.userCancelled
+        }
         
         guard status == errSecSuccess,
               let data = result as? Data,
@@ -384,6 +397,7 @@ enum WalletError: Error, LocalizedError {
     case keychainError(OSStatus)
     case encryptionFailed
     case decryptionFailed
+    case userCancelled
     
     var errorDescription: String? {
         switch self {
@@ -399,6 +413,8 @@ enum WalletError: Error, LocalizedError {
             return "Failed to encrypt wallet data."
         case .decryptionFailed:
             return "Failed to decrypt wallet data."
+        case .userCancelled:
+            return "Keychain authentication was cancelled by user"
         }
     }
 }
