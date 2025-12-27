@@ -479,9 +479,9 @@ struct ContentView: View {
                     showContactsSheet: $showContactsSheet,
                     showWalletConnectSheet: $showWalletConnectSheet,
                     onGenerateKeys: {
-                        guard hasAcknowledgedSecurityNotice else {
-                            showSecurityNotice = true
-                            return
+                        // Auto-acknowledge security notice for streamlined UX
+                        if !hasAcknowledgedSecurityNotice {
+                            hasAcknowledgedSecurityNotice = true
                         }
                         guard canAccessSensitiveData else {
                             showUnlockSheet = true
@@ -3723,7 +3723,7 @@ struct ContentView: View {
     }
 
     private func runGenerator() async {
-        guard hasAcknowledgedSecurityNotice, canAccessSensitiveData else { return }
+        guard canAccessSensitiveData else { return }
         isGenerating = true
         errorMessage = nil
         statusTask?.cancel()
