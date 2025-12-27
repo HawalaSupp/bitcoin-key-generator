@@ -4126,6 +4126,7 @@ struct ContentView: View {
                 manifestPath,
                 "--quiet",
                 "--",
+                "gen-keys",
                 "--json"
             ]
             process.currentDirectoryURL = workspaceRoot

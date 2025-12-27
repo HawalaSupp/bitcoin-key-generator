@@ -26,12 +26,20 @@ final class GeographicSecurityManager: NSObject, ObservableObject {
     // MARK: - Location Manager
     private var locationManager: CLLocationManager?
     private let keychainService = "com.hawala.geosecurity"
+    private var hasLoadedConfig = false
     
     // MARK: - Initialization
     private override init() {
         super.init()
-        loadConfiguration()
+        // DON'T load from keychain on init - defer to avoid password prompts
         setupLocationManager()
+    }
+    
+    /// Lazy load configuration from keychain
+    public func ensureConfigurationLoaded() {
+        guard !hasLoadedConfig else { return }
+        hasLoadedConfig = true
+        loadConfiguration()
     }
     
     // MARK: - Setup

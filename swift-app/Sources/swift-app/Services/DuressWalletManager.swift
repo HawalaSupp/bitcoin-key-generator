@@ -36,8 +36,20 @@ final class DuressWalletManager: ObservableObject {
     // MARK: - Initialization
     
     private init() {
+        // DON'T call loadConfiguration() here - defer keychain access
+        // This prevents password prompts on app startup
+        isDuressEnabled = false
+        isConfigured = duressConfigured
+    }
+    
+    /// Call this to actually load configuration from keychain (lazy)
+    func ensureConfigurationLoaded() {
+        guard !hasLoadedConfig else { return }
+        hasLoadedConfig = true
         loadConfiguration()
     }
+    
+    private var hasLoadedConfig = false
     
     // MARK: - Public API
     

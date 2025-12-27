@@ -28,17 +28,31 @@ final class PasscodeManager: ObservableObject {
     private var inactivityTimer: Timer?
     private let keychainService = "com.hawala.wallet.passcode"
     private let keychainAccount = "user_passcode_hash"
+    private var hasCheckedKeychain = false
     
     private init() {
-        checkPasscodeStatus()
+        // DON'T access keychain here - defer to avoid password prompts on startup
+        // checkPasscodeStatus() will be called lazily when actually needed
         setupAutoLock()
+        
+        // For new users, assume no passcode - will check keychain when needed
+        hasPasscode = false
+        isLocked = false
+        showSetupPrompt = false
     }
     
     // MARK: - Public API
     
-    /// Check if passcode is configured
+    /// Check if passcode is configured - now lazy-loads from keychain
     func checkPasscodeStatus() {
-        hasPasscode = loadPasscodeHash() != nil
+        // Skip keychain check if already done
+        guard !hasCheckedKeychain else { return }
+        hasCheckedKeychain = true
+        
+        // Try to load passcode hash - this may trigger keychain access
+        // but only when explicitly called, not on app startup
+        let storedHash = loadPasscodeHash()
+        hasPasscode = storedHash != nil
         passcodeEnabled = hasPasscode
         
         // If no passcode and not skipped, show setup on launch

@@ -29,10 +29,19 @@ final class DeadMansSwitchManager: ObservableObject {
     private let preSignedTxKey = "presigned_transactions"
     
     private var checkTimer: Timer?
+    private var hasLoadedConfig = false
     
     // MARK: - Initialization
     
     private init() {
+        // DON'T load from keychain on init - defer to avoid password prompts
+        // loadConfiguration() and startCheckTimer() will be called when actually needed
+    }
+    
+    /// Lazy load configuration from keychain
+    public func ensureConfigurationLoaded() {
+        guard !hasLoadedConfig else { return }
+        hasLoadedConfig = true
         loadConfiguration()
         startCheckTimer()
     }

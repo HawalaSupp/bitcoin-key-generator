@@ -23,10 +23,18 @@ final class TimeLockedVaultManager: ObservableObject {
     private let vaultsKey = "timelocked_vaults"
     
     private var countdownTimer: Timer?
+    private var hasLoadedConfig = false
     
     // MARK: - Initialization
     
     private init() {
+        // DON'T load from keychain on init - defer to avoid password prompts
+    }
+    
+    /// Lazy load configuration from keychain
+    public func ensureConfigurationLoaded() {
+        guard !hasLoadedConfig else { return }
+        hasLoadedConfig = true
         loadVaults()
         startCountdownTimer()
     }

@@ -20,6 +20,7 @@ final class WalletRepository: ObservableObject {
     private let keychainService = "com.hawala.walletrepository"
     private let walletsKey = "hawala_wallet_profiles"
     private let activeWalletKey = "hawala_active_wallet"
+    private var hasLoadedConfig = false
     
     // MARK: - Computed Properties
     
@@ -39,6 +40,13 @@ final class WalletRepository: ObservableObject {
     // MARK: - Initialization
     
     private init() {
+        // DON'T load from keychain on init - defer to avoid password prompts
+    }
+    
+    /// Lazy load configuration from keychain
+    public func ensureConfigurationLoaded() {
+        guard !hasLoadedConfig else { return }
+        hasLoadedConfig = true
         loadWallets()
     }
     

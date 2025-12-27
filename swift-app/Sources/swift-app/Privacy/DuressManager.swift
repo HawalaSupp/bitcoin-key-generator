@@ -60,11 +60,20 @@ public final class DuressManager: ObservableObject {
     private let decoyPasscodeKey = "decoy.passcode.hash"
     private let decoySeedKey = "decoy.seed.encrypted"
     private let decoyConfiguredKey = "decoy.configured"
+    private var hasLoadedConfig = false
     
     // MARK: - Initialization
     
     private init() {
-        // Check if decoy is configured
+        // DON'T access keychain on init - defer to avoid password prompts
+        // checkDecoyConfiguration() will be called when actually needed
+        isDecoyConfigured = false
+    }
+    
+    /// Lazy load configuration from keychain
+    public func ensureConfigurationLoaded() {
+        guard !hasLoadedConfig else { return }
+        hasLoadedConfig = true
         checkDecoyConfiguration()
     }
     
