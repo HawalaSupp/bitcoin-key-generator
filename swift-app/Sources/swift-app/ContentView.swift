@@ -3620,12 +3620,15 @@ struct ContentView: View {
         // Run Keychain access on a background thread to avoid blocking UI
         Task.detached(priority: .userInitiated) {
             do {
-                let loadedKeys = try KeychainHelper.loadKeys()
+                let keychainResult = try KeychainHelper.loadKeys()
                 
                 await MainActor.run {
-                    if let loadedKeys = loadedKeys {
+                    if let loadedKeys = keychainResult {
                         self.keys = loadedKeys
-                        self.rawJSON = self.prettyPrintedJSON(from: try! JSONEncoder().encode(loadedKeys))
+                        // Safely encode keys with error handling
+                        if let encoded = try? JSONEncoder().encode(loadedKeys) {
+                            self.rawJSON = self.prettyPrintedJSON(from: encoded)
+                        }
                         self.primeStateCaches(for: loadedKeys)
                         print("✅ Loaded keys from Keychain")
                         print("🔑 Bitcoin Testnet Address: \(loadedKeys.bitcoinTestnet.address)")
