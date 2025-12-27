@@ -500,6 +500,7 @@ struct ContentView: View {
                     selectedFiatSymbol: selectedFiatCurrency.symbol,
                     fxRates: fxRates,
                     selectedFiatCurrency: storedFiatCurrency,
+                    isGenerating: isGenerating,
                     historyEntries: $historyEntries,
                     isHistoryLoading: $isHistoryLoading,
                     historyError: $historyError
@@ -3647,20 +3648,26 @@ struct ContentView: View {
                             self.rawJSON = self.prettyPrintedJSON(from: encoded)
                         }
                         self.primeStateCaches(for: loadedKeys)
+                        #if DEBUG
                         print("✅ Loaded keys from Keychain")
                         print("🔑 Bitcoin Testnet Address: \(loadedKeys.bitcoinTestnet.address)")
+                        #endif
                         
                         // Mark onboarding as completed since user has existing keys
                         if !self.onboardingCompleted {
                             self.onboardingCompleted = true
+                            #if DEBUG
                             print("✅ Marking onboarding as completed (keys found in Keychain)")
+                            #endif
                         }
                         
                         self.startBalanceFetch(for: loadedKeys)
                         self.startPriceUpdatesIfNeeded()
                         self.refreshTransactionHistory(force: true)
                     } else {
+                        #if DEBUG
                         print("ℹ️ No keys found in Keychain")
+                        #endif
                     }
                 }
             } catch {
@@ -3739,19 +3746,23 @@ struct ContentView: View {
                 rawJSON = jsonString
                 isGenerating = false
                 
-                // Debug addresses
+                #if DEBUG
+                // Debug addresses (only in development)
                 print("🔑 Generated Bitcoin Testnet Address: \(result.bitcoinTestnet.address)")
                 print("🔑 Generated Bitcoin Mainnet Address: \(result.bitcoin.address)")
+                #endif
                 
                 // Save to Keychain
                 do {
                     try KeychainHelper.saveKeys(result)
+                    #if DEBUG
                     print("✅ Keys saved to Keychain")
+                    #endif
                 } catch {
                     print("⚠️ Failed to save keys to Keychain: \(error)")
                 }
                 
-                // Debug status
+                // Status message
                 let cardCount = result.chainInfos.count
                 let hasTestnet = result.bitcoinTestnet.address.starts(with: "tb1")
                 let hasSepolia = result.ethereumSepolia.address.starts(with: "0x")
@@ -3767,6 +3778,8 @@ struct ContentView: View {
             await MainActor.run {
                 errorMessage = error.localizedDescription
                 isGenerating = false
+                // Show user-visible error toast
+                showStatus("Failed to generate wallet: \(error.localizedDescription)", tone: .error, autoClear: false)
             }
         }
     }
@@ -3881,27 +3894,35 @@ struct ContentView: View {
             let plaintext = try decryptArchive(archiveData, password: password)
             print("✅ Decryption successful, plaintext size: \(plaintext.count) bytes")
             
-            // Debug: print first 200 characters of JSON
+            #if DEBUG
+            // Debug: print first 200 characters of JSON (only in development)
             if let jsonString = String(data: plaintext, encoding: .utf8) {
                 print("📄 JSON preview: \(String(jsonString.prefix(200)))...")
             }
+            #endif
             
             let decoder = JSONDecoder()
             // Don't use convertFromSnakeCase because AllKeys already has custom CodingKeys
             let importedKeys = try decoder.decode(AllKeys.self, from: plaintext)
+            #if DEBUG
             print("✅ Keys decoded successfully")
+            #endif
             
             keys = importedKeys
             rawJSON = prettyPrintedJSON(from: plaintext)
             
-            // Debug imported addresses
+            #if DEBUG
+            // Debug imported addresses (only in development)
             print("🔑 Imported Bitcoin Testnet Address: \(importedKeys.bitcoinTestnet.address)")
             print("🔑 Imported Bitcoin Mainnet Address: \(importedKeys.bitcoin.address)")
+            #endif
             
             // Save to Keychain
             do {
                 try KeychainHelper.saveKeys(importedKeys)
+                #if DEBUG
                 print("✅ Imported keys saved to Keychain")
+                #endif
             } catch {
                 print("⚠️ Failed to save imported keys to Keychain: \(error)")
             }
@@ -3912,7 +3933,9 @@ struct ContentView: View {
             refreshTransactionHistory(force: true)
             pendingImportData = nil
             showStatus("Encrypted backup imported successfully. Keys loaded.", tone: .success)
+            #if DEBUG
             print("✅ Import complete - UI should now show keys")
+            #endif
         } catch let DecodingError.keyNotFound(key, context) {
             print("❌ Missing key: \(key.stringValue)")
             print("❌ Context: \(context.debugDescription)")

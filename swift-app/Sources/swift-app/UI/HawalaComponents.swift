@@ -930,13 +930,15 @@ struct HawalaEmptyState: View {
     let title: String
     let message: String
     let actionTitle: String?
+    let isLoading: Bool
     let action: (() -> Void)?
     
-    init(icon: String, title: String, message: String, actionTitle: String? = nil, action: (() -> Void)? = nil) {
+    init(icon: String, title: String, message: String, actionTitle: String? = nil, isLoading: Bool = false, action: (() -> Void)? = nil) {
         self.icon = icon
         self.title = title
         self.message = message
         self.actionTitle = actionTitle
+        self.isLoading = isLoading
         self.action = action
     }
     
@@ -965,7 +967,7 @@ struct HawalaEmptyState: View {
             }
             
             if let actionTitle = actionTitle, let action = action {
-                HawalaPrimaryButton(actionTitle, action: action)
+                HawalaPrimaryButton(actionTitle, isLoading: isLoading, action: action)
                     .padding(.top, HawalaTheme.Spacing.sm)
             }
         }

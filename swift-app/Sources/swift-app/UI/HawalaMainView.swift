@@ -55,6 +55,7 @@ struct HawalaMainView: View {
     var selectedFiatSymbol: String
     var fxRates: [String: Double]
     var selectedFiatCurrency: String
+    var isGenerating: Bool = false
     
     // Transaction history
     @Binding var historyEntries: [HawalaTransactionEntry]
@@ -611,7 +612,7 @@ struct HawalaMainView: View {
                 }
                 .padding(.horizontal, HawalaTheme.Spacing.xl)
             } else {
-                BentoEmptyState(onGenerate: onGenerateKeys)
+                BentoEmptyState(onGenerate: onGenerateKeys, isLoading: isGenerating)
                     .padding(.horizontal, HawalaTheme.Spacing.xl)
             }
         }
@@ -666,7 +667,7 @@ struct HawalaMainView: View {
                         .font(HawalaTheme.Typography.body)
                         .foregroundColor(HawalaTheme.Colors.textSecondary)
                     
-                    HawalaPrimaryButton("Generate Wallet", icon: "key.fill", action: onGenerateKeys)
+                    HawalaPrimaryButton(isGenerating ? "Generating..." : "Generate Wallet", icon: isGenerating ? nil : "key.fill", isLoading: isGenerating, action: onGenerateKeys)
                         .padding(.top, HawalaTheme.Spacing.sm)
                 }
             }
@@ -813,7 +814,8 @@ struct HawalaMainView: View {
                     icon: "wallet.pass",
                     title: "No Wallet",
                     message: "Generate a new wallet to view your assets and start transacting.",
-                    actionTitle: "Generate Wallet",
+                    actionTitle: isGenerating ? "Generating..." : "Generate Wallet",
+                    isLoading: isGenerating,
                     action: onGenerateKeys
                 )
                 .frame(maxWidth: .infinity)
@@ -1571,6 +1573,7 @@ struct ShimmerModifier: ViewModifier {
 // MARK: - Bento Empty State
 struct BentoEmptyState: View {
     let onGenerate: () -> Void
+    var isLoading: Bool = false
     
     var body: some View {
         VStack(spacing: HawalaTheme.Spacing.xl) {
@@ -1595,7 +1598,7 @@ struct BentoEmptyState: View {
                     .multilineTextAlignment(.center)
             }
             
-            HawalaPrimaryButton("Generate Wallet", icon: "key.fill", action: onGenerate)
+            HawalaPrimaryButton(isLoading ? "Generating..." : "Generate Wallet", icon: isLoading ? nil : "key.fill", isLoading: isLoading, action: onGenerate)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, HawalaTheme.Spacing.xxl)
