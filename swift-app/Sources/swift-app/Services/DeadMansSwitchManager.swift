@@ -378,7 +378,8 @@ final class DeadMansSwitchManager: ObservableObject {
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
         
-        return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        return status == errSecSuccess
     }
     
     private func loadFromKeychain(key: String) -> Data? {
@@ -387,11 +388,19 @@ final class DeadMansSwitchManager: ObservableObject {
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: key,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
         ]
         
         var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else {
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        // Handle user cancellation gracefully
+        if status == errSecUserCanceled {
+            return nil
+        }
+        
+        guard status == errSecSuccess else {
             return nil
         }
         return result as? Data

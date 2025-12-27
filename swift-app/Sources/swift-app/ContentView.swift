@@ -3617,28 +3617,40 @@ struct ContentView: View {
             return
         }
         
-        do {
-            if let loadedKeys = try KeychainHelper.loadKeys() {
-                keys = loadedKeys
-                rawJSON = prettyPrintedJSON(from: try JSONEncoder().encode(loadedKeys))
-                primeStateCaches(for: loadedKeys)
-                print("✅ Loaded keys from Keychain")
-                print("🔑 Bitcoin Testnet Address: \(loadedKeys.bitcoinTestnet.address)")
+        // Run Keychain access on a background thread to avoid blocking UI
+        Task.detached(priority: .userInitiated) {
+            do {
+                let keychainResult = try KeychainHelper.loadKeys()
                 
-                // Mark onboarding as completed since user has existing keys
-                if !onboardingCompleted {
-                    onboardingCompleted = true
-                    print("✅ Marking onboarding as completed (keys found in Keychain)")
+                await MainActor.run {
+                    if let loadedKeys = keychainResult {
+                        self.keys = loadedKeys
+                        // Safely encode keys with error handling
+                        if let encoded = try? JSONEncoder().encode(loadedKeys) {
+                            self.rawJSON = self.prettyPrintedJSON(from: encoded)
+                        }
+                        self.primeStateCaches(for: loadedKeys)
+                        print("✅ Loaded keys from Keychain")
+                        print("🔑 Bitcoin Testnet Address: \(loadedKeys.bitcoinTestnet.address)")
+                        
+                        // Mark onboarding as completed since user has existing keys
+                        if !self.onboardingCompleted {
+                            self.onboardingCompleted = true
+                            print("✅ Marking onboarding as completed (keys found in Keychain)")
+                        }
+                        
+                        self.startBalanceFetch(for: loadedKeys)
+                        self.startPriceUpdatesIfNeeded()
+                        self.refreshTransactionHistory(force: true)
+                    } else {
+                        print("ℹ️ No keys found in Keychain")
+                    }
                 }
-                
-                startBalanceFetch(for: loadedKeys)
-                startPriceUpdatesIfNeeded()
-                refreshTransactionHistory(force: true)
-            } else {
-                print("ℹ️ No keys found in Keychain")
+            } catch {
+                await MainActor.run {
+                    print("⚠️ Failed to load keys from Keychain: \(error)")
+                }
             }
-        } catch {
-            print("⚠️ Failed to load keys from Keychain: \(error)")
         }
     }
     
@@ -11321,6 +11333,7 @@ private struct KeychainHelper {
         
         // Add new item
         let status = SecItemAdd(query as CFDictionary, nil)
+        
         guard status == errSecSuccess else {
             throw KeychainError.saveFailed(status)
         }
@@ -11331,13 +11344,20 @@ private struct KeychainHelper {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: keysIdentifier,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
         ]
         
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         
         if status == errSecItemNotFound {
+            return nil
+        }
+        
+        // Handle user cancellation gracefully
+        if status == errSecUserCanceled {
+            print("ℹ️ User cancelled Keychain authentication")
             return nil
         }
         
@@ -11366,6 +11386,7 @@ enum KeychainError: LocalizedError {
     case saveFailed(OSStatus)
     case loadFailed(OSStatus)
     case deleteFailed(OSStatus)
+    case userCancelled
     
     var errorDescription: String? {
         switch self {
@@ -11375,6 +11396,8 @@ enum KeychainError: LocalizedError {
             return "Failed to load keys from Keychain (status: \(status))"
         case .deleteFailed(let status):
             return "Failed to delete keys from Keychain (status: \(status))"
+        case .userCancelled:
+            return "Keychain authentication was cancelled by user"
         }
     }
 }

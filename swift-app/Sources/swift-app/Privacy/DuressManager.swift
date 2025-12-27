@@ -23,6 +23,7 @@ public final class DuressManager: ObservableObject {
         case invalidPasscode
         case keychainError(OSStatus)
         case seedGenerationFailed
+        case userCancelled
         
         public var errorDescription: String? {
             switch self {
@@ -34,6 +35,8 @@ public final class DuressManager: ObservableObject {
                 return "Keychain error: \(status)"
             case .seedGenerationFailed:
                 return "Failed to generate decoy wallet seed"
+            case .userCancelled:
+                return "Keychain authentication was cancelled by user"
             }
         }
     }
@@ -250,6 +253,7 @@ public final class DuressManager: ObservableObject {
         ]
         
         let status = SecItemAdd(query as CFDictionary, nil)
+        
         guard status == errSecSuccess else {
             throw DuressError.keychainError(status)
         }
@@ -261,11 +265,17 @@ public final class DuressManager: ObservableObject {
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: key,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
         ]
         
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        // Handle user cancellation gracefully
+        if status == errSecUserCanceled {
+            return nil
+        }
         
         guard status == errSecSuccess else { return nil }
         return result as? Data
