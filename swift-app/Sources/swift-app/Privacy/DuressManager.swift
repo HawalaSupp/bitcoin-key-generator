@@ -249,16 +249,10 @@ public final class DuressManager: ObservableObject {
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
         
         let status = SecItemAdd(query as CFDictionary, nil)
-        
-        // Handle user cancellation gracefully
-        if status == errSecUserCanceled {
-            throw DuressError.userCancelled
-        }
         
         guard status == errSecSuccess else {
             throw DuressError.keychainError(status)

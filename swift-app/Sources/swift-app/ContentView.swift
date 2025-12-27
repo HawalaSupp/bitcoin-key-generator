@@ -11325,8 +11325,7 @@ private struct KeychainHelper {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: keysIdentifier,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
         
         // Delete existing item first
@@ -11334,11 +11333,6 @@ private struct KeychainHelper {
         
         // Add new item
         let status = SecItemAdd(query as CFDictionary, nil)
-        
-        // Handle user cancellation gracefully
-        if status == errSecUserCanceled {
-            throw KeychainError.userCancelled
-        }
         
         guard status == errSecSuccess else {
             throw KeychainError.saveFailed(status)

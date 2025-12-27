@@ -367,17 +367,10 @@ final class TimeLockedVaultManager: ObservableObject {
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
         
         let status = SecItemAdd(addQuery as CFDictionary, nil)
-        
-        // Handle user cancellation gracefully
-        if status == errSecUserCanceled {
-            return false
-        }
-        
         return status == errSecSuccess
     }
     

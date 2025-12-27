@@ -319,7 +319,6 @@ final class GeographicSecurityManager: NSObject, ObservableObject {
         var newQuery = query
         newQuery[kSecValueData as String] = data
         newQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        newQuery[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIAllow
         
         SecItemAdd(newQuery as CFDictionary, nil)
     }

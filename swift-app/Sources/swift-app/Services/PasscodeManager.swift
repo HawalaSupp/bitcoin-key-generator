@@ -257,17 +257,10 @@ final class PasscodeManager: ObservableObject {
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: keychainAccount,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
         
         let status = SecItemAdd(addQuery as CFDictionary, nil)
-        
-        // Handle user cancellation gracefully
-        if status == errSecUserCanceled {
-            return false
-        }
-        
         return status == errSecSuccess
     }
     
