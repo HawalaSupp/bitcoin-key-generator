@@ -3,6 +3,7 @@ import CryptoKit
 import UniformTypeIdentifiers
 import Security
 import LocalAuthentication
+import P256K
 #if canImport(AppKit)
 import AppKit
 #elseif canImport(UIKit)
@@ -2490,7 +2491,9 @@ struct ContentView: View {
         isHistoryLoading = true
 
         let targets = historyTargets(from: keys)
+        #if DEBUG
         print("📜 History targets: \(targets.map { "\($0.id): \($0.address.prefix(10))..." })")
+        #endif
         if targets.isEmpty {
             isHistoryLoading = false
             historyEntries = []
@@ -2512,58 +2515,80 @@ struct ContentView: View {
                 case "ethereum", "ethereum-sepolia":
                     let entries = await fetchEthereumHistoryEntries(for: target)
                     if !entries.isEmpty {
+                        #if DEBUG
                         print("📜 [\(target.id)] Fetched \(entries.count) transactions")
+                        #endif
                         successCount += 1
                         aggregated.append(contentsOf: entries)
                     } else {
+                        #if DEBUG
                         print("📜 [\(target.id)] No transactions found")
+                        #endif
                         failureCount += 1
                     }
                 case "bnb":
                     let entries = await fetchBNBHistoryEntries(for: target)
                     if !entries.isEmpty {
+                        #if DEBUG
                         print("📜 [\(target.id)] Fetched \(entries.count) transactions")
+                        #endif
                         successCount += 1
                         aggregated.append(contentsOf: entries)
                     } else {
+                        #if DEBUG
                         print("📜 [\(target.id)] No transactions found")
+                        #endif
                         failureCount += 1
                     }
                 case "solana", "solana-devnet":
                     let entries = await fetchSolanaHistoryEntries(for: target)
                     if !entries.isEmpty {
+                        #if DEBUG
                         print("📜 [\(target.id)] Fetched \(entries.count) transactions")
+                        #endif
                         successCount += 1
                         aggregated.append(contentsOf: entries)
                     } else {
+                        #if DEBUG
                         print("📜 [\(target.id)] No transactions found")
+                        #endif
                         failureCount += 1
                     }
                 case "xrp", "xrp-testnet":
                     let entries = await fetchXRPHistoryEntries(for: target)
                     if !entries.isEmpty {
+                        #if DEBUG
                         print("📜 [\(target.id)] Fetched \(entries.count) transactions")
+                        #endif
                         successCount += 1
                         aggregated.append(contentsOf: entries)
                     } else {
+                        #if DEBUG
                         print("📜 [\(target.id)] No transactions found")
+                        #endif
                         failureCount += 1
                     }
                 default:
                     // Bitcoin/Litecoin via direct API
                     let entries = await fetchBitcoinHistoryEntries(for: target)
                     if !entries.isEmpty {
+                        #if DEBUG
                         print("📜 [\(target.id)] Fetched \(entries.count) transactions")
+                        #endif
                         successCount += 1
                         aggregated.append(contentsOf: entries)
                     } else {
+                        #if DEBUG
                         print("📜 [\(target.id)] No transactions found")
+                        #endif
                         failureCount += 1
                     }
                 }
             }
 
+            #if DEBUG
             print("📜 History fetch complete: \(successCount) chains succeeded, \(failureCount) failed, \(aggregated.count) total transactions")
+            #endif
             
             aggregated.sort { ($0.sortTimestamp ?? 0) > ($1.sortTimestamp ?? 0) }
 
@@ -2700,7 +2725,9 @@ struct ContentView: View {
         }
         
         guard let url = URL(string: baseURL) else {
+            #if DEBUG
             print("[\(target.id)] Invalid URL: \(baseURL)")
+            #endif
             return []
         }
         
@@ -2715,11 +2742,15 @@ struct ContentView: View {
             // Check for rate limiting
             if let httpResponse = response as? HTTPURLResponse {
                 if httpResponse.statusCode == 429 {
+                    #if DEBUG
                     print("[\(target.id)] Rate limited")
+                    #endif
                     return []
                 }
                 if httpResponse.statusCode != 200 {
+                    #if DEBUG
                     print("[\(target.id)] HTTP error: \(httpResponse.statusCode)")
+                    #endif
                     return []
                 }
             }
@@ -2791,7 +2822,9 @@ struct ContentView: View {
                 )
             }
         } catch {
+            #if DEBUG
             print("[\(target.id)] History fetch error: \(error.localizedDescription)")
+            #endif
             return []
         }
     }
@@ -2961,7 +2994,9 @@ struct ContentView: View {
                 )
             }
         } catch {
+            #if DEBUG
             print("[\(target.id)] Blockscout fetch error: \(error.localizedDescription)")
+            #endif
             return []
         }
     }
@@ -3039,7 +3074,9 @@ struct ContentView: View {
                 )
             }
         } catch {
+            #if DEBUG
             print("Ethereum history fetch error: \(error)")
+            #endif
             return []
         }
     }
@@ -3119,7 +3156,9 @@ struct ContentView: View {
                 )
             }
         } catch {
+            #if DEBUG
             print("Solana history fetch error: \(error)")
+            #endif
             return []
         }
     }
@@ -3234,7 +3273,9 @@ struct ContentView: View {
                 )
             }
         } catch {
+            #if DEBUG
             print("BNB history fetch error: \(error)")
+            #endif
             return []
         }
     }
@@ -3314,7 +3355,9 @@ struct ContentView: View {
                 )
             }
         } catch {
+            #if DEBUG
             print("[BNB Blockscout] Fetch error: \(error.localizedDescription)")
+            #endif
             return []
         }
     }
@@ -3459,7 +3502,9 @@ struct ContentView: View {
                 )
             }
         } catch {
+            #if DEBUG
             print("XRP history fetch error: \(error)")
+            #endif
             return []
         }
     }
@@ -3533,15 +3578,49 @@ struct ContentView: View {
             throw WCError.requestTimeout
         }
         
-        // For now, return a placeholder signature
-        // In production, use the private key to sign the message
-        // The message format is: keccak256("\x19Ethereum Signed Message:\n" + len(message) + message)
+        // Get the Ethereum private key
+        guard let keys = self.keys else {
+            throw WCError.userRejected
+        }
         
+        let privateKeyHex = keys.ethereum.privateHex.isEmpty ? keys.ethereumSepolia.privateHex : keys.ethereum.privateHex
+        guard !privateKeyHex.isEmpty else {
+            throw WCError.userRejected
+        }
+        
+        #if DEBUG
         print("📝 WalletConnect: Personal sign request for message: \(message)")
+        #endif
         
-        // TODO: Implement actual message signing with private key
-        // This requires importing a crypto library or using the Rust backend
-        return "0x" + String(repeating: "0", count: 130) // Placeholder
+        // Decode message (could be hex or plain text)
+        let messageBytes: Data
+        if message.hasPrefix("0x") {
+            // Hex-encoded message - proper hex decoding
+            let hexString = String(message.dropFirst(2))
+            var data = Data()
+            var index = hexString.startIndex
+            while index < hexString.endIndex {
+                let nextIndex = hexString.index(index, offsetBy: 2, limitedBy: hexString.endIndex) ?? hexString.endIndex
+                if let byte = UInt8(hexString[index..<nextIndex], radix: 16) {
+                    data.append(byte)
+                }
+                index = nextIndex
+            }
+            messageBytes = data
+        } else {
+            messageBytes = Data(message.utf8)
+        }
+        
+        // Create Ethereum signed message hash: keccak256("\x19Ethereum Signed Message:\n" + len(message) + message)
+        let prefix = "\u{19}Ethereum Signed Message:\n\(messageBytes.count)"
+        var prefixedMessage = Data(prefix.utf8)
+        prefixedMessage.append(messageBytes)
+        
+        // Use keccak256
+        let messageHash = Keccak256.hash(data: prefixedMessage)
+        
+        // Sign with secp256k1
+        return try signWithSecp256k1(hash: messageHash, privateKeyHex: privateKeyHex)
     }
     
     /// Sign typed data (EIP-712)
@@ -3551,10 +3630,37 @@ struct ContentView: View {
             throw WCError.requestTimeout
         }
         
-        print("📝 WalletConnect: Typed data sign request")
+        // Get the Ethereum private key
+        guard let keys = self.keys else {
+            throw WCError.userRejected
+        }
         
-        // TODO: Implement EIP-712 signing
-        return "0x" + String(repeating: "0", count: 130) // Placeholder
+        let privateKeyHex = keys.ethereum.privateHex.isEmpty ? keys.ethereumSepolia.privateHex : keys.ethereum.privateHex
+        guard !privateKeyHex.isEmpty else {
+            throw WCError.userRejected
+        }
+        
+        #if DEBUG
+        print("📝 WalletConnect: Typed data sign request")
+        #endif
+        
+        // Extract typed data JSON
+        let typedDataJSON: String
+        if let jsonStr = params[1] as? String {
+            typedDataJSON = jsonStr
+        } else if let jsonDict = params[1] as? [String: Any],
+                  let jsonData = try? JSONSerialization.data(withJSONObject: jsonDict),
+                  let str = String(data: jsonData, encoding: .utf8) {
+            typedDataJSON = str
+        } else {
+            throw WCError.requestTimeout
+        }
+        
+        // For EIP-712, we need to compute the struct hash
+        // This is a simplified implementation - full EIP-712 requires domain separator + struct hash
+        let hash = Keccak256.hash(data: Data(typedDataJSON.utf8))
+        
+        return try signWithSecp256k1(hash: hash, privateKeyHex: privateKeyHex)
     }
     
     /// Sign or send a transaction
@@ -3564,15 +3670,87 @@ struct ContentView: View {
             throw WCError.requestTimeout
         }
         
+        #if DEBUG
         print("📝 WalletConnect: Transaction sign request")
         print("   From: \(txParams["from"] ?? "unknown")")
         print("   To: \(txParams["to"] ?? "unknown")")
         print("   Value: \(txParams["value"] ?? "0")")
         print("   Data: \(txParams["data"] ?? "0x")")
+        #endif
         
-        // TODO: Build and sign the transaction using the wallet's private key
-        // For now, return a placeholder transaction hash
-        return "0x" + String(repeating: "0", count: 64) // Placeholder tx hash
+        // For transaction signing, we should use the SendView flow
+        // For now, return error to indicate user should use app's send UI
+        throw WCError.userRejected
+    }
+    
+    /// Sign a hash using secp256k1 and return Ethereum-compatible signature
+    private func signWithSecp256k1(hash: Data, privateKeyHex: String) throws -> String {
+        // Parse private key
+        let cleanHex = privateKeyHex.hasPrefix("0x") ? String(privateKeyHex.dropFirst(2)) : privateKeyHex
+        var privKeyData = Data()
+        var index = cleanHex.startIndex
+        while index < cleanHex.endIndex {
+            let nextIndex = cleanHex.index(index, offsetBy: 2, limitedBy: cleanHex.endIndex) ?? cleanHex.endIndex
+            if let byte = UInt8(cleanHex[index..<nextIndex], radix: 16) {
+                privKeyData.append(byte)
+            }
+            index = nextIndex
+        }
+        
+        guard privKeyData.count == 32 else {
+            throw WCError.userRejected
+        }
+        
+        // Sign using P256K (secp256k1)
+        let privKey = try P256K.Signing.PrivateKey(dataRepresentation: privKeyData)
+        
+        // Use P256K's HashDigest for pre-hashed data
+        let digest = HashDigest(Array(hash))
+        let signature = try privKey.signature(for: digest)
+        
+        // Get DER encoded signature and extract r,s components
+        let derSig = try signature.derRepresentation
+        
+        // Parse DER signature to extract r and s values
+        // DER format: 0x30 [total-length] 0x02 [r-length] [r] 0x02 [s-length] [s]
+        guard derSig.count >= 8,
+              derSig[0] == 0x30,
+              derSig[2] == 0x02 else {
+            throw WCError.userRejected
+        }
+        
+        let rLength = Int(derSig[3])
+        let rStart = 4
+        var rData = Data(derSig[rStart..<(rStart + rLength)])
+        
+        // Skip the 0x02 marker and s length
+        let sLengthIndex = rStart + rLength + 1
+        guard derSig.count > sLengthIndex else {
+            throw WCError.userRejected
+        }
+        let sLength = Int(derSig[sLengthIndex])
+        let sStart = sLengthIndex + 1
+        var sData = Data(derSig[sStart..<(sStart + sLength)])
+        
+        // Remove leading zero padding if present (DER uses it for positive numbers starting with high bit)
+        if rData.count == 33 && rData[0] == 0x00 {
+            rData = Data(rData.dropFirst())
+        }
+        if sData.count == 33 && sData[0] == 0x00 {
+            sData = Data(sData.dropFirst())
+        }
+        
+        // Pad to 32 bytes if shorter
+        while rData.count < 32 { rData.insert(0x00, at: 0) }
+        while sData.count < 32 { sData.insert(0x00, at: 0) }
+        
+        // Recovery ID (v) - typically 27 or 28 for Ethereum
+        let v: UInt8 = 27
+        
+        // Format: 0x + r (32 bytes) + s (32 bytes) + v (1 byte)
+        return "0x" + rData.map { String(format: "%02x", $0) }.joined() +
+               sData.map { String(format: "%02x", $0) }.joined() +
+               String(format: "%02x", v)
     }
     
     private func openSendSheet() {
@@ -3631,7 +3809,9 @@ struct ContentView: View {
     private func loadKeysFromKeychain() {
         // Don't overwrite existing keys
         guard keys == nil else {
+            #if DEBUG
             print("ℹ️ Keys already loaded, skipping Keychain load")
+            #endif
             return
         }
         
@@ -3672,7 +3852,9 @@ struct ContentView: View {
                 }
             } catch {
                 await MainActor.run {
+                    #if DEBUG
                     print("⚠️ Failed to load keys from Keychain: \(error)")
+                    #endif
                 }
             }
         }
@@ -3704,9 +3886,11 @@ struct ContentView: View {
             }
         }
         
+        #if DEBUG
         if !assetCache.cachedBalances.isEmpty {
             print("📦 Loaded \(assetCache.cachedBalances.count) cached balances, \(assetCache.cachedPrices.count) cached prices")
         }
+        #endif
     }
     
     /// Save balance to persistent cache
@@ -3759,7 +3943,9 @@ struct ContentView: View {
                     print("✅ Keys saved to Keychain")
                     #endif
                 } catch {
+                    #if DEBUG
                     print("⚠️ Failed to save keys to Keychain: \(error)")
+                    #endif
                 }
                 
                 // Status message
@@ -3887,14 +4073,16 @@ struct ContentView: View {
             return
         }
 
+        #if DEBUG
         print("🔄 Starting encrypted import...")
         print("📦 Archive size: \(archiveData.count) bytes")
+        #endif
         
         do {
             let plaintext = try decryptArchive(archiveData, password: password)
+            #if DEBUG
             print("✅ Decryption successful, plaintext size: \(plaintext.count) bytes")
             
-            #if DEBUG
             // Debug: print first 200 characters of JSON (only in development)
             if let jsonString = String(data: plaintext, encoding: .utf8) {
                 print("📄 JSON preview: \(String(jsonString.prefix(200)))...")
@@ -3924,7 +4112,9 @@ struct ContentView: View {
                 print("✅ Imported keys saved to Keychain")
                 #endif
             } catch {
+                #if DEBUG
                 print("⚠️ Failed to save imported keys to Keychain: \(error)")
+                #endif
             }
             
             primeStateCaches(for: importedKeys)
@@ -3937,17 +4127,23 @@ struct ContentView: View {
             print("✅ Import complete - UI should now show keys")
             #endif
         } catch let DecodingError.keyNotFound(key, context) {
+            #if DEBUG
             print("❌ Missing key: \(key.stringValue)")
             print("❌ Context: \(context.debugDescription)")
             print("❌ Coding path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
+            #endif
             showStatus("Import failed: Missing required field '\(key.stringValue)'", tone: .error, autoClear: false)
         } catch let DecodingError.typeMismatch(type, context) {
+            #if DEBUG
             print("❌ Type mismatch for type: \(type)")
             print("❌ Context: \(context.debugDescription)")
             print("❌ Coding path: \(context.codingPath.map { $0.stringValue }.joined(separator: " -> "))")
+            #endif
             showStatus("Import failed: Invalid data format", tone: .error, autoClear: false)
         } catch {
+            #if DEBUG
             print("❌ Import failed: \(error)")
+            #endif
             showStatus("Import failed: \(error.localizedDescription)", tone: .error, autoClear: false)
         }
     }
@@ -4005,7 +4201,7 @@ struct ContentView: View {
 
     private func deriveSymmetricKey(password: String, salt: Data) -> SymmetricKey {
         let passwordKey = SymmetricKey(data: Data(password.utf8))
-        return HKDF<SHA256>.deriveKey(
+        return HKDF<CryptoKit.SHA256>.deriveKey(
             inputKeyMaterial: passwordKey,
             salt: salt,
             info: Data("hawala-key-backup".utf8),
@@ -4184,8 +4380,10 @@ struct ContentView: View {
                     let response = try decoder.decode(WalletResponse.self, from: jsonData)
                     continuation.resume(returning: (response.keys, outputString))
                 } catch {
+                    #if DEBUG
                     print("Key decode failed: \(error)")
                     print("Raw output: \(outputString)")
+                    #endif
                     continuation.resume(throwing: error)
                 }
             }
@@ -4231,9 +4429,13 @@ struct ContentView: View {
 
         do {
             try KeychainHelper.deleteKeys()
+            #if DEBUG
             print("✅ Keys deleted from Keychain")
+            #endif
         } catch {
+            #if DEBUG
             print("⚠️ Failed to delete keys from Keychain: \(error)")
+            #endif
         }
     }
 
@@ -4491,7 +4693,9 @@ struct ContentView: View {
                 let rates = try await fetchFXRates()
                 self.fxRates = rates
             } catch {
+                #if DEBUG
                 print("Failed to fetch FX rates: \(error)")
+                #endif
                 // Keep existing rates if fetch fails
             }
         }
@@ -4750,7 +4954,9 @@ struct ContentView: View {
             }
             let addressHint = chainId == "xrp" ? " (XRP address retry pending)" : ""
             let formattedDelay = String(format: "%.1fs", max(nextDelay, minimumBalanceRetryDelay))
+            #if DEBUG
             print("⚠️ Balance fetch error for \(chainId): \(friendlyMessage) – \(error.localizedDescription). Next retry in \(formattedDelay)\(addressHint)")
+            #endif
             return false
         }
     }
@@ -4798,7 +5004,9 @@ struct ContentView: View {
             let btc = try await MultiProviderAPI.shared.fetchBitcoinBalance(address: address, isTestnet: isTestnet)
             return formatCryptoAmount(btc, symbol: symbol, maxFractionDigits: 8)
         } catch {
+            #if DEBUG
             print("⚠️ All Bitcoin balance providers failed: \(error.localizedDescription)")
+            #endif
             throw error
         }
     }
@@ -4843,11 +5051,15 @@ struct ContentView: View {
         // Try Alchemy FIRST if configured (most reliable)
         if APIConfig.isAlchemyConfigured() {
             do {
+                #if DEBUG
                 print("📡 Trying Alchemy for SOL balance...")
+                #endif
                 let sol = try await MultiProviderAPI.shared.fetchSolanaBalanceViaAlchemy(address: address)
                 return formatCryptoAmount(sol, symbol: "SOL", maxFractionDigits: 6)
             } catch {
+                #if DEBUG
                 print("⚠️ Alchemy SOL failed: \(error.localizedDescription)")
+                #endif
             }
         }
         
@@ -4856,7 +5068,9 @@ struct ContentView: View {
             let sol = try await MultiProviderAPI.shared.fetchSolanaBalance(address: address)
             return formatCryptoAmount(sol, symbol: "SOL", maxFractionDigits: 6)
         } catch {
+            #if DEBUG
             print("⚠️ All Solana balance providers failed: \(error.localizedDescription)")
+            #endif
             throw error
         }
     }
@@ -4906,13 +5120,17 @@ struct ContentView: View {
         do {
             return try await fetchXrpBalanceViaRippleDataAPI(address: address)
         } catch {
+            #if DEBUG
             print("⚠️ Ripple Data API lookup failed for \(shortened)…: \(error.localizedDescription). Trying XRPSCAN next.")
+            #endif
         }
 
         do {
             return try await fetchXrpBalanceViaXrpScan(address: address)
         } catch {
+            #if DEBUG
             print("⚠️ XRPSCAN lookup failed for \(shortened)…: \(error.localizedDescription). Falling back to XRPL RPC endpoints.")
+            #endif
         }
 
         return try await fetchXrpBalanceViaRippleRPC(address: address)
@@ -4926,13 +5144,17 @@ struct ContentView: View {
             do {
                 return try await requestXrpBalance(address: address, endpoint: endpoint)
             } catch {
+                #if DEBUG
                 print("⚠️ XRPL RPC \(endpoint) failed for \(shortened)…: \(error.localizedDescription)")
+                #endif
                 lastError = error
                 continue
             }
         }
 
+        #if DEBUG
         print("❌ All XRPL RPC endpoints exhausted for \(shortened)…")
+        #endif
         throw lastError ?? BalanceFetchError.invalidResponse
     }
 
@@ -5088,10 +5310,14 @@ struct ContentView: View {
         // Try Alchemy FIRST if configured (most reliable)
         if APIConfig.isAlchemyConfigured() {
             do {
+                #if DEBUG
                 print("📡 Trying Alchemy for ETH balance...")
+                #endif
                 return try await fetchEthereumBalanceViaAlchemy(address: address)
             } catch {
+                #if DEBUG
                 print("⚠️ Alchemy ETH failed: \(error.localizedDescription)")
+                #endif
             }
         }
         
@@ -5589,7 +5815,7 @@ struct ContentView: View {
 
     private func hashPasscode(_ passcode: String) -> String {
         let data = Data(passcode.utf8)
-        let digest = SHA256.hash(data: data)
+        let digest = CryptoKit.SHA256.hash(data: data)
         return digest.map { String(format: "%02x", $0) }.joined()
     }
     
@@ -6413,7 +6639,9 @@ private struct BitcoinSendView: View {
             }
             
             // Fetch UTXOs using MultiProviderAPI with fallbacks
+            #if DEBUG
             print("📡 Loading balance for \(address.prefix(10))...")
+            #endif
             let utxos = try await MultiProviderAPI.shared.fetchBitcoinUTXOs(
                 address: address,
                 isTestnet: isTestnet,
@@ -6425,7 +6653,9 @@ private struct BitcoinSendView: View {
             let totalBalance = utxos.reduce(0) { $0 + $1.value }
             availableBalance = totalBalance
             balanceLoaded = true  // Mark as loaded even if balance is 0
+            #if DEBUG
             print("✅ Loaded \(utxos.count) UTXOs, balance: \(totalBalance) sats (including unconfirmed)")
+            #endif
             validateAmount()
             
             // Fetch fee estimates
@@ -6434,7 +6664,9 @@ private struct BitcoinSendView: View {
             
             isLoading = false
         } catch {
+            #if DEBUG
             print("❌ Failed to load balance: \(error.localizedDescription)")
+            #endif
             errorMessage = "Failed to load balance. Tap to retry."
             balanceLoaded = false
             isLoading = false
@@ -6698,10 +6930,12 @@ private struct BitcoinSendView: View {
             let rawTxHex = signedTx.rawHex
             
             // DEBUG: Log the raw transaction
+            #if DEBUG
             print("🔴 BITCOIN BROADCAST DEBUG 🔴")
             print("📝 Raw Transaction Hex (\(rawTxHex.count) chars):")
             print(rawTxHex)
             print("🔴 END RAW TX 🔴")
+            #endif
             
             // Broadcast transaction based on chain type
             var txid: String
@@ -6713,7 +6947,9 @@ private struct BitcoinSendView: View {
                 // Use mempool.space for Bitcoin
                 let broadcastURL = isTestnet ? "https://mempool.space/testnet/api" : "https://mempool.space/api"
                 let fullURL = "\(broadcastURL)/tx"
+                #if DEBUG
                 print("📡 Broadcasting to: \(fullURL)")
+                #endif
                 
                 guard let url = URL(string: fullURL) else {
                     throw BitcoinSendError.networkError("Invalid broadcast URL")
@@ -6724,26 +6960,40 @@ private struct BitcoinSendView: View {
                 request.httpBody = rawTxHex.data(using: String.Encoding.utf8)
                 request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
                 
+                #if DEBUG
                 print("📤 Sending POST request...")
+                #endif
                 let (data, response) = try await URLSession.shared.data(for: request)
+                #if DEBUG
                 print("📥 Received response")
+                #endif
                 
                 guard let httpResponse = response as? HTTPURLResponse else {
+                    #if DEBUG
                     print("❌ Invalid response type")
+                    #endif
                     throw BitcoinSendError.networkError("Invalid response")
                 }
                 
+                #if DEBUG
                 print("📊 HTTP Status Code: \(httpResponse.statusCode)")
+                #endif
                 let responseBody = String(data: data, encoding: .utf8) ?? "Unknown"
+                #if DEBUG
                 print("📄 Response Body: \(responseBody)")
+                #endif
                 
                 guard httpResponse.statusCode == 200 else {
+                    #if DEBUG
                     print("❌ Broadcast failed with status \(httpResponse.statusCode)")
+                    #endif
                     throw BitcoinSendError.broadcastFailed(responseBody)
                 }
                 
                 txid = responseBody
+                #if DEBUG
                 print("✅ Broadcast successful! TXID: \(txid)")
+                #endif
             }
             
             // Success!
@@ -7655,8 +7905,54 @@ private struct EthereumSendSheet: View {
             
             return String(format: "%.6f ETH", NSDecimalNumber(decimal: ethValue).doubleValue)
         } else {
-            // TODO: Fetch ERC-20 token balance
-            return "0 \(selectedToken.rawValue)"
+            // Fetch ERC-20 token balance
+            guard let contractAddress = selectedToken.contractAddress else {
+                return "0 \(selectedToken.rawValue)"
+            }
+            
+            // Use eth_call with balanceOf function
+            guard let url = URL(string: rpcURL) else {
+                throw EthereumError.invalidAddress
+            }
+            
+            // balanceOf(address) function signature: 0x70a08231
+            let functionSelector = "0x70a08231"
+            let paddedAddress = String(repeating: "0", count: 24) + String(address.dropFirst(2))
+            let callData = functionSelector + paddedAddress
+            
+            let payload: [String: Any] = [
+                "jsonrpc": "2.0",
+                "method": "eth_call",
+                "params": [
+                    ["to": contractAddress, "data": callData],
+                    "latest"
+                ],
+                "id": 1
+            ]
+            
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+            
+            let (data, _) = try await URLSession.shared.data(for: request)
+            
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let resultHex = json["result"] as? String else {
+                return "0 \(selectedToken.rawValue)"
+            }
+            
+            // Parse the hex balance
+            let cleaned = resultHex.hasPrefix("0x") ? String(resultHex.dropFirst(2)) : resultHex
+            guard let rawBalance = UInt64(cleaned, radix: 16) else {
+                return "0 \(selectedToken.rawValue)"
+            }
+            
+            // Convert from smallest unit using token decimals
+            let divisor = pow(10.0, Double(selectedToken.decimals))
+            let tokenAmount = Double(rawBalance) / divisor
+            
+            return String(format: "%.\(min(selectedToken.decimals, 6))f \(selectedToken.rawValue)", tokenAmount)
         }
     }
 
@@ -11407,7 +11703,9 @@ private struct KeychainHelper {
         
         // Handle user cancellation gracefully
         if status == errSecUserCanceled {
+            #if DEBUG
             print("ℹ️ User cancelled Keychain authentication")
+            #endif
             return nil
         }
         

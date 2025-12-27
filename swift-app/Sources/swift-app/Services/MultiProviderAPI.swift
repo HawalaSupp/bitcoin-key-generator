@@ -18,11 +18,13 @@ final class MultiProviderAPI: ObservableObject {
         initializeAlchemyKey()
         
         // Debug: Print Alchemy status
+        #if DEBUG
         if apiKeys.hasAlchemyKey {
             print("🔑 Alchemy API configured and ready")
         } else {
             print("⚠️ Alchemy API key not configured - using public endpoints")
         }
+        #endif
     }
     
     private func initializeAlchemyKey() {
@@ -45,28 +47,38 @@ final class MultiProviderAPI: ObservableObject {
     func fetchPrices() async throws -> [String: Double] {
         // Try CoinCap first (no API key needed, generous limits)
         do {
+            #if DEBUG
             print("📊 Trying CoinCap for prices...")
+            #endif
             let prices = try await fetchPricesFromCoinCap()
             healthManager.recordSuccess(for: .coinCap)
             return prices
         } catch {
+            #if DEBUG
             print("⚠️ CoinCap failed: \(error.localizedDescription)")
+            #endif
             healthManager.recordFailure(for: .coinCap, error: error)
         }
         
         // Try CryptoCompare second
         do {
+            #if DEBUG
             print("📊 Trying CryptoCompare for prices...")
+            #endif
             let prices = try await fetchPricesFromCryptoCompare()
             healthManager.recordSuccess(for: .cryptoCompare)
             return prices
         } catch {
+            #if DEBUG
             print("⚠️ CryptoCompare failed: \(error.localizedDescription)")
+            #endif
             healthManager.recordFailure(for: .cryptoCompare, error: error)
         }
         
         // Finally try CoinGecko (most likely to be rate limited)
+        #if DEBUG
         print("📊 Trying CoinGecko for prices...")
+        #endif
         do {
             let prices = try await fetchPricesFromCoinGecko()
             healthManager.recordSuccess(for: .coinGecko)
@@ -84,12 +96,16 @@ final class MultiProviderAPI: ObservableObject {
         // Try Alchemy first if key is available
         if let alchemyURL = apiKeys.alchemyBaseURL(for: APIKeys.AlchemyChain.ethereumMainnet) {
             do {
+                #if DEBUG
                 print("📡 Fetching ETH balance from Alchemy...")
+                #endif
                 let balance = try await fetchEthBalanceFromRPC(address: address, endpoint: alchemyURL)
                 healthManager.recordSuccess(for: .alchemy)
                 return balance
             } catch {
+                #if DEBUG
                 print("⚠️ Alchemy ETH balance failed: \(error.localizedDescription)")
+                #endif
                 healthManager.recordFailure(for: .alchemy, error: error)
             }
         }
@@ -105,12 +121,16 @@ final class MultiProviderAPI: ObservableObject {
         // Try Alchemy first if key is available
         if let alchemyURL = apiKeys.alchemyBaseURL(for: APIKeys.AlchemyChain.solanaMainnet) {
             do {
+                #if DEBUG
                 print("📡 Fetching SOL balance from Alchemy...")
+                #endif
                 let balance = try await fetchSolBalanceFromAlchemy(url: alchemyURL, address: address)
                 healthManager.recordSuccess(for: .alchemy)
                 return balance
             } catch {
+                #if DEBUG
                 print("⚠️ Alchemy SOL balance failed: \(error.localizedDescription)")
+                #endif
                 healthManager.recordFailure(for: .alchemy, error: error)
             }
         }
@@ -147,9 +167,11 @@ final class MultiProviderAPI: ObservableObject {
         
         // Debug: Print response status and body for troubleshooting
         if httpResponse.statusCode != 200 {
+            #if DEBUG
             if let responseBody = String(data: data, encoding: .utf8) {
                 print("⚠️ Alchemy SOL HTTP \(httpResponse.statusCode): \(responseBody.prefix(200))")
             }
+            #endif
             throw APIError.httpError(httpResponse.statusCode)
         }
         
@@ -160,21 +182,27 @@ final class MultiProviderAPI: ObservableObject {
         // Check for error response
         if let error = json["error"] as? [String: Any] {
             let message = error["message"] as? String ?? "Unknown error"
+            #if DEBUG
             print("⚠️ Alchemy SOL API error: \(message)")
+            #endif
             throw APIError.apiError(message)
         }
         
         guard let result = json["result"] as? [String: Any],
               let lamports = result["value"] as? Int64 else {
+            #if DEBUG
             if let responseBody = String(data: data, encoding: .utf8) {
                 print("⚠️ Alchemy SOL parse failed: \(responseBody.prefix(300))")
             }
+            #endif
             throw APIError.parseError
         }
         
         // Convert lamports to SOL (1 SOL = 1,000,000,000 lamports)
         let solBalance = Double(lamports) / 1_000_000_000.0
+        #if DEBUG
         print("✅ Alchemy SOL balance: \(solBalance)")
+        #endif
         return solBalance
     }
     
@@ -225,7 +253,9 @@ final class MultiProviderAPI: ObservableObject {
             throw APIError.noData
         }
         
+        #if DEBUG
         print("✅ CoinCap returned \(prices.count) prices")
+        #endif
         return prices
     }
     
@@ -275,7 +305,9 @@ final class MultiProviderAPI: ObservableObject {
             throw APIError.noData
         }
         
+        #if DEBUG
         print("✅ CryptoCompare returned \(prices.count) prices")
+        #endif
         return prices
     }
     
@@ -319,7 +351,9 @@ final class MultiProviderAPI: ObservableObject {
             throw APIError.noData
         }
         
+        #if DEBUG
         print("✅ CoinGecko returned \(prices.count) prices")
+        #endif
         return prices
     }
     
@@ -332,7 +366,9 @@ final class MultiProviderAPI: ObservableObject {
         do {
             return try await fetchSparklineFromCoinCap(coinId: coinCapId)
         } catch {
+            #if DEBUG
             print("⚠️ CoinCap sparkline failed for \(chainId): \(error.localizedDescription)")
+            #endif
         }
         
         // Fallback to CoinGecko
@@ -416,7 +452,9 @@ final class MultiProviderAPI: ObservableObject {
             healthManager.recordSuccess(for: .mempool)
             return balance
         } catch {
+            #if DEBUG
             print("⚠️ Mempool.space failed: \(error.localizedDescription)")
+            #endif
             healthManager.recordFailure(for: .mempool, error: error)
         }
         
@@ -427,7 +465,9 @@ final class MultiProviderAPI: ObservableObject {
                 healthManager.recordSuccess(for: .blockchair) // Using blockchair as generic blockchain provider
                 return balance
             } catch {
+                #if DEBUG
                 print("⚠️ Blockstream failed: \(error.localizedDescription)")
+                #endif
             }
         }
         
@@ -436,7 +476,9 @@ final class MultiProviderAPI: ObservableObject {
             let balance = try await fetchBitcoinBalanceFromBlockCypher(address: address, isTestnet: isTestnet)
             return balance
         } catch {
+            #if DEBUG
             print("⚠️ BlockCypher failed: \(error.localizedDescription)")
+            #endif
         }
         
         throw APIError.allProvidersFailed(errors)
@@ -547,12 +589,18 @@ final class MultiProviderAPI: ObservableObject {
         // Try Alchemy FIRST if key is available
         if let alchemyURL = apiKeys.alchemyBaseURL(for: APIKeys.AlchemyChain.solanaMainnet) {
             do {
+                #if DEBUG
                 print("📡 Fetching SOL balance from Alchemy...")
+                #endif
                 let balance = try await fetchSolanaBalanceFromRPC(address: address, endpoint: alchemyURL)
+                #if DEBUG
                 print("✅ Alchemy SOL balance: \(balance)")
+                #endif
                 return balance
             } catch {
+                #if DEBUG
                 print("⚠️ Alchemy SOL failed: \(error.localizedDescription)")
+                #endif
             }
         }
         
@@ -567,7 +615,9 @@ final class MultiProviderAPI: ObservableObject {
             do {
                 return try await fetchSolanaBalanceFromRPC(address: address, endpoint: endpoint)
             } catch {
+                #if DEBUG
                 print("⚠️ Solana RPC \(endpoint) failed: \(error.localizedDescription)")
+                #endif
                 continue
             }
         }
@@ -614,20 +664,30 @@ final class MultiProviderAPI: ObservableObject {
     
     func fetchEthereumBalance(address: String) async throws -> Double {
         // Debug: Check Alchemy status
+        #if DEBUG
         print("🔍 Checking Alchemy for ETH: hasKey=\(apiKeys.hasAlchemyKey)")
+        #endif
         
         // Try Alchemy FIRST if key is available
         if let alchemyURL = apiKeys.alchemyBaseURL(for: APIKeys.AlchemyChain.ethereumMainnet) {
             do {
+                #if DEBUG
                 print("📡 Fetching ETH balance from Alchemy: \(alchemyURL.prefix(50))...")
+                #endif
                 let balance = try await fetchEthBalanceFromRPC(address: address, endpoint: alchemyURL)
+                #if DEBUG
                 print("✅ Alchemy ETH balance: \(balance)")
+                #endif
                 return balance
             } catch {
+                #if DEBUG
                 print("⚠️ Alchemy ETH failed: \(error.localizedDescription)")
+                #endif
             }
         } else {
+            #if DEBUG
             print("⚠️ Alchemy URL not available for ETH")
+            #endif
         }
         
         // Try public RPC endpoints as fallback
@@ -642,7 +702,9 @@ final class MultiProviderAPI: ObservableObject {
             do {
                 return try await fetchEthBalanceFromRPC(address: address, endpoint: endpoint)
             } catch {
+                #if DEBUG
                 print("⚠️ ETH RPC \(endpoint) failed: \(error.localizedDescription)")
+                #endif
                 continue
             }
         }
@@ -705,28 +767,40 @@ final class MultiProviderAPI: ObservableObject {
         
         // Try mempool.space first (most reliable for Bitcoin)
         do {
+            #if DEBUG
             print("📡 Fetching UTXOs from mempool.space for \(address.prefix(10))...")
+            #endif
             return try await fetchUTXOsFromMempool(address: address, isTestnet: isTestnet)
         } catch {
+            #if DEBUG
             print("⚠️ mempool.space UTXOs failed: \(error.localizedDescription)")
+            #endif
         }
         
         // Try Blockstream second
         if !isTestnet {
             do {
+                #if DEBUG
                 print("📡 Fetching UTXOs from Blockstream...")
+                #endif
                 return try await fetchUTXOsFromBlockstream(address: address)
             } catch {
+                #if DEBUG
                 print("⚠️ Blockstream UTXOs failed: \(error.localizedDescription)")
+                #endif
             }
         }
         
         // Try BlockCypher as last resort
         do {
+            #if DEBUG
             print("📡 Fetching UTXOs from BlockCypher...")
+            #endif
             return try await fetchUTXOsFromBlockCypher(address: address, isTestnet: isTestnet)
         } catch {
+            #if DEBUG
             print("⚠️ BlockCypher UTXOs failed: \(error.localizedDescription)")
+            #endif
         }
         
         throw APIError.allProvidersFailed([])
@@ -775,7 +849,9 @@ final class MultiProviderAPI: ObservableObject {
             } else if let nsNumber = utxo["value"] as? NSNumber {
                 value = nsNumber.int64Value
             } else {
+                #if DEBUG
                 print("⚠️ UTXO value parse failed for \(txid.prefix(8))")
+                #endif
                 return nil
             }
             
@@ -783,7 +859,9 @@ final class MultiProviderAPI: ObservableObject {
             let confirmed = status?["confirmed"] as? Bool ?? false
             let blockHeight = status?["block_height"] as? Int
             
+            #if DEBUG
             print("📦 UTXO: \(txid.prefix(8))... value=\(value) confirmed=\(confirmed)")
+            #endif
             
             return UTXO(
                 txid: txid,
@@ -984,7 +1062,9 @@ final class MultiProviderAPI: ObservableObject {
                 )
             }
         } catch {
+            #if DEBUG
             print("⚠️ litecoinspace.org UTXOs failed, trying Blockchair: \(error.localizedDescription)")
+            #endif
         }
         
         // Fallback to Blockchair for Litecoin

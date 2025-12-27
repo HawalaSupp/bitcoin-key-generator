@@ -334,7 +334,9 @@ class TransactionScheduler: ObservableObject {
             scheduleNotification(for: transaction)
         }
         
+        #if DEBUG
         print("✅ Scheduled transaction: \(amount) \(chain.rawValue) to \(recipientAddress) on \(scheduledDate)")
+        #endif
         return transaction
     }
     
@@ -361,7 +363,9 @@ class TransactionScheduler: ObservableObject {
             scheduledTransactions[index].updatedAt = Date()
             saveTransactions()
             cancelNotification(for: transaction)
+            #if DEBUG
             print("❌ Cancelled scheduled transaction: \(transaction.id)")
+            #endif
         }
     }
     
@@ -371,7 +375,9 @@ class TransactionScheduler: ObservableObject {
             scheduledTransactions[index].status = .paused
             scheduledTransactions[index].updatedAt = Date()
             saveTransactions()
+            #if DEBUG
             print("⏸ Paused scheduled transaction: \(transaction.id)")
+            #endif
         }
     }
     
@@ -392,7 +398,9 @@ class TransactionScheduler: ObservableObject {
                 scheduleNotification(for: scheduledTransactions[index])
             }
             
+            #if DEBUG
             print("▶️ Resumed scheduled transaction: \(transaction.id)")
+            #endif
         }
     }
     
@@ -401,7 +409,9 @@ class TransactionScheduler: ObservableObject {
         cancelNotification(for: transaction)
         scheduledTransactions.removeAll { $0.id == transaction.id }
         saveTransactions()
+        #if DEBUG
         print("🗑 Deleted scheduled transaction: \(transaction.id)")
+        #endif
     }
     
     /// Execute a transaction immediately (manual trigger)
@@ -445,7 +455,9 @@ class TransactionScheduler: ObservableObject {
             }
             
             scheduledTransactions[index].retryCount = 0
+            #if DEBUG
             print("✅ Executed transaction: \(txHash)")
+            #endif
             
         } catch {
             // Record failure
@@ -468,7 +480,9 @@ class TransactionScheduler: ObservableObject {
             }
             
             lastError = error.localizedDescription
+            #if DEBUG
             print("❌ Transaction failed: \(error.localizedDescription)")
+            #endif
         }
         
         scheduledTransactions[index].updatedAt = Date()
@@ -494,7 +508,9 @@ class TransactionScheduler: ObservableObject {
         
         scheduledTransactions[index].updatedAt = Date()
         saveTransactions()
+        #if DEBUG
         print("⏭ Skipped occurrence for transaction: \(transaction.id)")
+        #endif
     }
     
     // MARK: - Query Methods
@@ -617,13 +633,17 @@ class TransactionScheduler: ObservableObject {
     private func setupNotifications() {
         // Disabled: UNUserNotificationCenter crashes in non-bundled apps
         // with "bundleProxyForCurrentProcess is nil" error
+        #if DEBUG
         print("📝 Notifications disabled (command-line app mode)")
+        #endif
     }
     
     private func scheduleNotification(for transaction: ScheduledTransaction) {
         // Disabled for command-line app
         // In a bundled app, this would schedule local notifications
+        #if DEBUG
         print("📝 Would schedule notification for transaction: \(transaction.label ?? transaction.id.uuidString)")
+        #endif
     }
     
     private func cancelNotification(for transaction: ScheduledTransaction) {

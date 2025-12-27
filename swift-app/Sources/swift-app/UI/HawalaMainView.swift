@@ -423,6 +423,9 @@ struct HawalaMainView: View {
     // MARK: - Main Content (with Liquid Glass Transitions)
     private var mainContentView: some View {
         VStack(spacing: 0) {
+            // Network status banner (shows when offline)
+            NetworkStatusBanner()
+            
             // Provider status banner (shows when degraded/offline)
             ProviderStatusBanner()
                 .padding(.horizontal, HawalaTheme.Spacing.lg)

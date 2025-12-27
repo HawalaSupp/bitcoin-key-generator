@@ -132,7 +132,9 @@ final class AssetCache: ObservableObject {
             try data.write(to: url)
             lastCacheUpdate = Date()
         } catch {
+            #if DEBUG
             print("Failed to save asset cache: \(error)")
+            #endif
         }
     }
     
@@ -147,7 +149,9 @@ final class AssetCache: ObservableObject {
         cachedPrices = cacheData.prices
         lastCacheUpdate = cacheData.lastUpdate
         
+        #if DEBUG
         print("Loaded asset cache: \(cachedBalances.count) balances, \(cachedPrices.count) prices")
+        #endif
     }
 }
 

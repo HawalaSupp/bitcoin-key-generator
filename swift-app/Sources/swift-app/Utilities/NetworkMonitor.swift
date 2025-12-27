@@ -76,3 +76,52 @@ final class NetworkMonitor: ObservableObject {
         monitor.cancel()
     }
 }
+
+// MARK: - Network Status Banner
+
+/// A banner that shows when the network is offline or constrained
+struct NetworkStatusBanner: View {
+    @StateObject private var networkMonitor = NetworkMonitor()
+    
+    var body: some View {
+        if networkMonitor.status == .offline {
+            HStack(spacing: 8) {
+                Image(systemName: "wifi.slash")
+                    .font(.subheadline.weight(.semibold))
+                
+                Text("No Internet Connection")
+                    .font(.subheadline.weight(.medium))
+                
+                Spacer()
+                
+                Text("Some features may be unavailable")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.8))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color.red.opacity(0.9))
+            .foregroundColor(.white)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        } else if networkMonitor.status == .constrained {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.subheadline.weight(.semibold))
+                
+                Text("Limited Connectivity")
+                    .font(.subheadline.weight(.medium))
+                
+                Spacer()
+                
+                Text("Data saver mode active")
+                    .font(.caption)
+                    .foregroundColor(.black.opacity(0.7))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color.orange.opacity(0.9))
+            .foregroundColor(.black)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+}

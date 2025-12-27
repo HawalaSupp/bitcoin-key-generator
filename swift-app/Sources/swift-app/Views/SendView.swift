@@ -1856,22 +1856,8 @@ struct SendView: View {
     
     /// Parse generic errors into user-friendly messages
     private func parseGenericError(_ error: Error) -> String {
-        let description = error.localizedDescription.lowercased()
-        
-        if description.contains("network") || description.contains("internet") || description.contains("offline") {
-            return "Network connection unavailable. Please check your internet connection."
-        }
-        
-        if description.contains("timeout") {
-            return "Request timed out. The network may be congested—please try again."
-        }
-        
-        if description.contains("cancelled") || description.contains("canceled") {
-            return "Transaction was cancelled."
-        }
-        
-        // Return the original error for other cases
-        return error.localizedDescription
+        // Use centralized user-friendly error conversion
+        return error.userFriendlyMessage
     }
     
     // MARK: - Helper Methods for Success View

@@ -489,9 +489,67 @@ final class ChainAddressValidator: ObservableObject {
             return .invalid(error: "Invalid address length")
         }
         
-        // TODO: Full bech32/bech32m checksum verification
+        // Full bech32/bech32m checksum verification
+        guard verifyBech32Checksum(lower, hrp: expectedHRP) else {
+            return .invalid(error: "Invalid address checksum")
+        }
         
         return .valid(normalizedAddress: lower, displayName: nil, checksumAddress: nil)
+    }
+    
+    // MARK: - Bech32 Checksum Verification
+    
+    private static let bech32Charset = Array("qpzry9x8gf2tvdw0s3jn54khce6mua7l")
+    private static let bech32Generator: [UInt32] = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]
+    
+    private func bech32Polymod(_ values: [UInt8]) -> UInt32 {
+        var chk: UInt32 = 1
+        for v in values {
+            let top = chk >> 25
+            chk = (chk & 0x1ffffff) << 5 ^ UInt32(v)
+            for i in 0..<5 {
+                if ((top >> i) & 1) != 0 {
+                    chk ^= Self.bech32Generator[i]
+                }
+            }
+        }
+        return chk
+    }
+    
+    private func hrpExpand(_ hrp: String) -> [UInt8] {
+        var result = [UInt8]()
+        for c in hrp.utf8 {
+            result.append(c >> 5)
+        }
+        result.append(0)
+        for c in hrp.utf8 {
+            result.append(c & 31)
+        }
+        return result
+    }
+    
+    private func verifyBech32Checksum(_ address: String, hrp: String) -> Bool {
+        guard let sepIdx = address.lastIndex(of: "1") else { return false }
+        
+        let dataPart = String(address[address.index(after: sepIdx)...])
+        
+        // Decode data part from bech32 charset
+        var data = [UInt8]()
+        for char in dataPart {
+            guard let idx = Self.bech32Charset.firstIndex(of: char) else {
+                return false
+            }
+            data.append(UInt8(idx))
+        }
+        
+        let hrpExpanded = hrpExpand(hrp)
+        let combined = hrpExpanded + data
+        
+        // Bech32 checksum = 1, Bech32m checksum = 0x2bc830a3
+        let polymod = bech32Polymod(combined)
+        
+        // Check for both bech32 (v0 segwit) and bech32m (v1+ segwit/taproot)
+        return polymod == 1 || polymod == 0x2bc830a3
     }
     
     private enum CoinType {

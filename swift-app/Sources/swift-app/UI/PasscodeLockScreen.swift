@@ -1,4 +1,5 @@
 import SwiftUI
+import LocalAuthentication
 
 // MARK: - Passcode Lock Screen
 
@@ -10,9 +11,16 @@ struct PasscodeLockScreen: View {
     @State private var errorMessage: String?
     @State private var isShaking = false
     @State private var attempts = 0
+    @State private var isLockedOut = false
+    @State private var lockoutEndTime: Date?
+    @State private var lockoutTimeRemaining = 0
+    @State private var biometricAvailable = false
+    @State private var biometricType: LABiometryType = .none
     
     let maxDigits = 6
     let onUnlock: () -> Void
+    
+    private let lockoutTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     
     var body: some View {
         ZStack {
@@ -87,13 +95,14 @@ struct PasscodeLockScreen: View {
                         }
                     }
                     
-                    // Bottom row: empty, 0, delete
+                    // Bottom row: biometric, 0, delete
                     HStack(spacing: HawalaTheme.Spacing.lg) {
-                        // Empty space or biometric button
-                        PasscodeButton(number: "", icon: "faceid") {
-                            // TODO: Biometric authentication
+                        // Biometric button
+                        PasscodeButton(number: "", icon: biometricIcon) {
+                            attemptBiometricUnlock()
                         }
-                        .opacity(0.5)
+                        .opacity(biometricAvailable && !isLockedOut ? 1.0 : 0.3)
+                        .disabled(!biometricAvailable || isLockedOut)
                         
                         PasscodeButton(number: "0") {
                             appendDigit("0")
@@ -109,10 +118,125 @@ struct PasscodeLockScreen: View {
                 Spacer()
             }
             .padding(HawalaTheme.Spacing.xl)
+            .onAppear {
+                checkBiometricAvailability()
+                checkLockoutStatus()
+            }
+            .onReceive(lockoutTimer) { _ in
+                updateLockoutTimer()
+            }
         }
     }
     
+    // MARK: - Biometric Authentication
+    
+    private var biometricIcon: String {
+        switch biometricType {
+        case .faceID:
+            return "faceid"
+        case .touchID:
+            return "touchid"
+        case .opticID:
+            return "opticid"
+        default:
+            return "faceid"
+        }
+    }
+    
+    private func checkBiometricAvailability() {
+        let context = LAContext()
+        var error: NSError?
+        
+        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
+            biometricAvailable = true
+            biometricType = context.biometryType
+        } else {
+            biometricAvailable = false
+            biometricType = .none
+        }
+    }
+    
+    private func attemptBiometricUnlock() {
+        guard biometricAvailable, !isLockedOut else { return }
+        
+        let context = LAContext()
+        context.localizedFallbackTitle = "Enter Passcode"
+        
+        let reason = "Unlock Hawala wallet"
+        
+        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, error in
+            DispatchQueue.main.async {
+                if success {
+                    passcodeManager.unlock()
+                    onUnlock()
+                } else if let error = error as? LAError {
+                    switch error.code {
+                    case .biometryLockout:
+                        errorMessage = "Biometrics locked. Use passcode."
+                        biometricAvailable = false
+                    case .userCancel, .userFallback:
+                        break // User cancelled, do nothing
+                    default:
+                        errorMessage = "Authentication failed"
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Lockout Management
+    
+    private func checkLockoutStatus() {
+        if let endTime = UserDefaults.standard.object(forKey: "hawala.lockoutEndTime") as? Date {
+            if endTime > Date() {
+                isLockedOut = true
+                lockoutEndTime = endTime
+                updateLockoutTimer()
+            } else {
+                clearLockout()
+            }
+        }
+    }
+    
+    private func updateLockoutTimer() {
+        guard let endTime = lockoutEndTime else { return }
+        
+        let remaining = Int(endTime.timeIntervalSinceNow)
+        if remaining > 0 {
+            lockoutTimeRemaining = remaining
+            errorMessage = "Too many attempts. Try again in \(formatTime(remaining))"
+        } else {
+            clearLockout()
+        }
+    }
+    
+    private func startLockout(duration: TimeInterval) {
+        let endTime = Date().addingTimeInterval(duration)
+        lockoutEndTime = endTime
+        isLockedOut = true
+        UserDefaults.standard.set(endTime, forKey: "hawala.lockoutEndTime")
+    }
+    
+    private func clearLockout() {
+        isLockedOut = false
+        lockoutEndTime = nil
+        lockoutTimeRemaining = 0
+        attempts = 0
+        errorMessage = nil
+        UserDefaults.standard.removeObject(forKey: "hawala.lockoutEndTime")
+    }
+    
+    private func formatTime(_ seconds: Int) -> String {
+        if seconds >= 60 {
+            let minutes = seconds / 60
+            let secs = seconds % 60
+            return String(format: "%d:%02d", minutes, secs)
+        }
+        return "\(seconds)s"
+    }
+    
     private func appendDigit(_ digit: String) {
+        guard !isLockedOut else { return }
         guard enteredPasscode.count < maxDigits else { return }
         
         enteredPasscode += digit
@@ -134,7 +258,13 @@ struct PasscodeLockScreen: View {
     }
     
     private func checkPasscode() {
+        guard !isLockedOut else {
+            errorMessage = "Account locked. Please wait."
+            return
+        }
+        
         if passcodeManager.verifyPasscode(enteredPasscode) {
+            clearLockout()
             passcodeManager.unlock()
             onUnlock()
         } else if enteredPasscode.count == maxDigits {
@@ -149,10 +279,20 @@ struct PasscodeLockScreen: View {
                 enteredPasscode = ""
             }
             
-            // Lockout after too many attempts
-            if attempts >= 5 {
-                errorMessage = "Too many attempts. Please wait."
-                // TODO: Implement lockout timer
+            // Progressive lockout after failed attempts
+            switch attempts {
+            case 5:
+                startLockout(duration: 30)  // 30 seconds
+            case 6:
+                startLockout(duration: 60)  // 1 minute
+            case 7:
+                startLockout(duration: 300) // 5 minutes
+            case 8:
+                startLockout(duration: 900) // 15 minutes
+            case 9...Int.max:
+                startLockout(duration: 3600) // 1 hour
+            default:
+                break
             }
         }
     }

@@ -304,7 +304,9 @@ class StealthAddressManager: ObservableObject {
         keyPairs.append(keyPair)
         saveKeyPairs()
         
+        #if DEBUG
         print("✅ Generated stealth key pair for \(chain.displayName)")
+        #endif
         return keyPair
     }
     
@@ -378,7 +380,9 @@ class StealthAddressManager: ObservableObject {
         outgoingPayments.append(payment)
         saveOutgoingPayments()
         
+        #if DEBUG
         print("✅ Computed stealth address: \(oneTimeAddress)")
+        #endif
         return payment
     }
     
@@ -424,7 +428,9 @@ class StealthAddressManager: ObservableObject {
         progress.totalBlocks = currentBlock
         scanProgress[chain] = progress
         
+        #if DEBUG
         print("🔍 Scanning \(chain.displayName) from block \(startBlock) to \(currentBlock)")
+        #endif
         
         // Simulate finding payments (demo mode)
         // In production: iterate through blocks, find outputs, try to decrypt with viewing key
@@ -442,7 +448,9 @@ class StealthAddressManager: ObservableObject {
         scanProgress[chain] = progress
         saveScanProgress()
         
+        #if DEBUG
         print("✅ Scan complete for \(chain.displayName)")
+        #endif
     }
     
     /// Check if a transaction output belongs to us

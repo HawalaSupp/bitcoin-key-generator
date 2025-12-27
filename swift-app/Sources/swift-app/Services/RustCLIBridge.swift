@@ -35,12 +35,14 @@ final class RustCLIBridge: Sendable {
         
         self.binaryPath = foundPath
         
+        #if DEBUG
         if let path = self.binaryPath {
             print("✅ Found Rust binary at: \(path)")
         } else {
             print("⚠️ Warning: Rust binary not found. Please run 'cargo build' in rust-app directory.")
             print("   Searched paths: \(possiblePaths)")
         }
+        #endif
     }
     
     private func runCommand(args: [String]) throws -> String {
@@ -70,7 +72,9 @@ final class RustCLIBridge: Sendable {
         
         // Log stderr for debugging but don't include in output
         if let stderrOutput = String(data: stderrData, encoding: .utf8), !stderrOutput.isEmpty {
+            #if DEBUG
             print("[Rust stderr] \(stderrOutput)")
+            #endif
         }
         
         guard let output = String(data: stdoutData, encoding: .utf8) else {

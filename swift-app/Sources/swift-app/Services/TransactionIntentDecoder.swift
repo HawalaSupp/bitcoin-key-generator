@@ -224,10 +224,12 @@ final class TransactionIntentDecoder: ObservableObject {
         loadKnownAddresses()
         loadScamDatabase()
         
+        #if DEBUG
         print("🔍 Transaction Intent Decoder initialized")
         print("   Known contracts: \(knownContracts.count)")
         print("   Known addresses: \(knownAddresses.count)")
         print("   Scam addresses: \(scamAddresses.count)")
+        #endif
     }
     
     // MARK: - Public API
