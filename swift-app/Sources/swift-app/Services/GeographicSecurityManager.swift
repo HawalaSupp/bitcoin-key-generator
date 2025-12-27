@@ -328,8 +328,7 @@ final class GeographicSecurityManager: NSObject, ObservableObject {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: key,
-            kSecReturnData as String: true,
-            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
+            kSecReturnData as String: true
         ]
         
         var result: AnyObject?

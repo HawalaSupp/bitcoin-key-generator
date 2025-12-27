@@ -67,8 +67,7 @@ final class KeychainSecureStorage: SecureStorageProtocol, @unchecked Sendable {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
+            kSecMatchLimit as String: kSecMatchLimitOne
         ]
         
         if let accessGroup = accessGroup {

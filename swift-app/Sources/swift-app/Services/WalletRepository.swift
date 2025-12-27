@@ -282,8 +282,7 @@ final class WalletRepository: ObservableObject {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: walletId.uuidString,
-            kSecReturnData as String: true,
-            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
+            kSecReturnData as String: true
         ]
         
         var result: AnyObject?

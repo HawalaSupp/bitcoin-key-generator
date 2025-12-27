@@ -11371,8 +11371,7 @@ private struct KeychainHelper {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: keysIdentifier,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
+            kSecMatchLimit as String: kSecMatchLimitOne
         ]
         
         var result: AnyObject?

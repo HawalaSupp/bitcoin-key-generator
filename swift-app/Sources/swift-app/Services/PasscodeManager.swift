@@ -270,8 +270,7 @@ final class PasscodeManager: ObservableObject {
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: keychainAccount,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
+            kSecMatchLimit as String: kSecMatchLimitOne
         ]
         
         var result: AnyObject?
