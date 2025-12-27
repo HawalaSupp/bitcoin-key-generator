@@ -313,7 +313,7 @@ final class MempoolMonitor: ObservableObject {
     private func fetchEthereumTxStatus(txHash: String, testnet: Bool) async throws -> (String, Int) {
         // Using public RPC
         let rpcURL = testnet 
-            ? "https://rpc.sepolia.org"
+            ? "https://ethereum-sepolia-rpc.publicnode.com"
             : "https://eth.llamarpc.com"
         
         guard let url = URL(string: rpcURL) else {

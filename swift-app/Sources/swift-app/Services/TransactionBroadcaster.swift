@@ -11,8 +11,59 @@ final class TransactionBroadcaster: ObservableObject {
     
     @Published var lastBroadcast: BroadcastResult?
     @Published var isBroadcasting = false
+
+    // Cache raw tx data for recently broadcasted transactions.
+    // NOTE: This is intentionally in-memory (not persisted) as a first step.
+    // If this proves useful, we can persist it to TransactionRecord.rawData.
+    private var rawTxCache: [String: Data] = [:] // txid -> raw tx hex (utf8)
     
     private init() {}
+
+    func cacheLastSignedRawTx(txid: String, rawTx: Data) {
+        rawTxCache[txid] = rawTx
+    }
+
+    func getCachedRawTx(txid: String) -> String? {
+        guard let data = rawTxCache[txid],
+              let s = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return s
+    }
+
+    // MARK: - EVM Rebroadcast (best-effort)
+
+    /// Rebroadcast a previously signed EVM raw transaction to a specific RPC.
+    /// Useful when a tx becomes "notFound" across all providers (dropped/evicted).
+    func rebroadcastRawEVM(rawTxHex: String, rpcURL: String) async throws -> String {
+        guard let url = URL(string: rpcURL) else {
+            throw BroadcastError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_sendRawTransaction",
+            "params": [rawTxHex],
+            "id": 1
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        if let result = json?["result"] as? String {
+            return result
+        }
+        if let errorObj = json?["error"] as? [String: Any], let message = errorObj["message"] as? String {
+            throw BroadcastError.broadcastFailed(message)
+        }
+        throw BroadcastError.broadcastFailed("Unknown rebroadcast response")
+    }
     
     // MARK: - Broadcast Result
     
@@ -181,10 +232,11 @@ final class TransactionBroadcaster: ObservableObject {
         // Use multiple RPC endpoints for redundancy
         let rpcEndpoints: [String]
         if isTestnet {
+            // Sepolia testnet - use reliable public endpoints
             rpcEndpoints = [
-                "https://sepolia.infura.io/v3/YOUR_INFURA_KEY",
-                "https://rpc.sepolia.org",
-                "https://ethereum-sepolia.publicnode.com"
+                "https://ethereum-sepolia-rpc.publicnode.com",
+                "https://sepolia.drpc.org",
+                "https://1rpc.io/sepolia"
             ]
         } else {
             rpcEndpoints = [
@@ -199,6 +251,17 @@ final class TransactionBroadcaster: ObservableObject {
         for endpoint in rpcEndpoints {
             do {
                 let txid = try await broadcastEthereumViaRPC(rawTxHex, rpcURL: endpoint)
+
+                // Propagation check: confirm at least one *other* endpoint can see the tx.
+                // This avoids returning success when a single RPC accepts the tx but doesn't
+                // actually gossip it widely (the "secondary node" symptom on explorers).
+                let otherEndpoints = rpcEndpoints.filter { $0 != endpoint }
+                if !otherEndpoints.isEmpty {
+                    let propagated = await verifyEthereumPropagation(txid: txid, rpcEndpoints: otherEndpoints)
+                    if !propagated {
+                        throw BroadcastError.propagationPending("Broadcast accepted by one RPC but not yet visible on other nodes (propagation pending).")
+                    }
+                }
                 
                 let explorerBase = isTestnet ? "https://sepolia.etherscan.io/tx/" : "https://etherscan.io/tx/"
                 lastBroadcast = BroadcastResult(
@@ -227,6 +290,60 @@ final class TransactionBroadcaster: ObservableObject {
         
         throw lastError
     }
+
+    private func verifyEthereumPropagation(txid: String, rpcEndpoints: [String]) async -> Bool {
+        // Try a few quick rounds; we want to be fast but reduce false "success".
+        // Total worst-case ~2.5s.
+        let rounds = 3
+        for round in 0..<rounds {
+            for endpoint in rpcEndpoints {
+                if await isEthereumTxVisible(txid: txid, rpcURL: endpoint) {
+                    print("[ETH Broadcast] Propagation OK via: \(endpoint) (round \(round + 1)/\(rounds))")
+                    return true
+                }
+            }
+            try? await Task.sleep(nanoseconds: 800_000_000) // 0.8s
+        }
+        print("[ETH Broadcast] Propagation NOT confirmed across RPCs")
+        return false
+    }
+
+    private func isEthereumTxVisible(txid: String, rpcURL: String) async -> Bool {
+        guard let url = URL(string: rpcURL) else { return false }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 2
+
+        let body: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getTransactionByHash",
+            "params": [txid],
+            "id": 1
+        ]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                return false
+            }
+
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return false
+            }
+
+            // If result is a non-null object, the tx is visible to that node.
+            if let result = json["result"] {
+                if result is NSNull { return false }
+                return true
+            }
+            return false
+        } catch {
+            return false
+        }
+    }
     
     private func broadcastEthereumViaRPC(_ rawTxHex: String, rpcURL: String) async throws -> String {
         guard let url = URL(string: rpcURL) else {
@@ -236,8 +353,12 @@ final class TransactionBroadcaster: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 12
         
         let txWithPrefix = rawTxHex.hasPrefix("0x") ? rawTxHex : "0x\(rawTxHex)"
+        
+        print("[ETH Broadcast] Sending to RPC: \(rpcURL)")
+        print("[ETH Broadcast] Raw TX (first 100 chars): \(String(txWithPrefix.prefix(100)))...")
         
         let body: [String: Any] = [
             "jsonrpc": "2.0",
@@ -249,8 +370,19 @@ final class TransactionBroadcaster: ObservableObject {
         
         let (data, response) = try await URLSession.shared.data(for: request)
         
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("[ETH Broadcast] ERROR: Non-HTTP response")
+            throw BroadcastError.invalidResponse
+        }
+        
+        print("[ETH Broadcast] HTTP Status: \(httpResponse.statusCode)")
+        
+        // Log raw response for debugging
+        if let rawResponse = String(data: data, encoding: .utf8) {
+            print("[ETH Broadcast] Response: \(rawResponse)")
+        }
+        
+        guard httpResponse.statusCode == 200 else {
             throw BroadcastError.invalidResponse
         }
         
@@ -260,13 +392,16 @@ final class TransactionBroadcaster: ObservableObject {
         
         if let error = json["error"] as? [String: Any],
            let message = error["message"] as? String {
+            print("[ETH Broadcast] RPC ERROR: \(message)")
             throw BroadcastError.broadcastFailed(message)
         }
         
         guard let txid = json["result"] as? String else {
+            print("[ETH Broadcast] ERROR: No txid in response")
             throw BroadcastError.invalidResponse
         }
         
+        print("[ETH Broadcast] SUCCESS! TxID: \(txid)")
         return txid
     }
     
@@ -442,17 +577,18 @@ final class TransactionBroadcaster: ObservableObject {
     // MARK: - Network Helpers
     
     func getEthereumNonce(address: String, isTestnet: Bool) async throws -> UInt64 {
-        let rpcURL = isTestnet ? "https://rpc.sepolia.org" : "https://eth.llamarpc.com"
+        let rpcURL = isTestnet ? "https://ethereum-sepolia-rpc.publicnode.com" : "https://eth.llamarpc.com"
         guard let url = URL(string: rpcURL) else { throw BroadcastError.invalidURL }
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
+        // Use "pending" to include pending transactions in the count
         let body: [String: Any] = [
             "jsonrpc": "2.0",
             "method": "eth_getTransactionCount",
-            "params": [address, "latest"],
+            "params": [address, "pending"],
             "id": 1
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -463,7 +599,9 @@ final class TransactionBroadcaster: ObservableObject {
             throw BroadcastError.invalidResponse
         }
         
-        return UInt64(result.dropFirst(2), radix: 16) ?? 0
+        let nonce = UInt64(result.dropFirst(2), radix: 16) ?? 0
+        print("[Nonce] ETH \(isTestnet ? "Sepolia" : "Mainnet"): fetched pending nonce = \(nonce)")
+        return nonce
     }
     
     /// Get nonce for any EVM chain by chainId
@@ -475,10 +613,12 @@ final class TransactionBroadcaster: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
+        // Use "pending" to include pending transactions in the count
+        // This prevents nonce conflicts when there are unconfirmed transactions
         let body: [String: Any] = [
             "jsonrpc": "2.0",
             "method": "eth_getTransactionCount",
-            "params": [address, "latest"],
+            "params": [address, "pending"],
             "id": 1
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -489,7 +629,9 @@ final class TransactionBroadcaster: ObservableObject {
             throw BroadcastError.invalidResponse
         }
         
-        return UInt64(result.dropFirst(2), radix: 16) ?? 0
+        let nonce = UInt64(result.dropFirst(2), radix: 16) ?? 0
+        print("[Nonce] Chain \(chainId): fetched pending nonce = \(nonce) for \(address.prefix(10))...")
+        return nonce
     }
     
     /// Broadcast a signed transaction to any EVM chain
@@ -537,7 +679,7 @@ final class TransactionBroadcaster: ObservableObject {
     private func getRPCEndpoint(for chainId: Int) -> String {
         switch chainId {
         case 1: return "https://eth.llamarpc.com"
-        case 11155111: return "https://rpc.sepolia.org"
+        case 11155111: return "https://ethereum-sepolia-rpc.publicnode.com"
         case 137: return "https://polygon-rpc.com"
         case 56: return "https://bsc-dataseed.binance.org"
         default: return "https://eth.llamarpc.com"
@@ -550,7 +692,12 @@ final class TransactionBroadcaster: ObservableObject {
         case 1:
             return ["https://eth.llamarpc.com", "https://ethereum.publicnode.com", "https://rpc.ankr.com/eth"]
         case 11155111:
-            return ["https://rpc.sepolia.org", "https://ethereum-sepolia.publicnode.com"]
+            // Sepolia testnet - use reliable public endpoints
+            return [
+                "https://ethereum-sepolia-rpc.publicnode.com",
+                "https://sepolia.drpc.org",
+                "https://1rpc.io/sepolia"
+            ]
         case 137:
             return ["https://polygon-rpc.com", "https://rpc.ankr.com/polygon", "https://polygon.llamarpc.com"]
         case 56:
@@ -700,70 +847,126 @@ final class TransactionBroadcaster: ObservableObject {
     
     /// Check Ethereum transaction status
     func checkEthereumStatus(txid: String, isTestnet: Bool) async throws -> TransactionStatus {
-        let chainId = isTestnet ? "eth-sepolia" : "eth-mainnet"
-        
-        guard let url = URL(string: "https://\(chainId).g.alchemy.com/v2/\(APIConfig.alchemyAPIKey)") else {
-            throw BroadcastError.invalidURL
+        // IMPORTANT: Do not rely on a single vendor endpoint here (Alchemy), because
+        // pending tx visibility can differ between nodes. Use the same redundancy pool
+        // as broadcasting to reduce false "pending forever" states.
+
+        let rpcEndpoints: [String] = isTestnet
+            ? [
+                "https://ethereum-sepolia-rpc.publicnode.com",
+                "https://sepolia.drpc.org",
+                "https://1rpc.io/sepolia"
+            ]
+            : [
+                "https://eth.llamarpc.com",
+                "https://ethereum.publicnode.com",
+                "https://rpc.ankr.com/eth"
+            ]
+
+        var lastError: Error = BroadcastError.allEndpointsFailed
+
+        for endpoint in rpcEndpoints {
+            do {
+                // 1) Receipt check
+                if let receipt = try await fetchEthereumReceipt(txid: txid, rpcURL: endpoint) {
+                    if let statusHex = receipt["status"] as? String, statusHex != "0x1" {
+                        return .failed(reason: "Transaction reverted")
+                    }
+
+                    if let blockNumberHex = receipt["blockNumber"] as? String {
+                        let currentBlock = try await fetchEthereumBlockNumber(rpcURL: endpoint)
+                        let txBlock = Int(blockNumberHex.dropFirst(2), radix: 16) ?? 0
+                        let confirmations = currentBlock - txBlock + 1
+                        return .confirmed(confirmations: max(1, confirmations))
+                    }
+
+                    return .confirmed(confirmations: 1)
+                }
+
+                // 2) Receipt missing: determine whether tx is visible in mempool.
+                let visible = try await fetchEthereumTxExists(txid: txid, rpcURL: endpoint)
+                return visible ? .pending : .notFound
+            } catch {
+                lastError = error
+                continue
+            }
         }
-        
+
+        throw lastError
+    }
+    
+    private func fetchEthereumReceipt(txid: String, rpcURL: String) async throws -> [String: Any]? {
+        guard let url = URL(string: rpcURL) else { throw BroadcastError.invalidURL }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // First, get transaction receipt
-        let receiptBody: [String: Any] = [
+        request.timeoutInterval = 8
+
+        let body: [String: Any] = [
             "jsonrpc": "2.0",
             "method": "eth_getTransactionReceipt",
             "params": [txid],
             "id": 1
         ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: receiptBody)
-        
-        let (receiptData, _) = try await URLSession.shared.data(for: request)
-        
-        guard let receiptJson = try? JSONSerialization.jsonObject(with: receiptData) as? [String: Any] else {
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             throw BroadcastError.invalidResponse
         }
-        
-        // Check if receipt exists
-        if let result = receiptJson["result"] as? [String: Any] {
-            // Transaction is mined
-            if let statusHex = result["status"] as? String {
-                let success = statusHex == "0x1"
-                if !success {
-                    return .failed(reason: "Transaction reverted")
-                }
-            }
-            
-            if let blockNumberHex = result["blockNumber"] as? String {
-                // Get current block number
-                let currentBlock = try await getCurrentEthereumBlockNumber(isTestnet: isTestnet)
-                let txBlock = Int(blockNumberHex.dropFirst(2), radix: 16) ?? 0
-                let confirmations = currentBlock - txBlock + 1
-                return .confirmed(confirmations: max(1, confirmations))
-            }
-            
-            return .confirmed(confirmations: 1)
-        } else if receiptJson["result"] is NSNull || receiptJson["result"] == nil {
-            // Receipt not found, check if tx exists
-            return .pending
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw BroadcastError.invalidResponse
         }
-        
-        return .notFound
+        if let error = json["error"] as? [String: Any], let message = error["message"] as? String {
+            throw BroadcastError.broadcastFailed(message)
+        }
+        if let result = json["result"] as? [String: Any] {
+            return result
+        }
+        return nil
     }
-    
-    /// Get current Ethereum block number
-    private func getCurrentEthereumBlockNumber(isTestnet: Bool) async throws -> Int {
-        let chainId = isTestnet ? "eth-sepolia" : "eth-mainnet"
-        
-        guard let url = URL(string: "https://\(chainId).g.alchemy.com/v2/\(APIConfig.alchemyAPIKey)") else {
-            throw BroadcastError.invalidURL
-        }
-        
+
+    private func fetchEthereumTxExists(txid: String, rpcURL: String) async throws -> Bool {
+        guard let url = URL(string: rpcURL) else { throw BroadcastError.invalidURL }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+        request.timeoutInterval = 6
+
+        let body: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getTransactionByHash",
+            "params": [txid],
+            "id": 1
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw BroadcastError.invalidResponse
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw BroadcastError.invalidResponse
+        }
+        if let error = json["error"] as? [String: Any], let message = error["message"] as? String {
+            throw BroadcastError.broadcastFailed(message)
+        }
+
+        if let result = json["result"] {
+            return !(result is NSNull)
+        }
+        return false
+    }
+
+    private func fetchEthereumBlockNumber(rpcURL: String) async throws -> Int {
+        guard let url = URL(string: rpcURL) else { throw BroadcastError.invalidURL }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 6
+
         let body: [String: Any] = [
             "jsonrpc": "2.0",
             "method": "eth_blockNumber",
@@ -771,15 +974,17 @@ final class TransactionBroadcaster: ObservableObject {
             "id": 1
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        
-        let (data, _) = try await URLSession.shared.data(for: request)
-        
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw BroadcastError.invalidResponse
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let resultHex = json["result"] as? String,
               let blockNumber = Int(resultHex.dropFirst(2), radix: 16) else {
             throw BroadcastError.invalidResponse
         }
-        
         return blockNumber
     }
     
@@ -931,14 +1136,15 @@ final class TransactionBroadcaster: ObservableObject {
     }
 }
 
-// MARK: - Broadcast Errors
-
 enum BroadcastError: Error, LocalizedError {
     case invalidURL
     case invalidResponse
     case broadcastFailed(String)
     case allEndpointsFailed
     case unsupportedChain
+    /// The tx was accepted by at least one RPC, but could not be observed on other nodes yet.
+    /// Treat this as a *retryable* state (often resolves within a few seconds).
+    case propagationPending(String)
     
     var errorDescription: String? {
         switch self {
@@ -952,6 +1158,8 @@ enum BroadcastError: Error, LocalizedError {
             return "All broadcast endpoints failed"
         case .unsupportedChain:
             return "Chain not supported for broadcasting"
+        case .propagationPending(let message):
+            return message
         }
     }
 }

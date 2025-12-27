@@ -363,16 +363,36 @@ final class TransactionCancellationManager: ObservableObject {
         }
         
         // Build cancellation tx: 0 ETH to self
-        let signedTx = try EthereumTransaction.buildAndSign(
-            to: senderAddress,
-            value: "0",
-            gasLimit: 21000,
-            gasPrice: String(newGasPrice),
-            nonce: nonce,
-            chainId: chainId,
-            privateKeyHex: privateKeyHex,
-            data: "0x"
-        )
+        // Use EIP-1559 for Ethereum mainnet and Sepolia
+        let signedTx: String
+        if chainId == 1 || chainId == 11155111 {
+            // EIP-1559 transaction
+            let priorityFeeMultiplier = chainId == 11155111 ? 0.5 : 0.1
+            let maxPriorityFeeWei = UInt64(max(2_500_000_000, Double(newGasPrice) * priorityFeeMultiplier))
+            signedTx = try EthereumTransaction.buildAndSignEIP1559(
+                to: senderAddress,
+                value: "0",
+                gasLimit: 21000,
+                maxFeePerGas: String(newGasPrice),
+                maxPriorityFeePerGas: String(maxPriorityFeeWei),
+                nonce: nonce,
+                chainId: chainId,
+                privateKeyHex: privateKeyHex,
+                data: "0x"
+            )
+        } else {
+            // Legacy transaction for BSC
+            signedTx = try EthereumTransaction.buildAndSign(
+                to: senderAddress,
+                value: "0",
+                gasLimit: 21000,
+                gasPrice: String(newGasPrice),
+                nonce: nonce,
+                chainId: chainId,
+                privateKeyHex: privateKeyHex,
+                data: "0x"
+            )
+        }
         
         // Broadcast
         let txid = try await broadcastEthereumTransaction(signedTx: signedTx, rpcURL: rpcURL)
@@ -424,16 +444,36 @@ final class TransactionCancellationManager: ObservableObject {
         }
         
         // Build replacement transaction
-        let signedTx = try EthereumTransaction.buildAndSign(
-            to: pendingTx.recipient,
-            value: String(weiAmount),
-            gasLimit: 21000,
-            gasPrice: String(newGasPrice),
-            nonce: nonce,
-            chainId: chainId,
-            privateKeyHex: privateKeyHex,
-            data: "0x"
-        )
+        // Use EIP-1559 for Ethereum mainnet and Sepolia
+        let signedTx: String
+        if chainId == 1 || chainId == 11155111 {
+            // EIP-1559 transaction
+            let priorityFeeMultiplier = chainId == 11155111 ? 0.5 : 0.1
+            let maxPriorityFeeWei = UInt64(max(2_500_000_000, Double(newGasPrice) * priorityFeeMultiplier))
+            signedTx = try EthereumTransaction.buildAndSignEIP1559(
+                to: pendingTx.recipient,
+                value: String(weiAmount),
+                gasLimit: 21000,
+                maxFeePerGas: String(newGasPrice),
+                maxPriorityFeePerGas: String(maxPriorityFeeWei),
+                nonce: nonce,
+                chainId: chainId,
+                privateKeyHex: privateKeyHex,
+                data: "0x"
+            )
+        } else {
+            // Legacy transaction for BSC
+            signedTx = try EthereumTransaction.buildAndSign(
+                to: pendingTx.recipient,
+                value: String(weiAmount),
+                gasLimit: 21000,
+                gasPrice: String(newGasPrice),
+                nonce: nonce,
+                chainId: chainId,
+                privateKeyHex: privateKeyHex,
+                data: "0x"
+            )
+        }
         
         // Broadcast
         let txid = try await broadcastEthereumTransaction(signedTx: signedTx, rpcURL: rpcURL)
@@ -645,7 +685,7 @@ final class TransactionCancellationManager: ObservableObject {
     private func getRPCURL(for chainId: String) -> String {
         switch chainId {
         case "ethereum": return "https://eth.llamarpc.com"
-        case "ethereum-sepolia": return "https://rpc.sepolia.org"
+        case "ethereum-sepolia": return "https://ethereum-sepolia-rpc.publicnode.com"
         case "bnb": return "https://bsc-dataseed.binance.org/"
         default: return "https://eth.llamarpc.com"
         }

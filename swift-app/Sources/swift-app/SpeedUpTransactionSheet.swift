@@ -267,7 +267,7 @@ struct SpeedUpTransactionSheet: View {
         let rpcURL: String
         switch pendingTx.chainId {
         case "ethereum": rpcURL = "https://eth.llamarpc.com"
-        case "ethereum-sepolia": rpcURL = "https://rpc.sepolia.org"
+        case "ethereum-sepolia": rpcURL = "https://ethereum-sepolia-rpc.publicnode.com"
         case "bnb": rpcURL = "https://bsc-dataseed.binance.org/"
         default: throw SpeedUpError.unsupportedChain
         }
@@ -378,26 +378,33 @@ struct SpeedUpTransactionSheet: View {
         // For Ethereum, we send a new transaction with same nonce but higher gas
         let rpcURL: String
         let chainId: Int
+        let isTestnet: Bool
         
         switch pendingTx.chainId {
         case "ethereum":
             rpcURL = "https://eth.llamarpc.com"
             chainId = 1
+            isTestnet = false
         case "ethereum-sepolia":
-            rpcURL = "https://rpc.sepolia.org"
+            rpcURL = "https://ethereum-sepolia-rpc.publicnode.com"
             chainId = 11155111
+            isTestnet = true
         case "bnb":
             rpcURL = "https://bsc-dataseed.binance.org/"
             chainId = 56
+            isTestnet = false
         default:
             throw SpeedUpError.unsupportedChain
         }
         
-        // Get the private key
-        let privateKey = keys.ethereum.privateHex
+        // Get the correct private key based on network
+        let privateKey = isTestnet ? keys.ethereumSepolia.privateHex : keys.ethereum.privateHex
         
-        // Build replacement transaction with same nonce, higher gas
-        let gasPriceWei = UInt64(newFeeRate * 1_000_000_000)
+        // Build replacement transaction with same nonce, higher gas (EIP-1559 format)
+        let maxFeePerGasWei = UInt64(newFeeRate * 1_000_000_000)
+        // Priority fee is 50% of max fee for Sepolia, 10% for mainnet
+        let priorityFeeMultiplier = isTestnet ? 0.5 : 0.1
+        let maxPriorityFeeWei = UInt64(max(2.5, Double(newFeeRate) * priorityFeeMultiplier) * 1_000_000_000)
         
         // Parse amount from transaction
         let amountString = pendingTx.amount.components(separatedBy: " ").first ?? "0"
@@ -406,15 +413,33 @@ struct SpeedUpTransactionSheet: View {
         }
         let weiAmount = UInt64(amountDouble * 1e18)
         
-        let signedTx = try EthereumTransaction.buildAndSign(
-            to: pendingTx.recipient,
-            value: String(weiAmount),
-            gasLimit: 21000,
-            gasPrice: String(gasPriceWei),
-            nonce: nonce,
-            chainId: chainId,
-            privateKeyHex: privateKey
-        )
+        // Use EIP-1559 for post-London chains (Ethereum mainnet, Sepolia)
+        // BSC still uses legacy transactions
+        let signedTx: String
+        if chainId == 1 || chainId == 11155111 {
+            // EIP-1559 transaction (Type 2)
+            signedTx = try EthereumTransaction.buildAndSignEIP1559(
+                to: pendingTx.recipient,
+                value: String(weiAmount),
+                gasLimit: 21000,
+                maxFeePerGas: String(maxFeePerGasWei),
+                maxPriorityFeePerGas: String(maxPriorityFeeWei),
+                nonce: nonce,
+                chainId: chainId,
+                privateKeyHex: privateKey
+            )
+        } else {
+            // Legacy transaction for BSC and others
+            signedTx = try EthereumTransaction.buildAndSign(
+                to: pendingTx.recipient,
+                value: String(weiAmount),
+                gasLimit: 21000,
+                gasPrice: String(maxFeePerGasWei),
+                nonce: nonce,
+                chainId: chainId,
+                privateKeyHex: privateKey
+            )
+        }
         
         // Broadcast
         guard let url = URL(string: rpcURL) else {

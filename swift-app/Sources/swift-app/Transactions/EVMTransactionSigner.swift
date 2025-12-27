@@ -288,9 +288,8 @@ final class EVMSendFlow: ObservableObject {
 // MARK: - EthereumTransaction Extension
 
 extension EthereumTransaction {
-    /// Build and sign an EIP-1559 transaction
-    /// NOTE: EIP-1559 support in Rust backend is pending.
-    /// For now, this falls back to legacy gas model.
+    /// Build and sign an EIP-1559 transaction (Type 2)
+    /// EIP-1559 is the preferred format for post-London networks (Ethereum mainnet, Sepolia)
     static func buildAndSignEIP1559(
         to recipient: String,
         value: String,
@@ -302,8 +301,7 @@ extension EthereumTransaction {
         privateKeyHex: String,
         data: String = "0x"
     ) throws -> String {
-        // TODO: Implement proper EIP-1559 support in Rust backend
-        // For now, use legacy gas model with maxFeePerGas as gasPrice
+        // Use EIP-1559 transaction format - pass maxFeePerGas and maxPriorityFeePerGas to Rust
         return try RustCLIBridge.shared.signEthereum(
             recipient: recipient,
             amountWei: value,
@@ -311,7 +309,9 @@ extension EthereumTransaction {
             senderKey: privateKeyHex,
             nonce: UInt64(nonce),
             gasLimit: UInt64(gasLimit),
-            gasPrice: maxFeePerGas,
+            gasPrice: nil, // Not used for EIP-1559
+            maxFeePerGas: maxFeePerGas,
+            maxPriorityFeePerGas: maxPriorityFeePerGas,
             data: data.isEmpty ? "" : data
         )
     }

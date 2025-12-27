@@ -243,7 +243,7 @@ fn decode_litecoin_wif(wif: &str) -> Result<(SecretKey, bool), Box<dyn Error>> {
     let payload = &decoded[..decoded.len() - 4];
     let checksum = &decoded[decoded.len() - 4..];
     
-    use bitcoin::hashes::{sha256, HashEngine};
+    use bitcoin::hashes::sha256;
     let hash1 = sha256::Hash::hash(payload);
     let hash2 = sha256::Hash::hash(hash1.as_byte_array());
     let computed_checksum = &hash2.as_byte_array()[..4];

@@ -252,77 +252,208 @@ final class TransactionConfirmationTracker: ObservableObject {
     }
     
     private func checkEVMTransaction(txid: String, chainId: String) async {
-        let rpcURL: String
+        let rpcEndpoints: [String]
         switch chainId {
         case "ethereum":
-            rpcURL = "https://eth.llamarpc.com"
+            rpcEndpoints = [
+                "https://eth.llamarpc.com",
+                "https://ethereum.publicnode.com",
+                "https://rpc.ankr.com/eth"
+            ]
         case "ethereum-sepolia":
-            rpcURL = "https://rpc.sepolia.org"
+            rpcEndpoints = [
+                "https://ethereum-sepolia-rpc.publicnode.com",
+                "https://sepolia.drpc.org",
+                "https://1rpc.io/sepolia"
+            ]
         case "bnb":
-            rpcURL = "https://bsc-dataseed.binance.org/"
+            rpcEndpoints = [
+                "https://bsc-dataseed.binance.org",
+                "https://bsc-dataseed1.defibit.io",
+                "https://bsc-dataseed1.ninicoin.io"
+            ]
         default:
             return
         }
-        
-        guard let url = URL(string: rpcURL) else { return }
-        
+
+        // 1) If any endpoint returns a receipt -> mined.
+        for endpoint in rpcEndpoints {
+            if let receipt = await fetchEVMReceipt(txid: txid, rpcURL: endpoint) {
+                let blockNumberHex = receipt["blockNumber"] as? String ?? "0x0"
+                let blockNumber = Int(blockNumberHex.dropFirst(2), radix: 16) ?? 0
+
+                // If we can parse the nonce from the original transaction, we can
+                // positively confirm/release it from the nonce manager.
+                let confirmedNonce: UInt64? = await fetchEVMTxNonce(txid: txid, rpcURL: endpoint)
+
+                let statusHex = receipt["status"] as? String ?? "0x1"
+                let success = statusHex == "0x1"
+                if !success {
+                    updateTransaction(txid: txid) { tx in
+                        tx.status = .failed
+                        tx.lastChecked = Date()
+                    }
+
+                    if let confirmedNonce {
+                        EVMNonceManager.shared.confirmNonce(confirmedNonce, chainId: chainId)
+                    }
+                    return
+                }
+
+                let currentBlock = await fetchEVMBlockNumber(rpcURL: endpoint)
+                updateTransaction(txid: txid) { tx in
+                    tx.blockHeight = blockNumber
+                    if let current = currentBlock {
+                        tx.confirmations = current - blockNumber + 1
+                    }
+                    tx.status = tx.isConfirmed ? .confirmed : .confirming
+                    tx.lastChecked = Date()
+                }
+
+                if let confirmedNonce {
+                    EVMNonceManager.shared.confirmNonce(confirmedNonce, chainId: chainId)
+                }
+                return
+            }
+        }
+
+        // 2) No receipt. Determine if tx exists on any node.
+        var visibleSomewhere = false
+        for endpoint in rpcEndpoints {
+            if await fetchEVMTxExists(txid: txid, rpcURL: endpoint) {
+                visibleSomewhere = true
+                break
+            }
+        }
+
+        if visibleSomewhere {
+            updateTransaction(txid: txid) { tx in
+                tx.confirmations = 0
+                tx.status = .pending
+                tx.lastChecked = Date()
+            }
+            return
+        }
+
+        // 3) Not visible anywhere. This usually means: dropped/evicted or never propagated.
+        // Attempt a best-effort rebroadcast if we have the raw tx cached or persisted.
+        var rawTx: String? = TransactionBroadcaster.shared.getCachedRawTx(txid: txid)
+        if rawTx == nil {
+            // Chain mapping: this tracker passes chain ids like "ethereum" / "ethereum-sepolia" / "bnb".
+            // If the tx was persisted from SendView, it should be stored under that chain id.
+            if let data = try? await TransactionStore.shared.fetchRawData(txHash: txid, chainId: chainId),
+               let s = String(data: data, encoding: .utf8) {
+                rawTx = s
+            }
+        }
+
+        if let rawTx {
+            for endpoint in rpcEndpoints {
+                // Fire and forget; if a node errors it will be ignored.
+                _ = try? await TransactionBroadcaster.shared.rebroadcastRawEVM(rawTxHex: rawTx, rpcURL: endpoint)
+            }
+        }
+
+        updateTransaction(txid: txid) { tx in
+            tx.confirmations = 0
+            // After ~10 minutes of being not-found, mark dropped.
+            if tx.timestamp.timeIntervalSinceNow < -600 {
+                tx.status = .dropped
+            } else {
+                tx.status = .pending
+            }
+            tx.lastChecked = Date()
+        }
+    }
+
+    private func fetchEVMReceipt(txid: String, rpcURL: String) async -> [String: Any]? {
+        guard let url = URL(string: rpcURL) else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // Get transaction receipt
+        request.timeoutInterval = 8
+
         let payload: [String: Any] = [
             "jsonrpc": "2.0",
             "method": "eth_getTransactionReceipt",
             "params": [txid],
             "id": 1
         ]
-        
+
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
             let (data, _) = try await URLSession.shared.data(for: request)
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            
-            guard let result = json?["result"] as? [String: Any] else {
-                // Transaction pending or not found
-                updateTransaction(txid: txid) { tx in
-                    tx.confirmations = 0
-                    tx.status = .pending
-                    tx.lastChecked = Date()
-                }
-                return
-            }
-            
-            // Transaction has receipt - it's mined
-            let blockNumberHex = result["blockNumber"] as? String ?? "0x0"
-            let blockNumber = Int(blockNumberHex.dropFirst(2), radix: 16) ?? 0
-            
-            // Check status (0 = failed, 1 = success)
-            let statusHex = result["status"] as? String ?? "0x1"
-            let success = statusHex == "0x1"
-            
-            if !success {
-                updateTransaction(txid: txid) { tx in
-                    tx.status = .failed
-                    tx.lastChecked = Date()
-                }
-                return
-            }
-            
-            // Get current block number for confirmation count
-            let currentBlock = await fetchEVMBlockNumber(rpcURL: rpcURL)
-            
-            updateTransaction(txid: txid) { tx in
-                tx.blockHeight = blockNumber
-                if let current = currentBlock {
-                    tx.confirmations = current - blockNumber + 1
-                }
-                tx.status = tx.isConfirmed ? .confirmed : .confirming
-                tx.lastChecked = Date()
-            }
-            
+            if let result = json?["result"] as? [String: Any] { return result }
+            return nil
         } catch {
-            print("Error checking EVM tx: \(error)")
+            return nil
+        }
+    }
+
+    /// Fetch the nonce of an EVM transaction if the node can see it.
+    /// Returns nil if the tx is not found or the response can't be parsed.
+    private func fetchEVMTxNonce(txid: String, rpcURL: String) async -> UInt64? {
+        guard let url = URL(string: rpcURL) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 4
+
+        let body: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getTransactionByHash",
+            "params": [txid],
+            "id": 1
+        ]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                return nil
+            }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return nil
+            }
+            guard let result = json["result"] as? [String: Any] else {
+                return nil
+            }
+            guard let nonceHex = result["nonce"] as? String else {
+                return nil
+            }
+            let cleaned = nonceHex.hasPrefix("0x") ? String(nonceHex.dropFirst(2)) : nonceHex
+            return UInt64(cleaned, radix: 16)
+        } catch {
+            return nil
+        }
+    }
+
+    private func fetchEVMTxExists(txid: String, rpcURL: String) async -> Bool {
+        guard let url = URL(string: rpcURL) else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 6
+
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getTransactionByHash",
+            "params": [txid],
+            "id": 1
+        ]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            if let result = json?["result"] {
+                return !(result is NSNull)
+            }
+            return false
+        } catch {
+            return false
         }
     }
     

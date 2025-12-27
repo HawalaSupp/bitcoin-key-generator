@@ -328,11 +328,17 @@ final class GeographicSecurityManager: NSObject, ObservableObject {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: key,
-            kSecReturnData as String: true
+            kSecReturnData as String: true,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
         ]
         
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        // Handle user cancellation gracefully
+        if status == errSecUserCanceled {
+            return nil
+        }
         
         return status == errSecSuccess ? result as? Data : nil
     }

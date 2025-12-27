@@ -27,6 +27,13 @@ chmod +x "$MACOS_DIR/$APP_NAME"
 # Copy Info.plist
 cp "Info.plist" "$CONTENTS_DIR/"
 
+# Copy entitlements
+cp "Hawala.entitlements" "$CONTENTS_DIR/"
+
+# Code sign the app with entitlements (ad-hoc signing for development)
+echo "Code signing app bundle..."
+codesign --force --deep --sign - --entitlements "Hawala.entitlements" "$BUNDLE_DIR"
+
 echo "App bundle created at: $BUNDLE_DIR"
 echo "Launching..."
 

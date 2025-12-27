@@ -149,7 +149,7 @@ final class EVMNonceManager: ObservableObject {
         case "ethereum", "1":
             return "https://eth.llamarpc.com"
         case "ethereum-sepolia", "11155111":
-            return "https://rpc.sepolia.org"
+            return "https://ethereum-sepolia-rpc.publicnode.com"
         case "bnb", "56":
             return "https://bsc-dataseed.binance.org/"
         case "bnb-testnet", "97":

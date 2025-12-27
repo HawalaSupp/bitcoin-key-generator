@@ -1894,7 +1894,9 @@ struct ContentView: View {
         case "ethereum-sepolia": return "Ethereum Sepolia"
         case "bnb": return "BNB Chain"
         case "solana": return "Solana"
+        case "solana-devnet": return "Solana Devnet"
         case "xrp": return "XRP"
+        case "xrp-testnet": return "XRP Testnet"
         case "monero": return "Monero"
         default: return chainId.capitalized
         }
@@ -2487,6 +2489,7 @@ struct ContentView: View {
         isHistoryLoading = true
 
         let targets = historyTargets(from: keys)
+        print("📜 History targets: \(targets.map { "\($0.id): \($0.address.prefix(10))..." })")
         if targets.isEmpty {
             isHistoryLoading = false
             historyEntries = []
@@ -2525,7 +2528,7 @@ struct ContentView: View {
                         print("📜 [\(target.id)] No transactions found")
                         failureCount += 1
                     }
-                case "solana":
+                case "solana", "solana-devnet":
                     let entries = await fetchSolanaHistoryEntries(for: target)
                     if !entries.isEmpty {
                         print("📜 [\(target.id)] Fetched \(entries.count) transactions")
@@ -2535,7 +2538,7 @@ struct ContentView: View {
                         print("📜 [\(target.id)] No transactions found")
                         failureCount += 1
                     }
-                case "xrp":
+                case "xrp", "xrp-testnet":
                     let entries = await fetchXRPHistoryEntries(for: target)
                     if !entries.isEmpty {
                         print("📜 [\(target.id)] Fetched \(entries.count) transactions")
@@ -2575,22 +2578,27 @@ struct ContentView: View {
 
     private func historyTargets(from keys: AllKeys) -> [HistoryChainTarget] {
         var targets: [HistoryChainTarget] = []
-        var seenAddresses = Set<String>()
 
         func appendTarget(id: String, address: String, displayName: String, symbol: String) {
-            guard !address.isEmpty, !seenAddresses.contains(address) else { return }
-            seenAddresses.insert(address)
+            guard !address.isEmpty else { return }
+            // Don't dedupe by address - each chain has its own history even if address is same
             targets.append(HistoryChainTarget(id: id, address: address, displayName: displayName, symbol: symbol))
         }
 
         appendTarget(id: "bitcoin", address: keys.bitcoin.address, displayName: "Bitcoin", symbol: "BTC")
         appendTarget(id: "bitcoin-testnet", address: keys.bitcoinTestnet.address, displayName: "Bitcoin Testnet", symbol: "tBTC")
         appendTarget(id: "litecoin", address: keys.litecoin.address, displayName: "Litecoin", symbol: "LTC")
-        appendTarget(id: "ethereum", address: keys.ethereum.address, displayName: "Ethereum", symbol: "ETH")
-        appendTarget(id: "ethereum-sepolia", address: keys.ethereumSepolia.address, displayName: "Ethereum Sepolia", symbol: "ETH")
-        appendTarget(id: "bnb", address: keys.bnb.address, displayName: "BNB Chain", symbol: "BNB")
+        // For EVM chains, use ethereum address (same key works on all EVM networks)
+        let evmAddress = keys.ethereum.address.isEmpty ? keys.ethereumSepolia.address : keys.ethereum.address
+        appendTarget(id: "ethereum", address: evmAddress, displayName: "Ethereum", symbol: "ETH")
+        appendTarget(id: "ethereum-sepolia", address: evmAddress, displayName: "Ethereum Sepolia", symbol: "ETH")
+        appendTarget(id: "bnb", address: keys.bnb.address.isEmpty ? evmAddress : keys.bnb.address, displayName: "BNB Chain", symbol: "BNB")
+        // Use same address for both mainnet and devnet Solana
         appendTarget(id: "solana", address: keys.solana.publicKeyBase58, displayName: "Solana", symbol: "SOL")
+        appendTarget(id: "solana-devnet", address: keys.solana.publicKeyBase58, displayName: "Solana Devnet", symbol: "SOL")
+        // Use same address for both mainnet and testnet XRP
         appendTarget(id: "xrp", address: keys.xrp.classicAddress, displayName: "XRP Ledger", symbol: "XRP")
+        appendTarget(id: "xrp-testnet", address: keys.xrp.classicAddress, displayName: "XRP Testnet", symbol: "XRP")
 
         return targets
     }
@@ -3055,7 +3063,9 @@ struct ContentView: View {
     }
 
     private func fetchSolanaHistoryEntries(for target: HistoryChainTarget) async -> [HawalaTransactionEntry] {
-        let rpcURL = "https://api.mainnet-beta.solana.com"
+        // Use devnet or mainnet RPC based on target id
+        let isDevnet = target.id == "solana-devnet"
+        let rpcURL = isDevnet ? "https://api.devnet.solana.com" : "https://api.mainnet-beta.solana.com"
 
         guard let url = URL(string: rpcURL) else { return [] }
 
@@ -3371,8 +3381,10 @@ struct ContentView: View {
     }
     
     private func fetchXRPHistoryEntries(for target: HistoryChainTarget) async -> [HawalaTransactionEntry] {
-        // XRPL JSON-RPC
-        guard let url = URL(string: "https://xrplcluster.com/") else { return [] }
+        // XRPL JSON-RPC - use testnet or mainnet based on target id
+        let isTestnet = target.id == "xrp-testnet"
+        let rpcURL = isTestnet ? "https://s.altnet.rippletest.net:51234/" : "https://xrplcluster.com/"
+        guard let url = URL(string: rpcURL) else { return [] }
         
         let payload: [String: Any] = [
             "method": "account_tx",
@@ -3591,9 +3603,14 @@ struct ContentView: View {
     private func mapToChain(_ chainId: String) -> Chain {
         if chainId == "bitcoin-testnet" { return .bitcoinTestnet }
         if chainId == "bitcoin" || chainId == "bitcoin-mainnet" { return .bitcoinMainnet }
-        if chainId.starts(with: "ethereum") { return .ethereum }
-        if chainId == "solana" { return .solana }
-        if chainId == "xrp" { return .xrp }
+        if chainId == "ethereum-sepolia" { return .ethereumSepolia }
+        if chainId == "ethereum" || chainId == "ethereum-mainnet" { return .ethereumMainnet }
+        if chainId == "polygon" { return .polygon }
+        if chainId == "bnb" { return .bnb }
+        if chainId == "solana-devnet" { return .solanaDevnet }
+        if chainId == "solana" || chainId == "solana-mainnet" { return .solanaMainnet }
+        if chainId == "xrp-testnet" { return .xrpTestnet }
+        if chainId == "xrp" || chainId == "xrp-mainnet" { return .xrpMainnet }
         if chainId == "monero" { return .monero }
         return .bitcoinTestnet
     }
@@ -3617,28 +3634,40 @@ struct ContentView: View {
             return
         }
         
-        do {
-            if let loadedKeys = try KeychainHelper.loadKeys() {
-                keys = loadedKeys
-                rawJSON = prettyPrintedJSON(from: try JSONEncoder().encode(loadedKeys))
-                primeStateCaches(for: loadedKeys)
-                print("✅ Loaded keys from Keychain")
-                print("🔑 Bitcoin Testnet Address: \(loadedKeys.bitcoinTestnet.address)")
+        // Run Keychain access on a background thread to avoid blocking UI
+        Task.detached(priority: .userInitiated) {
+            do {
+                let keychainResult = try KeychainHelper.loadKeys()
                 
-                // Mark onboarding as completed since user has existing keys
-                if !onboardingCompleted {
-                    onboardingCompleted = true
-                    print("✅ Marking onboarding as completed (keys found in Keychain)")
+                await MainActor.run {
+                    if let loadedKeys = keychainResult {
+                        self.keys = loadedKeys
+                        // Safely encode keys with error handling
+                        if let encoded = try? JSONEncoder().encode(loadedKeys) {
+                            self.rawJSON = self.prettyPrintedJSON(from: encoded)
+                        }
+                        self.primeStateCaches(for: loadedKeys)
+                        print("✅ Loaded keys from Keychain")
+                        print("🔑 Bitcoin Testnet Address: \(loadedKeys.bitcoinTestnet.address)")
+                        
+                        // Mark onboarding as completed since user has existing keys
+                        if !self.onboardingCompleted {
+                            self.onboardingCompleted = true
+                            print("✅ Marking onboarding as completed (keys found in Keychain)")
+                        }
+                        
+                        self.startBalanceFetch(for: loadedKeys)
+                        self.startPriceUpdatesIfNeeded()
+                        self.refreshTransactionHistory(force: true)
+                    } else {
+                        print("ℹ️ No keys found in Keychain")
+                    }
                 }
-                
-                startBalanceFetch(for: loadedKeys)
-                startPriceUpdatesIfNeeded()
-                refreshTransactionHistory(force: true)
-            } else {
-                print("ℹ️ No keys found in Keychain")
+            } catch {
+                await MainActor.run {
+                    print("⚠️ Failed to load keys from Keychain: \(error)")
+                }
             }
-        } catch {
-            print("⚠️ Failed to load keys from Keychain: \(error)")
         }
     }
     
@@ -7525,10 +7554,11 @@ private struct EthereumSendSheet: View {
             throw EthereumError.invalidAddress
         }
         
+        // Use "pending" to include mempool transactions and avoid nonce conflicts
         let payload: [String: Any] = [
             "jsonrpc": "2.0",
             "method": "eth_getTransactionCount",
-            "params": [address, "latest"],
+            "params": [address, "pending"],
             "id": 1
         ]
         
@@ -7762,19 +7792,25 @@ private struct EthereumSendSheet: View {
             
             let signedTx: String
             
+            // Use EIP-1559 for Ethereum mainnet and Sepolia (post-London chains)
+            // Calculate priority fee: 50% of max fee for testnet, 10% for mainnet
+            let priorityFeeMultiplier = isTestnet ? 0.5 : 0.1
+            let maxPriorityFeeWei = UInt64(max(2.5 * 1_000_000_000, Double(gasPriceWei) * priorityFeeMultiplier))
+            
             if selectedToken == .eth {
-                // Send ETH
-                signedTx = try EthereumTransaction.buildAndSign(
+                // Send ETH using EIP-1559
+                signedTx = try EthereumTransaction.buildAndSignEIP1559(
                     to: toAddress,
                     value: String(smallestUnit),
                     gasLimit: 21000,
-                    gasPrice: String(gasPriceWei),
+                    maxFeePerGas: String(gasPriceWei),
+                    maxPriorityFeePerGas: String(maxPriorityFeeWei),
                     nonce: nonce,
                     chainId: chainId,
                     privateKeyHex: privateKey
                 )
             } else {
-                // Send ERC-20 token
+                // Send ERC-20 token - still use legacy for now as ERC20 EIP-1559 needs more work
                 guard let contract = selectedToken.contractAddress else {
                     throw EthereumError.invalidAddress
                 }
@@ -8172,10 +8208,11 @@ private struct BnbSendSheet: View {
     
     private func fetchNonce(address: String) async throws -> Int {
         guard let url = URL(string: rpcURL) else { throw EthereumError.invalidAddress }
+        // Use "pending" to include mempool transactions
         let payload: [String: Any] = [
             "jsonrpc": "2.0",
             "method": "eth_getTransactionCount",
-            "params": [address, "latest"],
+            "params": [address, "pending"],
             "id": 1
         ]
         var request = URLRequest(url: url)
@@ -11313,7 +11350,9 @@ private struct KeychainHelper {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: keysIdentifier,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+            // Use kSecAttrAccessibleWhenUnlocked for dev builds to avoid password prompts
+            // For production, use kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
         ]
         
         // Delete existing item first
@@ -11321,6 +11360,7 @@ private struct KeychainHelper {
         
         // Add new item
         let status = SecItemAdd(query as CFDictionary, nil)
+        
         guard status == errSecSuccess else {
             throw KeychainError.saveFailed(status)
         }
@@ -11331,13 +11371,20 @@ private struct KeychainHelper {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: keysIdentifier,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIAllow
         ]
         
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         
         if status == errSecItemNotFound {
+            return nil
+        }
+        
+        // Handle user cancellation gracefully
+        if status == errSecUserCanceled {
+            print("ℹ️ User cancelled Keychain authentication")
             return nil
         }
         
@@ -11366,6 +11413,7 @@ enum KeychainError: LocalizedError {
     case saveFailed(OSStatus)
     case loadFailed(OSStatus)
     case deleteFailed(OSStatus)
+    case userCancelled
     
     var errorDescription: String? {
         switch self {
@@ -11375,6 +11423,8 @@ enum KeychainError: LocalizedError {
             return "Failed to load keys from Keychain (status: \(status))"
         case .deleteFailed(let status):
             return "Failed to delete keys from Keychain (status: \(status))"
+        case .userCancelled:
+            return "Keychain authentication was cancelled by user"
         }
     }
 }

@@ -86,7 +86,18 @@ Created **4 complete documentation files**:
    - Technical debt tracking
    - Recommended execution plan
 
-### 4. ✅ Dependency Management
+### 4. ✅ Milestone 5: Transaction Orchestration
+
+**Location**: `rust-app/src/`, `swift-app/Sources/swift-app/Views/SendView.swift`
+
+Implemented advanced transaction features and orchestration:
+
+- **Ethereum EIP-1559**: Added support for `max_fee_per_gas` and `max_priority_fee_per_gas` in Rust backend and Swift frontend.
+- **Litecoin Coin Control**: Extended manual UTXO selection to Litecoin, mirroring Bitcoin implementation.
+- **SendView Refactoring**: Major refactor of `SendView.swift` to handle multi-chain logic efficiently and resolve Swift compiler timeouts.
+- **Chain-Specific Logic**: Implemented dedicated sending methods for Bitcoin, Litecoin, Ethereum, Solana, and XRP.
+
+### 5. ✅ Dependency Management
 
 **Cargo.toml** properly configured with:
 
@@ -107,7 +118,7 @@ All dependencies:
 - ✅ Actively used in production
 - ✅ Comprehensive feature coverage
 
-### 5. ✅ Build & Runtime Validation
+### 6. ✅ Build & Runtime Validation
 
 - ✅ **Rust compilation**: Clean build, no warnings
 - ✅ **Swift compilation**: Clean build, no errors

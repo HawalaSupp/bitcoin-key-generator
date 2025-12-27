@@ -172,7 +172,7 @@ final class FeeEstimationService: ObservableObject {
         case 1:
             rpcURL = "https://eth.llamarpc.com"
         case 11155111:
-            rpcURL = "https://rpc.sepolia.org"
+            rpcURL = "https://ethereum-sepolia-rpc.publicnode.com"
         case 56:
             rpcURL = "https://bsc-dataseed.binance.org"
         case 137:
@@ -245,6 +245,123 @@ final class FeeEstimationService: ObservableObject {
                 isEstimated: false,
                 errorMessage: error.localizedDescription
             )
+        }
+    }
+    
+    /// Fetch current gas price for any EVM chain
+    /// - Parameter chainId: Chain ID (1 for Ethereum mainnet, 11155111 for Sepolia, 56 for BSC, 137 for Polygon)
+    /// - Returns: Gas price in Gwei, or nil on failure
+    func fetchGasPrice(for chainId: Int) async -> Double? {
+        let rpcURL: String
+        switch chainId {
+        case 1:
+            rpcURL = "https://eth.llamarpc.com"
+        case 11155111:
+            // Sepolia testnet - use reliable public endpoint
+            rpcURL = "https://ethereum-sepolia-rpc.publicnode.com"
+        case 56:
+            rpcURL = "https://bsc-dataseed.binance.org"
+        case 137:
+            rpcURL = "https://polygon-rpc.com"
+        default:
+            rpcURL = "https://eth.llamarpc.com"
+        }
+        
+        guard let url = URL(string: rpcURL) else { return nil }
+        
+        let requestBody: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_gasPrice",
+            "params": [],
+            "id": 1
+        ]
+        
+        do {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+            
+            let (data, _) = try await URLSession.shared.data(for: request)
+            
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let resultHex = json["result"] as? String else {
+                return nil
+            }
+            
+            // Parse hex to wei
+            let hexValue = resultHex.hasPrefix("0x") ? String(resultHex.dropFirst(2)) : resultHex
+            guard let gasPriceWei = UInt64(hexValue, radix: 16) else {
+                return nil
+            }
+            
+            // Convert wei to Gwei
+            let gasPriceGwei = Double(gasPriceWei) / 1_000_000_000.0
+            return gasPriceGwei
+        } catch {
+            print("Gas price fetch error for chain \(chainId): \(error)")
+            return nil
+        }
+    }
+
+    // MARK: - Base Fee Fetching (for EIP-1559 chains)
+
+    /// Fetch the current baseFeePerGas from the latest block.
+    /// This is essential for ensuring the tx can actually be included.
+    /// - Parameter chainId: EVM chain id (1, 11155111, 137, 56, etc.)
+    /// - Returns: baseFeePerGas in **Gwei**, or nil on failure.
+    func fetchBaseFee(for chainId: Int) async -> Double? {
+        let rpcURL: String
+        switch chainId {
+        case 1:
+            rpcURL = "https://eth.llamarpc.com"
+        case 11155111:
+            rpcURL = "https://ethereum-sepolia-rpc.publicnode.com"
+        case 137:
+            rpcURL = "https://polygon-rpc.com"
+        case 56:
+            // BSC doesn't use EIP-1559, but return a nominal value.
+            return 3.0
+        default:
+            rpcURL = "https://eth.llamarpc.com"
+        }
+
+        guard let url = URL(string: rpcURL) else { return nil }
+
+        let requestBody: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_getBlockByNumber",
+            "params": ["latest", false],
+            "id": 1
+        ]
+
+        do {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+            let (data, _) = try await URLSession.shared.data(for: request)
+
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let result = json["result"] as? [String: Any],
+                  let baseFeeHex = result["baseFeePerGas"] as? String else {
+                print("[BaseFee] Could not parse baseFeePerGas from latest block (chain \(chainId))")
+                return nil
+            }
+
+            let hexValue = baseFeeHex.hasPrefix("0x") ? String(baseFeeHex.dropFirst(2)) : baseFeeHex
+            guard let baseFeeWei = UInt64(hexValue, radix: 16) else {
+                print("[BaseFee] Could not convert hex to UInt64: \(baseFeeHex)")
+                return nil
+            }
+
+            let baseFeeGwei = Double(baseFeeWei) / 1_000_000_000.0
+            print("[BaseFee] Chain \(chainId): \(baseFeeGwei) Gwei (raw \(baseFeeWei) Wei)")
+            return baseFeeGwei
+        } catch {
+            print("[BaseFee] Error fetching baseFee for chain \(chainId): \(error)")
+            return nil
         }
     }
     

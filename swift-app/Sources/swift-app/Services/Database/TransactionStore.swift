@@ -27,6 +27,36 @@ actor TransactionStore {
             try transaction.save(dbConn)
         }
     }
+
+    /// Ensure a `WalletRecord` row exists for the currently active wallet.
+    ///
+    /// This app currently has multiple wallet systems (WalletRepository + GRDB).
+    /// For outbound tx persistence we only need a stable FK target, so we mirror
+    /// the active wallet from WalletRepository into the GRDB `wallet` table.
+    @MainActor
+    func ensureActiveWalletRecord() async throws -> String {
+        guard let active = WalletRepository.shared.activeWallet else {
+            throw DatabaseError.notFound
+        }
+        let walletId = active.id.uuidString
+
+        try await db.writeAsync { dbConn in
+            if try WalletRecord.filter(Column("id") == walletId).fetchOne(dbConn) == nil {
+                let record = WalletRecord(
+                    id: walletId,
+                    name: active.name,
+                    createdAt: active.createdAt,
+                    isWatchOnly: active.isWatchOnly,
+                    colorIndex: active.colorIndex,
+                    displayOrder: active.order,
+                    lastSyncedAt: nil
+                )
+                try record.insert(dbConn)
+            }
+        }
+
+        return walletId
+    }
     
     /// Insert or update multiple transactions (batch operation)
     func saveAll(_ transactions: [TransactionRecord]) async throws {
@@ -163,6 +193,16 @@ actor TransactionStore {
                 .fetchCount(dbConn) > 0
         }
     }
+
+    /// Fetch the persisted rawData blob for a transaction (if any).
+    func fetchRawData(txHash: String, chainId: String) async throws -> Data? {
+        try await db.readAsync { dbConn in
+            try TransactionRecord
+                .filter(Column("txHash") == txHash)
+                .filter(Column("chainId") == chainId)
+                .fetchOne(dbConn)?.rawData
+        }
+    }
     
     // MARK: - Delete
     
@@ -243,6 +283,7 @@ extension TransactionRecord {
         fee: String?,
         asset: String,
         timestamp: Date?,
+        rawData: Data? = nil,
         status: TransactionStatus = .pending
     ) -> TransactionRecord {
         let now = Date()
@@ -263,11 +304,34 @@ extension TransactionRecord {
             feeAsset: asset,
             asset: asset,
             confirmations: 0,
-            rawData: nil,
+            rawData: rawData,
             note: nil,
             fiatValueAtTime: nil,
             createdAt: now,
             updatedAt: now
         )
     }
+}
+
+extension TransactionStore {
+    /// Persist raw signed transaction bytes/hex for recovery (rebroadcast) later.
+    /// Safe to call repeatedly; will overwrite rawData.
+    func attachRawData(txHash: String, chainId: String, rawData: Data) async throws {
+        try await db.writeAsync { dbConn in
+            if var tx = try TransactionRecord
+                .filter(Column("txHash") == txHash)
+                .filter(Column("chainId") == chainId)
+                .fetchOne(dbConn) {
+                tx.rawData = rawData
+                tx.updatedAt = Date()
+                try tx.update(dbConn)
+            } else {
+                throw DatabaseError.notFound
+            }
+        }
+    }
+}
+
+enum DatabaseError: Error {
+    case notFound
 }

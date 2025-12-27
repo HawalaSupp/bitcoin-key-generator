@@ -281,7 +281,7 @@ actor PendingTransactionManager {
     private func checkEthereumConfirmations(_ tx: PendingTransaction) async -> (Int, Bool) {
         let isTestnet = tx.chainId == "ethereum-sepolia"
         let rpcURL = isTestnet
-            ? "https://rpc.sepolia.org"
+            ? "https://ethereum-sepolia-rpc.publicnode.com"
             : "https://eth.llamarpc.com"
         
         guard let url = URL(string: rpcURL) else {
