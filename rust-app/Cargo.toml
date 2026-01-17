@@ -1,7 +1,7 @@
 [package]
 name = "rust-app"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 default-run = "rust-app"
 
 [lib]
@@ -10,16 +10,18 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 [dependencies]
 libc = "0.2"
 bitcoin = "0.32"
+thiserror = "1.0"
+anyhow = "1.0"
 hex = "0.4"
 rand = "0.8"
 tiny-keccak = { version = "2.0", features = ["keccak"] }
 bs58 = "0.4"
 bech32 = "0.9"
-ed25519-dalek = { version = "2", features = ["std"] }
-curve25519-dalek = "4"
+ed25519-dalek = { version = "2", features = ["std", "zeroize"] }
+curve25519-dalek = { version = "4", features = ["zeroize"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.11", features = ["blocking", "json"] }
+reqwest = { version = "0.11", features = ["blocking", "json", "rustls-tls"], default-features = false }
 tokio = { version = "1", features = ["full"] }
 ethers-core = "2.0"
 ethers-signers = "2.0"
@@ -30,7 +32,38 @@ solana-sdk = "2.0"
 monero = "0.21"
 xrpl-rust = "1.0.0"
 bincode = "1.3"
+lazy_static = "1.4"
+
+# Security-critical dependencies
+zeroize = { version = "1.8", features = ["derive", "aarch64"] }
+secrecy = "0.10"
+subtle = "2.5"
+
+# Encryption
+aes-gcm = "0.10"
+argon2 = "0.5"
+base64 = "0.22"
+
+# Logging
+chrono = "0.4"
+
+# URL handling and input sanitization
+url = "2.5"
+unicode-normalization = "0.1"
 
 [dev-dependencies]
 assert_cmd = "2"
 proptest = "1"
+
+# Release profile optimizations for security and performance
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true
+strip = false

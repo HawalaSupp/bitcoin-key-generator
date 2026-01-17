@@ -50,6 +50,8 @@ public enum ProviderHealthState: Equatable, Sendable {
 
 /// Known provider types
 public enum ProviderType: String, CaseIterable, Identifiable, Sendable {
+    case moralis = "Moralis"
+    case tatum = "Tatum"
     case coinCap = "CoinCap"
     case cryptoCompare = "CryptoCompare"
     case coinGecko = "CoinGecko"
@@ -65,10 +67,26 @@ public enum ProviderType: String, CaseIterable, Identifiable, Sendable {
     
     var category: ProviderCategory {
         switch self {
-        case .coinCap, .cryptoCompare, .coinGecko:
+        case .moralis, .tatum, .coinCap, .cryptoCompare, .coinGecko:
             return .price
         case .alchemy, .blockchair, .mempool, .xrpScan, .solscan:
             return .blockchain
+        }
+    }
+    
+    /// Priority order for fallback (lower = higher priority)
+    var priority: Int {
+        switch self {
+        case .moralis: return 1     // Trust Wallet's provider - highest reliability
+        case .alchemy: return 2     // Enterprise-grade
+        case .tatum: return 3       // 130+ chains
+        case .mempool: return 4     // Bitcoin-specific excellence
+        case .blockchair: return 5
+        case .coinCap: return 6
+        case .cryptoCompare: return 7
+        case .coinGecko: return 8   // Often rate-limited
+        case .xrpScan: return 9
+        case .solscan: return 10
         }
     }
 }

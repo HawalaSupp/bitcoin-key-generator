@@ -10,6 +10,7 @@ import WebKit
 enum AnimatedBackgroundType: String, CaseIterable, Identifiable {
     case none = "none"
     case aurora = "aurora"
+    case silk = "silk"
     
     var id: String { rawValue }
     
@@ -17,6 +18,7 @@ enum AnimatedBackgroundType: String, CaseIterable, Identifiable {
         switch self {
         case .none: return "None"
         case .aurora: return "Aurora"
+        case .silk: return "Silk"
         }
     }
     
@@ -24,6 +26,7 @@ enum AnimatedBackgroundType: String, CaseIterable, Identifiable {
         switch self {
         case .none: return "circle.slash"
         case .aurora: return "aqi.medium"
+        case .silk: return "wind"
         }
     }
 }
@@ -414,6 +417,252 @@ struct AuroraBackground: NSViewRepresentable {
             gl.uniform1f(uBlend, blend);
             gl.uniform2f(uResolution, canvas.width, canvas.height);
             gl.uniform3fv(uColorStops, colorStops);
+            
+            gl.drawArrays(gl.TRIANGLES, 0, 3);
+        }
+        render();
+        </script>
+        </body>
+        </html>
+        """
+    }
+}
+
+// MARK: - Silk Background (ReactBits Silk Effect)
+// Ported from: https://github.com/DavidHDev/react-bits - Silk component
+
+struct SilkBackground: NSViewRepresentable {
+    var speed: Double = 5.0
+    var scale: Double = 1.0
+    var color: String = "#7B7481"
+    var noiseIntensity: Double = 1.5
+    var rotation: Double = 0.0
+    
+    func makeNSView(context: Context) -> WKWebView {
+        createBackgroundWebView(html: Self.makeHTML(
+            speed: speed,
+            scale: scale,
+            color: color,
+            noiseIntensity: noiseIntensity,
+            rotation: rotation
+        ))
+    }
+    
+    func updateNSView(_ nsView: WKWebView, context: Context) {}
+    
+    private static func makeHTML(speed: Double, scale: Double, color: String, noiseIntensity: Double, rotation: Double) -> String {
+        // Convert hex color to RGB
+        func hexToRGB(_ hex: String) -> (r: Double, g: Double, b: Double) {
+            var h = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+            if h.hasPrefix("#") { h.removeFirst() }
+            guard h.count == 6, let int = UInt64(h, radix: 16) else {
+                return (0.48, 0.45, 0.51) // Default gray
+            }
+            return (
+                r: Double((int >> 16) & 0xFF) / 255.0,
+                g: Double((int >> 8) & 0xFF) / 255.0,
+                b: Double(int & 0xFF) / 255.0
+            )
+        }
+        
+        let rgb = hexToRGB(color)
+        
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <style>
+        * { margin: 0; padding: 0; }
+        html, body, canvas { width: 100%; height: 100%; overflow: hidden; display: block; }
+        body { background: #0D0D0D; }
+        </style>
+        </head>
+        <body>
+        <canvas id="c"></canvas>
+        <script>
+        // Silk Effect - Exact port from ReactBits Silk component
+        // https://github.com/DavidHDev/react-bits
+        
+        const canvas = document.getElementById('c');
+        const gl = canvas.getContext('webgl2', { 
+            alpha: true, 
+            powerPreference: 'high-performance',
+            antialias: false,
+            preserveDrawingBuffer: false
+        }) || canvas.getContext('webgl', { 
+            alpha: true, 
+            powerPreference: 'high-performance'
+        });
+        const isWebGL2 = gl instanceof WebGL2RenderingContext;
+        
+        // Vertex shader - simple fullscreen quad with UVs
+        const VERT = isWebGL2 ? `#version 300 es
+        in vec2 position;
+        out vec2 vUv;
+        void main() {
+            vUv = position * 0.5 + 0.5;
+            gl_Position = vec4(position, 0.0, 1.0);
+        }
+        ` : `
+        attribute vec2 position;
+        varying vec2 vUv;
+        void main() {
+            vUv = position * 0.5 + 0.5;
+            gl_Position = vec4(position, 0.0, 1.0);
+        }
+        `;
+        
+        // Fragment shader - exact ReactBits Silk implementation
+        const FRAG = isWebGL2 ? `#version 300 es
+        precision highp float;
+        
+        in vec2 vUv;
+        
+        uniform float uTime;
+        uniform vec3  uColor;
+        uniform float uSpeed;
+        uniform float uScale;
+        uniform float uRotation;
+        uniform float uNoiseIntensity;
+        
+        out vec4 fragColor;
+        
+        const float e = 2.71828182845904523536;
+        
+        float noise(vec2 texCoord) {
+            float G = e;
+            vec2 r = (G * sin(G * texCoord));
+            return fract(r.x * r.y * (1.0 + texCoord.x));
+        }
+        
+        vec2 rotateUvs(vec2 uv, float angle) {
+            float c = cos(angle);
+            float s = sin(angle);
+            mat2 rot = mat2(c, -s, s, c);
+            return rot * uv;
+        }
+        
+        void main() {
+            float rnd = noise(gl_FragCoord.xy);
+            vec2 uv = rotateUvs(vUv * uScale, uRotation);
+            vec2 tex = uv * uScale;
+            float tOffset = uSpeed * uTime;
+            
+            tex.y += 0.03 * sin(8.0 * tex.x - tOffset);
+            
+            float pattern = 0.6 +
+                0.4 * sin(5.0 * (tex.x + tex.y +
+                    cos(3.0 * tex.x + 5.0 * tex.y) +
+                    0.02 * tOffset) +
+                    sin(20.0 * (tex.x + tex.y - 0.1 * tOffset)));
+            
+            vec4 col = vec4(uColor, 1.0) * vec4(pattern) - rnd / 15.0 * uNoiseIntensity;
+            col.a = 1.0;
+            fragColor = col;
+        }
+        ` : `
+        precision highp float;
+        
+        varying vec2 vUv;
+        
+        uniform float uTime;
+        uniform vec3  uColor;
+        uniform float uSpeed;
+        uniform float uScale;
+        uniform float uRotation;
+        uniform float uNoiseIntensity;
+        
+        const float e = 2.71828182845904523536;
+        
+        float noise(vec2 texCoord) {
+            float G = e;
+            vec2 r = (G * sin(G * texCoord));
+            return fract(r.x * r.y * (1.0 + texCoord.x));
+        }
+        
+        vec2 rotateUvs(vec2 uv, float angle) {
+            float c = cos(angle);
+            float s = sin(angle);
+            mat2 rot = mat2(c, -s, s, c);
+            return rot * uv;
+        }
+        
+        void main() {
+            float rnd = noise(gl_FragCoord.xy);
+            vec2 uv = rotateUvs(vUv * uScale, uRotation);
+            vec2 tex = uv * uScale;
+            float tOffset = uSpeed * uTime;
+            
+            tex.y += 0.03 * sin(8.0 * tex.x - tOffset);
+            
+            float pattern = 0.6 +
+                0.4 * sin(5.0 * (tex.x + tex.y +
+                    cos(3.0 * tex.x + 5.0 * tex.y) +
+                    0.02 * tOffset) +
+                    sin(20.0 * (tex.x + tex.y - 0.1 * tOffset)));
+            
+            vec4 col = vec4(uColor, 1.0) * vec4(pattern) - rnd / 15.0 * uNoiseIntensity;
+            col.a = 1.0;
+            gl_FragColor = col;
+        }
+        `;
+        
+        function createShader(type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+            }
+            return shader;
+        }
+        
+        const program = gl.createProgram();
+        gl.attachShader(program, createShader(gl.VERTEX_SHADER, VERT));
+        gl.attachShader(program, createShader(gl.FRAGMENT_SHADER, FRAG));
+        gl.linkProgram(program);
+        gl.useProgram(program);
+        
+        const vertices = new Float32Array([-1, -1, 3, -1, -1, 3]);
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+        
+        const posLoc = gl.getAttribLocation(program, 'position');
+        gl.enableVertexAttribArray(posLoc);
+        gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+        
+        // Uniforms
+        const uTime = gl.getUniformLocation(program, 'uTime');
+        const uSpeed = gl.getUniformLocation(program, 'uSpeed');
+        const uScale = gl.getUniformLocation(program, 'uScale');
+        const uRotation = gl.getUniformLocation(program, 'uRotation');
+        const uNoiseIntensity = gl.getUniformLocation(program, 'uNoiseIntensity');
+        const uColor = gl.getUniformLocation(program, 'uColor');
+        
+        function resize() {
+            canvas.width = window.innerWidth * devicePixelRatio;
+            canvas.height = window.innerHeight * devicePixelRatio;
+            gl.viewport(0, 0, canvas.width, canvas.height);
+        }
+        window.addEventListener('resize', resize);
+        resize();
+        
+        let time = 0;
+        
+        function render() {
+            requestAnimationFrame(render);
+            
+            // Match ReactBits timing: uTime.value += 0.1 * delta
+            time += 0.1 * (1/60);
+            
+            gl.uniform1f(uTime, time);
+            gl.uniform1f(uSpeed, \(speed));
+            gl.uniform1f(uScale, \(scale));
+            gl.uniform1f(uRotation, \(rotation));
+            gl.uniform1f(uNoiseIntensity, \(noiseIntensity));
+            gl.uniform3f(uColor, \(rgb.r), \(rgb.g), \(rgb.b));
             
             gl.drawArrays(gl.TRIANGLES, 0, 3);
         }

@@ -8,16 +8,20 @@
         <string>$(AppIdentifierPrefix)com.hawala.wallet</string>
     </array>
     
-    <!-- App Sandbox (required for distribution) -->
+    <!-- App Sandbox (ENABLED for security - required for distribution) -->
     <key>com.apple.security.app-sandbox</key>
-    <false/>
+    <true/>
     
-    <!-- Network access -->
+    <!-- Network access (required for blockchain APIs) -->
     <key>com.apple.security.network.client</key>
     <true/>
     
-    <!-- File access for backups -->
+    <!-- File access for backups (user-selected only) -->
     <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    
+    <!-- Downloads folder for exported backups -->
+    <key>com.apple.security.files.downloads.read-write</key>
     <true/>
 </dict>
 </plist>

@@ -17,14 +17,30 @@ final class MultiProviderAPI: ObservableObject {
         // Initialize Alchemy API key on first launch if not already stored (synchronous)
         initializeAlchemyKey()
         
-        // Debug: Print Alchemy status
+        // Initialize Moralis API key if not already set
+        initializeMoralisKey()
+        
+        // Debug: Print provider status
         #if DEBUG
+        if apiKeys.hasMoralisKey {
+            print("🔑 Moralis API configured and ready (Primary Provider)")
+        }
         if apiKeys.hasAlchemyKey {
             print("🔑 Alchemy API configured and ready")
-        } else {
-            print("⚠️ Alchemy API key not configured - using public endpoints")
+        }
+        if !apiKeys.hasMoralisKey && !apiKeys.hasAlchemyKey {
+            print("⚠️ No premium API keys configured - using public endpoints")
         }
         #endif
+    }
+    
+    private func initializeMoralisKey() {
+        // Store the Moralis key if not already in keychain
+        if !apiKeys.hasMoralisKey {
+            // Your Moralis API key
+            let moralisKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjgyYjhlZDgyLWE3MDktNDc2OS1iNzM3LWI2Y2FiNzcwYmIwMyIsIm9yZ0lkIjoiNDg3Njk1IiwidXNlcklkIjoiNTAxNzY3IiwidHlwZUlkIjoiNTUwMmNhZGQtNDQxNS00ZjAxLWExNGUtZjg1YmY0MTJmZTU0IiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NjY4NDc1NDEsImV4cCI6NDkyMjYwNzU0MX0.Tc3kCdcxtHi49TTgfIkPEP7PbLLUxBKjm4YJZPqd7cQ"
+            APIKeys.setMoralisKey(moralisKey)
+        }
     }
     
     private func initializeAlchemyKey() {
@@ -44,8 +60,26 @@ final class MultiProviderAPI: ObservableObject {
     // MARK: - Price Providers
     
     /// Fetches prices from multiple providers with automatic fallback
+    /// Priority: Moralis (Trust Wallet) → CoinCap → CryptoCompare → CoinGecko
     func fetchPrices() async throws -> [String: Double] {
-        // Try CoinCap first (no API key needed, generous limits)
+        // Try Moralis first (used by Trust Wallet, Exodus, MetaMask)
+        if apiKeys.hasMoralisKey {
+            do {
+                #if DEBUG
+                print("📊 Trying Moralis for prices...")
+                #endif
+                let prices = try await fetchPricesFromMoralis()
+                healthManager.recordSuccess(for: .moralis)
+                return prices
+            } catch {
+                #if DEBUG
+                print("⚠️ Moralis failed: \(error.localizedDescription)")
+                #endif
+                healthManager.recordFailure(for: .moralis, error: error)
+            }
+        }
+        
+        // Try CoinCap second (no API key needed, generous limits)
         do {
             #if DEBUG
             print("📊 Trying CoinCap for prices...")
@@ -255,6 +289,65 @@ final class MultiProviderAPI: ObservableObject {
         
         #if DEBUG
         print("✅ CoinCap returned \(prices.count) prices")
+        #endif
+        return prices
+    }
+    
+    // MARK: - Moralis API (Used by Trust Wallet, Exodus, MetaMask)
+    private func fetchPricesFromMoralis() async throws -> [String: Double] {
+        let moralis = MoralisAPI.shared
+        
+        // Token addresses for native tokens (Ethereum mainnet addresses)
+        let nativeTokens: [(chain: MoralisAPI.Chain, address: String, key: String)] = [
+            (.ethereum, "0x0000000000000000000000000000000000000000", "ethereum"),
+            (.bsc, "0x0000000000000000000000000000000000000000", "binancecoin"),
+            (.polygon, "0x0000000000000000000000000000000000000000", "polygon"),
+            (.arbitrum, "0x0000000000000000000000000000000000000000", "arbitrum"),
+        ]
+        
+        var prices: [String: Double] = [:]
+        
+        // Fetch EVM chain prices
+        for token in nativeTokens {
+            do {
+                let price = try await moralis.getTokenPrice(
+                    address: token.address,
+                    chain: token.chain
+                )
+                prices[token.key] = price.usdPrice
+            } catch {
+                #if DEBUG
+                print("⚠️ Moralis price failed for \(token.key): \(error.localizedDescription)")
+                #endif
+            }
+        }
+        
+        // For non-EVM chains, use fallback to CoinGecko simple API
+        let fallbackURL = URL(string: "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,litecoin,monero,solana,ripple&vs_currencies=usd")!
+        var request = URLRequest(url: fallbackURL)
+        request.timeoutInterval = 10
+        
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: [String: Double]] {
+                if let btcPrice = json["bitcoin"]?["usd"] { prices["bitcoin"] = btcPrice }
+                if let ltcPrice = json["litecoin"]?["usd"] { prices["litecoin"] = ltcPrice }
+                if let xmrPrice = json["monero"]?["usd"] { prices["monero"] = xmrPrice }
+                if let solPrice = json["solana"]?["usd"] { prices["solana"] = solPrice }
+                if let xrpPrice = json["ripple"]?["usd"] { prices["ripple"] = xrpPrice }
+            }
+        } catch {
+            #if DEBUG
+            print("⚠️ Moralis fallback price fetch failed: \(error.localizedDescription)")
+            #endif
+        }
+        
+        guard !prices.isEmpty else {
+            throw APIError.noData
+        }
+        
+        #if DEBUG
+        print("✅ Moralis returned \(prices.count) prices")
         #endif
         return prices
     }

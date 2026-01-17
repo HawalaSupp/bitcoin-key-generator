@@ -190,6 +190,10 @@ struct SendView: View {
     @State private var maxFeePerGas: String = "" // For ETH EIP-1559
     @State private var maxPriorityFeePerGas: String = "" // For ETH EIP-1559
     
+    // Taproot toggle for Bitcoin - currently disabled (requires Taproot UTXOs)
+    // Will be enabled once wallet supports receiving to Taproot addresses
+    @State private var useTaproot: Bool = false
+    
     // QR Scanner state
     @State private var showingQRScanner = false
     @State private var scannedQRResult: ParsedQRCode?
@@ -203,6 +207,10 @@ struct SendView: View {
     @State private var preSignedTxHex: String?
     @State private var preSigningInProgress = false
     @State private var preSignError: String?
+    
+    // Security check state (P6 integration)
+    @State private var showingSecurityCheck = false
+    @State private var securityCheckPassed = false
     
     // Fee warnings state
     @State private var feeWarnings: [FeeWarning] = []
@@ -245,6 +253,43 @@ struct SendView: View {
         .sheet(isPresented: $showingQRScanner, content: qrScannerSheet)
         .sheet(isPresented: $showingReview, content: reviewSheet)
         .sheet(isPresented: $showingSuccessSheet, content: successSheet)
+        .sheet(isPresented: $showingSecurityCheck, content: securityCheckSheet)
+    }
+    
+    private func securityCheckSheet() -> some View {
+        TransactionSecurityCheckView(
+            walletId: "default",
+            recipient: recipientAddress,
+            amount: "\(amount) \(selectedChain.nativeSymbol)",
+            chain: chainToHawalaChain(selectedChain),
+            onApprove: {
+                securityCheckPassed = true
+                showingSecurityCheck = false
+                // Now show the review screen
+                showReviewScreen()
+            },
+            onReject: {
+                securityCheckPassed = false
+                showingSecurityCheck = false
+            }
+        )
+    }
+    
+    private func chainToHawalaChain(_ chain: Chain) -> HawalaChain {
+        switch chain {
+        case .bitcoinTestnet: return .bitcoinTestnet
+        case .bitcoinMainnet: return .bitcoin
+        case .litecoin: return .litecoin
+        case .ethereumSepolia: return .ethereumSepolia
+        case .ethereumMainnet: return .ethereum
+        case .polygon: return .polygon
+        case .bnb: return .bnb
+        case .solanaDevnet: return .solanaDevnet
+        case .solanaMainnet: return .solana
+        case .xrpTestnet: return .xrpTestnet
+        case .xrpMainnet: return .xrp
+        case .monero: return .ethereum // fallback, monero not supported for sending
+        }
     }
     
     private func handleOnAppear() {
@@ -701,6 +746,12 @@ struct SendView: View {
                 .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
             }
             
+            // NOTE: Taproot (P2TR) toggle is hidden for now
+            // Taproot requires UTXOs on a Taproot address (bc1p/tb1p)
+            // Current wallet uses SegWit addresses (bc1q/tb1q) 
+            // Future: Add support for receiving to Taproot and then sending with Taproot
+            // For now, all transactions use SegWit (still efficient and widely supported)
+            
             // Gas Limit (ETH/EVM only)
             if selectedChain.isEVM {
                 VStack(alignment: .leading, spacing: HawalaTheme.Spacing.xs) {
@@ -1028,7 +1079,7 @@ struct SendView: View {
             Divider()
                 .background(HawalaTheme.Colors.border)
             
-            Button(action: showReviewScreen) {
+            Button(action: initiateSecurityCheckAndReview) {
                 HStack(spacing: HawalaTheme.Spacing.sm) {
                     if isLoading {
                         ProgressView()
@@ -1464,6 +1515,23 @@ struct SendView: View {
         return 20
     }
     
+    // MARK: - Security Check (P6 Integration)
+    
+    /// Initiates the security check flow before showing the review screen
+    private func initiateSecurityCheckAndReview() {
+        // Check if security checks are enabled (can be toggled in settings)
+        let securityEnabled = UserDefaults.standard.bool(forKey: "security.threatProtection")
+        
+        // For mainnet transactions, always show security check
+        // For testnet, only show if security is explicitly enabled
+        if !selectedChain.isTestnet || securityEnabled {
+            showingSecurityCheck = true
+        } else {
+            // Skip security check for testnet if not enabled
+            showReviewScreen()
+        }
+    }
+    
     // MARK: - Review Screen
     
     private func showReviewScreen() {
@@ -1561,6 +1629,7 @@ struct SendView: View {
                         }
                     }
                     
+                    // Always use SegWit signing (UTXOs are from SegWit address)
                     signedHex = try RustCLIBridge.shared.signBitcoin(
                         recipient: recipient,
                         amountSats: amountSats,
@@ -1595,6 +1664,7 @@ struct SendView: View {
                         }
                     }
                     
+                    // Always use SegWit signing (UTXOs are from SegWit address)
                     signedHex = try RustCLIBridge.shared.signBitcoin(
                         recipient: recipient,
                         amountSats: amountSats,
@@ -1933,7 +2003,7 @@ struct SendView: View {
         let recipient = recipientAddress
         let wif = isTestnet ? keys.bitcoinTestnet.privateWif : keys.bitcoin.privateWif
         
-        // Select UTXOs
+        // Select UTXOs from SegWit address (current implementation)
         let manager = UTXOCoinControlManager.shared
         let targetAmount = amountSats + (fee * 200) + 1000
         let selected = manager.selectUTXOs(for: targetAmount)
@@ -1952,6 +2022,11 @@ struct SendView: View {
             )
         }
         
+        // NOTE: Taproot signing requires Taproot UTXOs (bc1p/tb1p addresses)
+        // Current wallet uses SegWit UTXOs, so we always use SegWit signing
+        // Taproot toggle will be useful once user has funded their Taproot address
+        // For now, always use SegWit to ensure transactions work
+        print("[SendView] Using standard SegWit (P2WPKH) signing")
         let signedHex = try RustCLIBridge.shared.signBitcoin(
             recipient: recipient,
             amountSats: amountSats,

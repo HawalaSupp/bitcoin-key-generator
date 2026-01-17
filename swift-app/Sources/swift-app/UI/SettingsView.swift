@@ -44,6 +44,8 @@ struct SettingsView: View {
     @State private var showAddressIntelligence = false
     @State private var showProviderSettings = false
     @State private var showPrivacySettings = false
+    @State private var showSecurityPolicies = false
+    @State private var showAddressLabels = false
     
     // Debug/Developer info
     @StateObject private var debugLogger = DebugLogger.shared
@@ -139,6 +141,10 @@ struct SettingsView: View {
         .sheet(isPresented: $showScheduledTransactions) {
             ScheduledTransactionsView()
         }
+        .sheet(isPresented: $showAddressLabels) {
+            AddressLabelsView()
+                .frame(width: 700, height: 600)
+        }
         .sheet(isPresented: $showFeeIntelligence) {
             FeeIntelligenceView()
                 .frame(width: 700, height: 800)
@@ -161,6 +167,9 @@ struct SettingsView: View {
                     }
             }
             .frame(width: 500, height: 650)
+        }
+        .sheet(isPresented: $showSecurityPolicies) {
+            SecurityPoliciesView()
         }
         .alert("Reset Wallet", isPresented: $showResetConfirm) {
             Button("Cancel", role: .cancel) { }
@@ -239,6 +248,20 @@ struct SettingsView: View {
                 ) {
                     showSetPasscode = true
                 }
+            }
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
+            // Security Policies (P6 Integration)
+            SettingsRow(
+                icon: "shield.checkered",
+                iconColor: HawalaTheme.Colors.accent,
+                title: "Security Policies",
+                subtitle: "Spending limits, threat detection"
+            ) {
+                showSecurityPolicies = true
             }
         }
     }
@@ -547,6 +570,20 @@ struct SettingsView: View {
     // MARK: - General Section
     private var generalSection: some View {
         SettingsSection("General") {
+            SettingsRow(
+                icon: "tag.fill",
+                iconColor: .blue,
+                title: "Address Labels",
+                subtitle: "Organize addresses with custom labels & tags"
+            ) {
+                triggerHaptic()
+                showAddressLabels = true
+            }
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+                .padding(.leading, 56)
+            
             SettingsRow(
                 icon: "calendar.badge.clock",
                 iconColor: HawalaTheme.Colors.accent,

@@ -108,6 +108,9 @@ final class RustCLIBridge: Sendable {
     struct BitcoinKeys: Codable {
         let private_wif: String
         let address: String
+        // Taproot (P2TR) fields
+        let taproot_address: String?
+        let x_only_pubkey: String?
     }
     
     struct EthereumKeys: Codable {
@@ -179,6 +182,58 @@ final class RustCLIBridge: Sendable {
         }
         
         return try runCommand(args: args)
+    }
+    
+    /// Sign a Taproot (P2TR) transaction - ~7% fee savings via Schnorr signatures
+    func signBitcoinTaproot(recipient: String, amountSats: UInt64, feeRate: UInt64, senderWIF: String, utxos: [RustUTXO]? = nil) throws -> String {
+        // Build JSON request for Taproot FFI
+        struct TaprootRequest: Encodable {
+            let recipient: String
+            let amount_sats: UInt64
+            let fee_rate: UInt64
+            let sender_wif: String
+            let utxos: [RustUTXO]?
+        }
+        
+        let request = TaprootRequest(
+            recipient: recipient,
+            amount_sats: amountSats,
+            fee_rate: feeRate,
+            sender_wif: senderWIF,
+            utxos: utxos
+        )
+        
+        let encoder = JSONEncoder()
+        let requestData = try encoder.encode(request)
+        guard let requestJson = String(data: requestData, encoding: .utf8) else {
+            throw RustCLIError.invalidInput
+        }
+        
+        // Call FFI via RustService
+        let result = RustService.shared.prepareTaprootTransaction(jsonInput: requestJson)
+        
+        // Parse result
+        struct TaprootResponse: Decodable {
+            let success: Bool?
+            let tx_hex: String?
+            let error: String?
+        }
+        
+        guard let resultData = result.data(using: .utf8) else {
+            throw RustCLIError.outputParsingFailed
+        }
+        
+        let response = try JSONDecoder().decode(TaprootResponse.self, from: resultData)
+        
+        if let error = response.error {
+            throw RustCLIError.executionFailed(-1, error)
+        }
+        
+        guard let txHex = response.tx_hex else {
+            throw RustCLIError.outputParsingFailed
+        }
+        
+        return txHex
     }
     
     // MARK: - Ethereum

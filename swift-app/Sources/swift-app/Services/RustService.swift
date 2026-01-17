@@ -105,4 +105,36 @@ final class RustService: @unchecked Sendable {
         }
         return validate_ethereum_address_ffi(addressCString)
     }
+    
+    /// Prepare a Taproot (P2TR) transaction - ~7% fee savings vs SegWit
+    func prepareTaprootTransaction(jsonInput: String) -> String {
+        guard let inputCString = jsonInput.cString(using: .utf8) else {
+            return "{\"error\": \"Invalid input string\"}"
+        }
+        
+        guard let outputCString = prepare_taproot_transaction_ffi(inputCString) else {
+            return "{\"error\": \"FFI returned null\"}"
+        }
+        
+        let swiftString = String(cString: outputCString)
+        free_string(UnsafeMutablePointer(mutating: outputCString))
+        
+        return swiftString
+    }
+    
+    /// Derive Taproot address from WIF private key
+    func deriveTaprootAddress(wif: String) -> String {
+        guard let wifCString = wif.cString(using: .utf8) else {
+            return "{\"error\": \"Invalid WIF string\"}"
+        }
+        
+        guard let outputCString = derive_taproot_address_ffi(wifCString) else {
+            return "{\"error\": \"FFI returned null\"}"
+        }
+        
+        let swiftString = String(cString: outputCString)
+        free_string(UnsafeMutablePointer(mutating: outputCString))
+        
+        return swiftString
+    }
 }

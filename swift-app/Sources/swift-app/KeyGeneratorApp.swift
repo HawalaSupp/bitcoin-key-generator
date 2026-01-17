@@ -7,12 +7,15 @@ struct KeyGeneratorApp: App {
     
     init() {
         print("Hawala Wallet Starting...")
+        // Register custom fonts
+        ClashGrotesk.registerFont()
     }
     
     var body: some Scene {
         WindowGroup {
             AppRootView()
                 .environmentObject(passcodeManager)
+                .withTheme()  // Apply theme settings (dark/light/system)
         }
         .windowStyle(.hiddenTitleBar) // Hide the gray title bar
     }

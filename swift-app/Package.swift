@@ -18,7 +18,8 @@ let package = Package(
             dependencies: [],
             path: "Sources/RustBridge",
             linkerSettings: [
-                .unsafeFlags(["-L/Users/x/Desktop/888/rust-app/target/release", "-lrust_app"])
+                .unsafeFlags(["-L/Users/x/Desktop/888/rust-app/target/release"]),
+                .linkedLibrary("rust_app")
             ]
         ),
         .executableTarget(
@@ -30,7 +31,8 @@ let package = Package(
             ],
             exclude: ["APIKeys.swift.template"],
             resources: [
-                .copy("Resources/HawalaLogo.png")
+                .copy("Resources/HawalaLogo.png"),
+                .copy("Resources/ClashGrotesk-Bold.otf")
             ]
         ),
         .testTarget(

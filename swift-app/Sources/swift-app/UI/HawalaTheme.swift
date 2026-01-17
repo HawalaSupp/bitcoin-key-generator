@@ -1,34 +1,58 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 // MARK: - Hawala Design System
-// Inspired by Ledger Live - Dark, minimal, professional
+// Supports Dark, Light, and System theme modes
 
 struct HawalaTheme {
-    // MARK: - Colors
+    // MARK: - Dynamic Colors (Theme-Aware)
     struct Colors {
-        // Background hierarchy (darkest to lightest)
-        static let background = Color(hex: "0D0D0D")           // Pure black-ish
-        static let backgroundSecondary = Color(hex: "1A1A1A")  // Sidebar, cards
-        static let backgroundTertiary = Color(hex: "252525")   // Elevated cards, inputs
-        static let backgroundHover = Color(hex: "2D2D2D")      // Hover states
+        // Background hierarchy - adapts to color scheme
+        static var background: Color {
+            Color("hawala.background", bundle: nil)
+                .orDefault(dark: Color(hex: "0D0D0D"), light: Color(hex: "F5F5F7"))
+        }
+        static var backgroundSecondary: Color {
+            Color("hawala.backgroundSecondary", bundle: nil)
+                .orDefault(dark: Color(hex: "1A1A1A"), light: Color(hex: "FFFFFF"))
+        }
+        static var backgroundTertiary: Color {
+            Color("hawala.backgroundTertiary", bundle: nil)
+                .orDefault(dark: Color(hex: "252525"), light: Color(hex: "E8E8ED"))
+        }
+        static var backgroundHover: Color {
+            Color("hawala.backgroundHover", bundle: nil)
+                .orDefault(dark: Color(hex: "2D2D2D"), light: Color(hex: "DEDEE3"))
+        }
         
         // Text hierarchy
-        static let textPrimary = Color.white
-        static let textSecondary = Color(hex: "A0A0A0")        // Muted text
-        static let textTertiary = Color(hex: "666666")         // Very muted
+        static var textPrimary: Color {
+            Color("hawala.textPrimary", bundle: nil)
+                .orDefault(dark: Color.white, light: Color(hex: "1D1D1F"))
+        }
+        static var textSecondary: Color {
+            Color("hawala.textSecondary", bundle: nil)
+                .orDefault(dark: Color(hex: "A0A0A0"), light: Color(hex: "6E6E73"))
+        }
+        static var textTertiary: Color {
+            Color("hawala.textTertiary", bundle: nil)
+                .orDefault(dark: Color(hex: "666666"), light: Color(hex: "8E8E93"))
+        }
         
-        // Accent colors
-        static let accent = Color(hex: "835EF8")               // Purple accent (Ledger-like)
+        // Accent colors - same across themes
+        static let accent = Color(hex: "835EF8")               // Purple accent
         static let accentHover = Color(hex: "9B7BFA")
         static let accentSubtle = Color(hex: "835EF8").opacity(0.15)
         
-        // Status colors
+        // Status colors - consistent across themes
         static let success = Color(hex: "28A745")
         static let warning = Color(hex: "FFC107")
         static let error = Color(hex: "DC3545")
         static let info = Color(hex: "17A2B8")
         
-        // Chain colors
+        // Chain colors - consistent across themes
         static let bitcoin = Color(hex: "F7931A")
         static let ethereum = Color(hex: "627EEA")
         static let litecoin = Color(hex: "345D9D")
@@ -37,10 +61,19 @@ struct HawalaTheme {
         static let bnb = Color(hex: "F3BA2F")
         static let monero = Color(hex: "FF6600")
         
-        // Borders and dividers
-        static let border = Color.white.opacity(0.08)
-        static let borderHover = Color.white.opacity(0.15)
-        static let divider = Color.white.opacity(0.06)
+        // Borders and dividers - adapts to color scheme
+        static var border: Color {
+            Color("hawala.border", bundle: nil)
+                .orDefault(dark: Color.white.opacity(0.08), light: Color.black.opacity(0.08))
+        }
+        static var borderHover: Color {
+            Color("hawala.borderHover", bundle: nil)
+                .orDefault(dark: Color.white.opacity(0.15), light: Color.black.opacity(0.15))
+        }
+        static var divider: Color {
+            Color("hawala.divider", bundle: nil)
+                .orDefault(dark: Color.white.opacity(0.06), light: Color.black.opacity(0.06))
+        }
     }
     
     // MARK: - Typography
@@ -131,6 +164,27 @@ extension Color {
             opacity: Double(a) / 255
         )
     }
+    
+    /// Provides adaptive colors that respond to dark/light mode
+    /// Falls back to provided defaults if named color doesn't exist
+    func orDefault(dark: Color, light: Color) -> Color {
+        // Use adaptive color that SwiftUI will resolve based on current appearance
+        AdaptiveColor(dark: dark, light: light).color
+    }
+}
+
+// MARK: - Adaptive Color Helper
+struct AdaptiveColor {
+    let dark: Color
+    let light: Color
+    
+    var color: Color {
+        // This creates a dynamic color that adapts to the current color scheme
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return isDark ? NSColor(dark) : NSColor(light)
+        })
+    }
 }
 
 // MARK: - View Extensions
@@ -182,42 +236,66 @@ extension HawalaTheme.Colors {
     }
 }
 
-// MARK: - Glassmorphism Modifier (Optimized)
+// MARK: - Glassmorphism Modifier (Theme-Aware)
 extension View {
     func glassCard(
         cornerRadius: CGFloat = HawalaTheme.Radius.lg,
         opacity: Double = 0.08,
         blurRadius: CGFloat = 20
     ) -> some View {
-        self
-            .background(
-                ZStack {
-                    // Optimized: Single solid background instead of ultraThinMaterial
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(Color(white: 0.15, opacity: 0.85))
-                    
-                    // Simple border
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
-                }
-            )
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        self.modifier(GlassCardModifier(cornerRadius: cornerRadius))
     }
     
     func frostedGlass(
         cornerRadius: CGFloat = HawalaTheme.Radius.lg,
         intensity: Double = 0.15
     ) -> some View {
-        self
+        self.modifier(FrostedGlassModifier(cornerRadius: cornerRadius))
+    }
+}
+
+// Theme-aware glass card modifier
+struct GlassCardModifier: ViewModifier {
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
+    
+    func body(content: Content) -> some View {
+        content
             .background(
                 ZStack {
-                    // Optimized: Solid background instead of ultraThinMaterial
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(Color(white: 0.12, opacity: 0.9))
+                        .fill(colorScheme == .dark 
+                              ? Color(white: 0.15, opacity: 0.85)
+                              : Color(white: 0.95, opacity: 0.9))
                     
-                    // Simple border
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+                        .strokeBorder(colorScheme == .dark 
+                                      ? Color.white.opacity(0.1) 
+                                      : Color.black.opacity(0.08), lineWidth: 1)
+                }
+            )
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+}
+
+// Theme-aware frosted glass modifier
+struct FrostedGlassModifier: ViewModifier {
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
+    
+    func body(content: Content) -> some View {
+        content
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(colorScheme == .dark 
+                              ? Color(white: 0.12, opacity: 0.9)
+                              : Color(white: 0.98, opacity: 0.95))
+                    
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(colorScheme == .dark 
+                                      ? Color.white.opacity(0.08) 
+                                      : Color.black.opacity(0.06), lineWidth: 0.5)
                 }
             )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))

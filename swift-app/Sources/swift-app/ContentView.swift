@@ -301,7 +301,7 @@ struct ContentView: View {
     @State private var showPrivacyBlur = false
     // Debug: Show FPS performance overlay in DEBUG builds
     #if DEBUG
-    @State private var showPerformanceOverlay = true  // Enabled for 120fps testing
+    @State private var showPerformanceOverlay = false  // Disabled for screenshot
     #endif
     #if canImport(AppKit)
     @State private var activityMonitor: UserActivityMonitor?
@@ -400,10 +400,10 @@ struct ContentView: View {
                     }
                 }
 
-                newestBuildBadge
-                    .padding(.top, 12)
-                    .padding(.trailing, 12)
-                    .allowsHitTesting(false)
+                // newestBuildBadge - hidden for screenshot
+                //     .padding(.top, 12)
+                //     .padding(.trailing, 12)
+                //     .allowsHitTesting(false)
                 
                 // DEBUG: Performance overlay (tap badge to toggle, or start with environment variable)
                 #if DEBUG
@@ -2506,7 +2506,7 @@ struct ContentView: View {
 
             var aggregated: [HawalaTransactionEntry] = []
             var successCount = 0
-            var failureCount = 0
+            var networkErrorCount = 0
 
             for target in targets {
                 if Task.isCancelled { return }
@@ -2514,80 +2514,46 @@ struct ContentView: View {
                 switch target.id {
                 case "ethereum", "ethereum-sepolia":
                     let entries = await fetchEthereumHistoryEntries(for: target)
-                    if !entries.isEmpty {
-                        #if DEBUG
-                        print("📜 [\(target.id)] Fetched \(entries.count) transactions")
-                        #endif
-                        successCount += 1
-                        aggregated.append(contentsOf: entries)
-                    } else {
-                        #if DEBUG
-                        print("📜 [\(target.id)] No transactions found")
-                        #endif
-                        failureCount += 1
-                    }
+                    // Empty is OK - means no transactions for this address
+                    #if DEBUG
+                    print("📜 [\(target.id)] \(entries.isEmpty ? "No transactions found" : "Fetched \(entries.count) transactions")")
+                    #endif
+                    successCount += 1
+                    aggregated.append(contentsOf: entries)
                 case "bnb":
                     let entries = await fetchBNBHistoryEntries(for: target)
-                    if !entries.isEmpty {
-                        #if DEBUG
-                        print("📜 [\(target.id)] Fetched \(entries.count) transactions")
-                        #endif
-                        successCount += 1
-                        aggregated.append(contentsOf: entries)
-                    } else {
-                        #if DEBUG
-                        print("📜 [\(target.id)] No transactions found")
-                        #endif
-                        failureCount += 1
-                    }
+                    #if DEBUG
+                    print("📜 [\(target.id)] \(entries.isEmpty ? "No transactions found" : "Fetched \(entries.count) transactions")")
+                    #endif
+                    successCount += 1
+                    aggregated.append(contentsOf: entries)
                 case "solana", "solana-devnet":
                     let entries = await fetchSolanaHistoryEntries(for: target)
-                    if !entries.isEmpty {
-                        #if DEBUG
-                        print("📜 [\(target.id)] Fetched \(entries.count) transactions")
-                        #endif
-                        successCount += 1
-                        aggregated.append(contentsOf: entries)
-                    } else {
-                        #if DEBUG
-                        print("📜 [\(target.id)] No transactions found")
-                        #endif
-                        failureCount += 1
-                    }
+                    #if DEBUG
+                    print("📜 [\(target.id)] \(entries.isEmpty ? "No transactions found" : "Fetched \(entries.count) transactions")")
+                    #endif
+                    successCount += 1
+                    aggregated.append(contentsOf: entries)
                 case "xrp", "xrp-testnet":
                     let entries = await fetchXRPHistoryEntries(for: target)
-                    if !entries.isEmpty {
-                        #if DEBUG
-                        print("📜 [\(target.id)] Fetched \(entries.count) transactions")
-                        #endif
-                        successCount += 1
-                        aggregated.append(contentsOf: entries)
-                    } else {
-                        #if DEBUG
-                        print("📜 [\(target.id)] No transactions found")
-                        #endif
-                        failureCount += 1
-                    }
+                    #if DEBUG
+                    print("📜 [\(target.id)] \(entries.isEmpty ? "No transactions found" : "Fetched \(entries.count) transactions")")
+                    #endif
+                    successCount += 1
+                    aggregated.append(contentsOf: entries)
                 default:
                     // Bitcoin/Litecoin via direct API
                     let entries = await fetchBitcoinHistoryEntries(for: target)
-                    if !entries.isEmpty {
-                        #if DEBUG
-                        print("📜 [\(target.id)] Fetched \(entries.count) transactions")
-                        #endif
-                        successCount += 1
-                        aggregated.append(contentsOf: entries)
-                    } else {
-                        #if DEBUG
-                        print("📜 [\(target.id)] No transactions found")
-                        #endif
-                        failureCount += 1
-                    }
+                    #if DEBUG
+                    print("📜 [\(target.id)] \(entries.isEmpty ? "No transactions found" : "Fetched \(entries.count) transactions")")
+                    #endif
+                    successCount += 1
+                    aggregated.append(contentsOf: entries)
                 }
             }
 
             #if DEBUG
-            print("📜 History fetch complete: \(successCount) chains succeeded, \(failureCount) failed, \(aggregated.count) total transactions")
+            print("📜 History fetch complete: \(successCount) chains queried, \(aggregated.count) total transactions")
             #endif
             
             aggregated.sort { ($0.sortTimestamp ?? 0) > ($1.sortTimestamp ?? 0) }
@@ -2596,7 +2562,8 @@ struct ContentView: View {
                 guard !Task.isCancelled else { return }
                 self.historyEntries = aggregated
                 self.isHistoryLoading = false
-                self.historyError = successCount == 0 && failureCount > 0 ? "Check your connection and try again." : nil
+                // Only show error if we couldn't reach ANY chain (network issue)
+                self.historyError = successCount == 0 ? "Check your connection and try again." : nil
                 self.historyFetchTask = nil
             }
         }
@@ -11399,33 +11366,50 @@ struct AllKeys: Codable {
     }
 
     var chainInfos: [ChainInfo] {
+        // Build Bitcoin key details including Taproot if available
+        var bitcoinDetails: [KeyDetail] = [
+            KeyDetail(label: "Private Key (hex)", value: bitcoin.privateHex),
+            KeyDetail(label: "Private Key (WIF)", value: bitcoin.privateWif),
+            KeyDetail(label: "Public Key (compressed hex)", value: bitcoin.publicCompressedHex),
+            KeyDetail(label: "Address (SegWit)", value: bitcoin.address)
+        ]
+        if let taprootAddress = bitcoin.taprootAddress {
+            bitcoinDetails.append(KeyDetail(label: "Address (Taproot)", value: taprootAddress))
+        }
+        if let xOnly = bitcoin.xOnlyPubkey {
+            bitcoinDetails.append(KeyDetail(label: "X-Only Pubkey (Taproot)", value: xOnly))
+        }
+        
+        var bitcoinTestnetDetails: [KeyDetail] = [
+            KeyDetail(label: "Private Key (hex)", value: bitcoinTestnet.privateHex),
+            KeyDetail(label: "Private Key (WIF)", value: bitcoinTestnet.privateWif),
+            KeyDetail(label: "Public Key (compressed hex)", value: bitcoinTestnet.publicCompressedHex),
+            KeyDetail(label: "Testnet Address (SegWit)", value: bitcoinTestnet.address)
+        ]
+        if let taprootAddress = bitcoinTestnet.taprootAddress {
+            bitcoinTestnetDetails.append(KeyDetail(label: "Testnet Address (Taproot)", value: taprootAddress))
+        }
+        if let xOnly = bitcoinTestnet.xOnlyPubkey {
+            bitcoinTestnetDetails.append(KeyDetail(label: "X-Only Pubkey (Taproot)", value: xOnly))
+        }
+        
         var cards: [ChainInfo] = [
             ChainInfo(
                 id: "bitcoin",
                 title: "Bitcoin",
-                subtitle: "SegWit P2WPKH",
+                subtitle: "SegWit P2WPKH + Taproot P2TR",
                 iconName: "bitcoinsign.circle.fill",
                 accentColor: Color.orange,
-                details: [
-                    KeyDetail(label: "Private Key (hex)", value: bitcoin.privateHex),
-                    KeyDetail(label: "Private Key (WIF)", value: bitcoin.privateWif),
-                    KeyDetail(label: "Public Key (compressed hex)", value: bitcoin.publicCompressedHex),
-                    KeyDetail(label: "Address", value: bitcoin.address)
-                ],
+                details: bitcoinDetails,
                 receiveAddress: bitcoin.address
             ),
             ChainInfo(
                 id: "bitcoin-testnet",
                 title: "Bitcoin Testnet",
-                subtitle: "SegWit Testnet",
+                subtitle: "SegWit + Taproot (Testnet)",
                 iconName: "bitcoinsign.circle",
                 accentColor: Color.orange.opacity(0.7),
-                details: [
-                    KeyDetail(label: "Private Key (hex)", value: bitcoinTestnet.privateHex),
-                    KeyDetail(label: "Private Key (WIF)", value: bitcoinTestnet.privateWif),
-                    KeyDetail(label: "Public Key (compressed hex)", value: bitcoinTestnet.publicCompressedHex),
-                    KeyDetail(label: "Testnet Address", value: bitcoinTestnet.address)
-                ],
+                details: bitcoinTestnetDetails,
                 receiveAddress: bitcoinTestnet.address
             ),
             ChainInfo(
@@ -11571,12 +11555,17 @@ struct BitcoinKeys: Codable {
     let privateWif: String
     let publicCompressedHex: String
     let address: String
+    // Taproot (P2TR) address - bc1p... for mainnet, tb1p... for testnet
+    let taprootAddress: String?
+    let xOnlyPubkey: String?
 
     private enum CodingKeys: String, CodingKey {
         case privateHex = "private_hex"
         case privateWif = "private_wif"
         case publicCompressedHex = "public_compressed_hex"
         case address
+        case taprootAddress = "taproot_address"
+        case xOnlyPubkey = "x_only_pubkey"
     }
 }
 

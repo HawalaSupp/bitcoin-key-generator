@@ -8,6 +8,8 @@ struct ProviderSettingsView: View {
     @ObservedObject private var healthManager = ProviderHealthManager.shared
     
     // Provider enable/disable toggles
+    @AppStorage("provider.moralis.enabled") private var moralisEnabled = true
+    @AppStorage("provider.tatum.enabled") private var tatumEnabled = true
     @AppStorage("provider.coinCap.enabled") private var coinCapEnabled = true
     @AppStorage("provider.cryptoCompare.enabled") private var cryptoCompareEnabled = true
     @AppStorage("provider.coinGecko.enabled") private var coinGeckoEnabled = true
@@ -16,16 +18,28 @@ struct ProviderSettingsView: View {
     @AppStorage("provider.blockchair.enabled") private var blockchairEnabled = true
     
     // Provider priority (lower = higher priority)
-    @AppStorage("provider.price.priority") private var pricePriority = "coinCap,cryptoCompare,coinGecko"
-    @AppStorage("provider.blockchain.priority") private var blockchainPriority = "alchemy,mempool,blockchair"
+    @AppStorage("provider.price.priority") private var pricePriority = "moralis,coinCap,cryptoCompare,coinGecko"
+    @AppStorage("provider.blockchain.priority") private var blockchainPriority = "moralis,alchemy,tatum,mempool,blockchair"
     
     // API key editing
+    @State private var showMoralisKeyEditor = false
+    @State private var moralisKeyInput = ""
+    @State private var showTatumKeyEditor = false
+    @State private var tatumKeyInput = ""
     @State private var showAlchemyKeyEditor = false
     @State private var alchemyKeyInput = ""
     @State private var showCoinGeckoKeyEditor = false
     @State private var coinGeckoKeyInput = ""
     
-    // Check if Alchemy key is configured
+    // Check if API keys are configured
+    private var hasMoralisKey: Bool {
+        APIKeys.shared.hasMoralisKey
+    }
+    
+    private var hasTatumKey: Bool {
+        APIKeys.shared.hasTatumKey
+    }
+    
     private var hasAlchemyKey: Bool {
         APIKeys.shared.hasAlchemyKey
     }
@@ -142,6 +156,10 @@ struct ProviderSettingsView: View {
     }
     
     private var bestPriceProviderState: ProviderHealthState {
+        // Check Moralis first (primary provider)
+        if let moralis = healthManager.providerStatuses[.moralis], moralis.state == .healthy {
+            return .healthy
+        }
         if let coinCap = healthManager.providerStatuses[.coinCap], coinCap.state == .healthy {
             return .healthy
         }
@@ -155,7 +173,13 @@ struct ProviderSettingsView: View {
     }
     
     private var bestBlockchainProviderState: ProviderHealthState {
+        if let moralis = healthManager.providerStatuses[.moralis], moralis.state == .healthy {
+            return .healthy
+        }
         if let alchemy = healthManager.providerStatuses[.alchemy], alchemy.state == .healthy {
+            return .healthy
+        }
+        if let tatum = healthManager.providerStatuses[.tatum], tatum.state == .healthy {
             return .healthy
         }
         if let mempool = healthManager.providerStatuses[.mempool], mempool.state == .healthy {
@@ -195,6 +219,16 @@ struct ProviderSettingsView: View {
     
     private var priceProvidersSection: some View {
         SettingsSection("Price Providers") {
+            // Moralis - Primary (Trust Wallet/Exodus/MetaMask)
+            providerRow(
+                provider: .moralis,
+                title: "Moralis",
+                subtitle: hasMoralisKey ? "API key configured ★ Primary" : "Used by Trust Wallet, Exodus, MetaMask",
+                enabled: $moralisEnabled
+            )
+            
+            Divider().padding(.leading, 56)
+            
             providerRow(
                 provider: .coinCap,
                 title: "CoinCap",
@@ -231,6 +265,15 @@ struct ProviderSettingsView: View {
                 title: "Alchemy",
                 subtitle: hasAlchemyKey ? "API key configured" : "No API key",
                 enabled: $alchemyEnabled
+            )
+            
+            Divider().padding(.leading, 56)
+            
+            providerRow(
+                provider: .tatum,
+                title: "Tatum",
+                subtitle: hasTatumKey ? "130+ chains configured" : "130+ blockchain networks",
+                enabled: $tatumEnabled
             )
             
             Divider().padding(.leading, 56)
@@ -308,90 +351,95 @@ struct ProviderSettingsView: View {
     
     private var apiKeysSection: some View {
         SettingsSection("API Keys") {
+            // Moralis (Primary - used by Trust Wallet, Exodus, MetaMask)
+            apiKeyRow(
+                title: "Moralis API Key",
+                subtitle: hasMoralisKey ? "Configured ✓ (Recommended)" : "40K CU/day free • Used by Trust Wallet",
+                color: .purple,
+                isConfigured: hasMoralisKey,
+                action: {
+                    moralisKeyInput = ""
+                    showMoralisKeyEditor = true
+                }
+            )
+            
+            Divider().padding(.leading, 56)
+            
+            // Tatum (130+ chains)
+            apiKeyRow(
+                title: "Tatum API Key",
+                subtitle: hasTatumKey ? "Configured ✓" : "Optional • 130+ blockchain networks",
+                color: .orange,
+                isConfigured: hasTatumKey,
+                action: {
+                    tatumKeyInput = ""
+                    showTatumKeyEditor = true
+                }
+            )
+            
+            Divider().padding(.leading, 56)
+            
             // Alchemy
-            HStack(spacing: HawalaTheme.Spacing.md) {
-                ZStack {
-                    Circle()
-                        .fill(Color.blue.opacity(0.15))
-                        .frame(width: 36, height: 36)
-                    Image(systemName: "key.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(.blue)
-                }
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Alchemy API Key")
-                        .font(HawalaTheme.Typography.body)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    Text(hasAlchemyKey ? "Configured ✓" : "Not configured")
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(hasAlchemyKey ? .green : HawalaTheme.Colors.textSecondary)
-                }
-                
-                Spacer()
-                
-                Button(action: {
+            apiKeyRow(
+                title: "Alchemy API Key",
+                subtitle: hasAlchemyKey ? "Configured ✓" : "Enterprise-grade RPC",
+                color: .blue,
+                isConfigured: hasAlchemyKey,
+                action: {
                     alchemyKeyInput = ""
                     showAlchemyKeyEditor = true
-                }) {
-                    Text(hasAlchemyKey ? "Update" : "Add")
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.accent)
-                        .padding(.horizontal, HawalaTheme.Spacing.sm)
-                        .padding(.vertical, 4)
-                        .background(HawalaTheme.Colors.accent.opacity(0.15))
-                        .cornerRadius(6)
                 }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, HawalaTheme.Spacing.md)
-            .padding(.vertical, HawalaTheme.Spacing.sm)
+            )
             
             Divider().padding(.leading, 56)
             
             // CoinGecko
-            HStack(spacing: HawalaTheme.Spacing.md) {
-                ZStack {
-                    Circle()
-                        .fill(Color.green.opacity(0.15))
-                        .frame(width: 36, height: 36)
-                    Image(systemName: "key.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(.green)
-                }
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("CoinGecko API Key")
-                        .font(HawalaTheme.Typography.body)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    Text("Optional - increases rate limits")
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
-                }
-                
-                Spacer()
-                
-                Button(action: {
+            apiKeyRow(
+                title: "CoinGecko API Key",
+                subtitle: "Optional - increases rate limits",
+                color: .green,
+                isConfigured: false,
+                action: {
                     coinGeckoKeyInput = ""
                     showCoinGeckoKeyEditor = true
-                }) {
-                    Text("Add")
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.accent)
-                        .padding(.horizontal, HawalaTheme.Spacing.sm)
-                        .padding(.vertical, 4)
-                        .background(HawalaTheme.Colors.accent.opacity(0.15))
-                        .cornerRadius(6)
                 }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, HawalaTheme.Spacing.md)
-            .padding(.vertical, HawalaTheme.Spacing.sm)
+            )
+        }
+        .sheet(isPresented: $showMoralisKeyEditor) {
+            apiKeyEditor(
+                title: "Moralis API Key",
+                placeholder: "Enter your Moralis API key",
+                helpText: "Get free key at moralis.io • Used by Trust Wallet, Exodus, MetaMask",
+                value: $moralisKeyInput,
+                onSave: {
+                    if !moralisKeyInput.isEmpty {
+                        APIKeys.setMoralisKey(moralisKeyInput)
+                        ToastManager.shared.success("Moralis API key saved")
+                    }
+                    showMoralisKeyEditor = false
+                }
+            )
+        }
+        .sheet(isPresented: $showTatumKeyEditor) {
+            apiKeyEditor(
+                title: "Tatum API Key",
+                placeholder: "Enter your Tatum API key",
+                helpText: "Get free key at tatum.io • Supports 130+ blockchain networks",
+                value: $tatumKeyInput,
+                onSave: {
+                    if !tatumKeyInput.isEmpty {
+                        APIKeys.setTatumKey(tatumKeyInput)
+                        ToastManager.shared.success("Tatum API key saved")
+                    }
+                    showTatumKeyEditor = false
+                }
+            )
         }
         .sheet(isPresented: $showAlchemyKeyEditor) {
             apiKeyEditor(
                 title: "Alchemy API Key",
                 placeholder: "Enter your Alchemy API key",
+                helpText: "Get free key at alchemy.com",
                 value: $alchemyKeyInput,
                 onSave: {
                     if !alchemyKeyInput.isEmpty {
@@ -406,6 +454,7 @@ struct ProviderSettingsView: View {
             apiKeyEditor(
                 title: "CoinGecko API Key",
                 placeholder: "Enter your CoinGecko API key",
+                helpText: "Optional • Increases rate limits",
                 value: $coinGeckoKeyInput,
                 onSave: {
                     // TODO: Implement CoinGecko key storage
@@ -417,9 +466,54 @@ struct ProviderSettingsView: View {
     }
     
     @ViewBuilder
+    private func apiKeyRow(
+        title: String,
+        subtitle: String,
+        color: Color,
+        isConfigured: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: HawalaTheme.Spacing.md) {
+            ZStack {
+                Circle()
+                    .fill(color.opacity(0.15))
+                    .frame(width: 36, height: 36)
+                Image(systemName: "key.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(color)
+            }
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(HawalaTheme.Typography.body)
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                Text(subtitle)
+                    .font(HawalaTheme.Typography.caption)
+                    .foregroundColor(isConfigured ? .green : HawalaTheme.Colors.textSecondary)
+            }
+            
+            Spacer()
+            
+            Button(action: action) {
+                Text(isConfigured ? "Update" : "Add")
+                    .font(HawalaTheme.Typography.caption)
+                    .foregroundColor(HawalaTheme.Colors.accent)
+                    .padding(.horizontal, HawalaTheme.Spacing.sm)
+                    .padding(.vertical, 4)
+                    .background(HawalaTheme.Colors.accent.opacity(0.15))
+                    .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, HawalaTheme.Spacing.md)
+        .padding(.vertical, HawalaTheme.Spacing.sm)
+    }
+    
+    @ViewBuilder
     private func apiKeyEditor(
         title: String,
         placeholder: String,
+        helpText: String = "",
         value: Binding<String>,
         onSave: @escaping () -> Void
     ) -> some View {
@@ -428,12 +522,21 @@ struct ProviderSettingsView: View {
                 .font(HawalaTheme.Typography.h3)
                 .foregroundColor(HawalaTheme.Colors.textPrimary)
             
+            if !helpText.isEmpty {
+                Text(helpText)
+                    .font(HawalaTheme.Typography.caption)
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+            
             SecureField(placeholder, text: value)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 400)
             
             HStack(spacing: HawalaTheme.Spacing.md) {
                 Button("Cancel") {
+                    showMoralisKeyEditor = false
+                    showTatumKeyEditor = false
                     showAlchemyKeyEditor = false
                     showCoinGeckoKeyEditor = false
                 }
@@ -446,7 +549,7 @@ struct ProviderSettingsView: View {
             }
         }
         .padding(HawalaTheme.Spacing.xl)
-        .frame(minWidth: 400, minHeight: 200)
+        .frame(minWidth: 400, minHeight: 220)
     }
     
     // MARK: - Advanced Section

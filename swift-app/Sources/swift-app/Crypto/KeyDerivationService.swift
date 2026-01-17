@@ -233,6 +233,9 @@ struct RustBitcoinKeys: Codable {
     let private_wif: String
     let public_compressed_hex: String
     let address: String
+    // Taproot (P2TR) fields - bc1p... for mainnet, tb1p... for testnet
+    let taproot_address: String?
+    let x_only_pubkey: String?
 }
 
 struct RustLitecoinKeys: Codable {
