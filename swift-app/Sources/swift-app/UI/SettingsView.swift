@@ -11,13 +11,7 @@ struct SettingsView: View {
     @ObservedObject var privacyManager = PrivacyManager.shared
     
     // Settings State
-    @AppStorage("biometricLockEnabled") private var biometricLockEnabled = false
     @AppStorage("showBalances") private var showBalances = true
-    @AppStorage("enableNotifications") private var enableNotifications = true
-    @AppStorage("transactionAlerts") private var transactionAlerts = true
-    @AppStorage("priceAlerts") private var priceAlerts = false
-    @AppStorage("networkAlerts") private var networkAlerts = true
-    @AppStorage("hapticFeedback") private var hapticFeedback = true
     @AppStorage("hawala.selectedFiatCurrency") private var currency = "USD"
     @AppStorage("showTestnets") private var showTestnets = false
     @AppStorage("selectedBackgroundType") private var selectedBackgroundType = "none"
@@ -29,7 +23,6 @@ struct SettingsView: View {
     @State private var showResetConfirm = false
     @State private var showChangePasscode = false
     @State private var showSetPasscode = false
-    @State private var showAutoLockPicker = false
     @State private var showTermsSheet = false
     @State private var showPrivacySheet = false
     @State private var showSupportSheet = false
@@ -39,13 +32,25 @@ struct SettingsView: View {
     @State private var showAddressManagement = false
     @State private var showStealthAddresses = false
     @State private var showScheduledTransactions = false
-    @State private var showFeeIntelligence = false
-    @State private var showTransactionIntentDemo = false
-    @State private var showAddressIntelligence = false
     @State private var showProviderSettings = false
     @State private var showPrivacySettings = false
     @State private var showSecurityPolicies = false
     @State private var showAddressLabels = false
+    
+    // Animation states
+    @State private var contentOpacity: Double = 0
+    @State private var cardScale: CGFloat = 0.95
+    @State private var selectedSection: SettingsSection? = nil
+    
+    enum SettingsSection: String, CaseIterable {
+        case security = "Security"
+        case privacy = "Privacy"
+        case network = "Network"
+        case appearance = "Appearance"
+        case general = "General"
+        case developer = "Developer"
+        case about = "About"
+    }
     
     // Debug/Developer info
     @StateObject private var debugLogger = DebugLogger.shared
@@ -56,47 +61,51 @@ struct SettingsView: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            header
+        ZStack {
+            // Background
+            Color(red: 0.10, green: 0.10, blue: 0.12)
+                .ignoresSafeArea()
             
-            // Settings content
-            ScrollView {
-                VStack(spacing: HawalaTheme.Spacing.xl) {
-                    // Security Section
-                    securitySection
-                    
-                    // Privacy Section
-                    privacySection
-                    
-                    // Notifications Section
-                    notificationsSection
-                    
-                    // Network & Sync Section
-                    networkSection
-                    
-                    // Appearance Section
-                    appearanceSection
-                    
-                    // Tokens Section
-                    tokensSection
-                    
-                    // General Section
-                    generalSection
-                    
-                    // Developer Section
-                    developerSection
-                    
-                    // About Section
-                    aboutSection
-                    
-                    // Danger Zone
-                    dangerZone
+            VStack(spacing: 0) {
+                // Header
+                settingsHeader
+                
+                // Content
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 8) {
+                        // Quick toggles at top
+                        quickTogglesCard
+                        
+                        // Navigation grid
+                        settingsGrid
+                        
+                        // Danger zone at bottom
+                        dangerZoneCard
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 32)
                 }
-                .padding(HawalaTheme.Spacing.xl)
+                .opacity(contentOpacity)
             }
         }
-        .background(HawalaTheme.Colors.background)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.1), Color.white.opacity(0.03)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .onAppear {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                contentOpacity = 1
+                cardScale = 1
+            }
+        }
         .sheet(isPresented: $showAbout) {
             AboutView()
         }
@@ -145,18 +154,6 @@ struct SettingsView: View {
             AddressLabelsView()
                 .frame(width: 700, height: 600)
         }
-        .sheet(isPresented: $showFeeIntelligence) {
-            FeeIntelligenceView()
-                .frame(width: 700, height: 800)
-        }
-        .sheet(isPresented: $showTransactionIntentDemo) {
-            TransactionIntentDemoView()
-                .frame(width: 550, height: 750)
-        }
-        .sheet(isPresented: $showAddressIntelligence) {
-            AddressIntelligenceView()
-                .frame(width: 600, height: 700)
-        }
         .sheet(isPresented: $showPrivacySettings) {
             NavigationStack {
                 PrivacySettingsView()
@@ -183,635 +180,263 @@ struct SettingsView: View {
         .preferredColorScheme(selectedColorScheme)
     }
     
-    // MARK: - Header
-    private var header: some View {
-        HStack {
+    // MARK: - Settings Header
+    private var settingsHeader: some View {
+        ZStack {
+            // Centered title
             Text("Settings")
-                .font(HawalaTheme.Typography.h2)
-                .foregroundColor(HawalaTheme.Colors.textPrimary)
+                .font(.clashGroteskMedium(size: 20))
+                .foregroundColor(.white)
             
-            Spacer()
-            
-            Button(action: { dismiss() }) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 24))
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(HawalaTheme.Spacing.xl)
-        .background(HawalaTheme.Colors.backgroundSecondary)
-    }
-    
-    // MARK: - Security Section
-    private var securitySection: some View {
-        SettingsSection("Security") {
-            SettingsToggleRow(
-                icon: "faceid",
-                iconColor: HawalaTheme.Colors.success,
-                title: "Biometric Lock",
-                subtitle: "Require Face ID to open",
-                isOn: $biometricLockEnabled
-            )
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            AutoLockTimeoutPicker(
-                autoLockTimeout: Binding(
-                    get: { passcodeManager.currentAutoLockMinutes },
-                    set: { passcodeManager.setAutoLockTimeout($0) }
-                )
-            )
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            // Show "Set Passcode" or "Change Passcode" based on whether passcode exists
-            if passcodeManager.hasPasscode {
-                SettingsRow(
-                    icon: "key.fill",
-                    iconColor: HawalaTheme.Colors.accent,
-                    title: "Change Passcode",
-                    subtitle: "Update your security code"
-                ) {
-                    showChangePasscode = true
+            // Close button
+            HStack {
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Circle()
+                        .fill(Color.white.opacity(0.08))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Image(systemName: "xmark")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(Color.white.opacity(0.5))
+                        )
                 }
-            } else {
-                SettingsRow(
-                    icon: "key.fill",
-                    iconColor: HawalaTheme.Colors.warning,
-                    title: "Set Passcode",
-                    subtitle: "Protect your wallet"
-                ) {
-                    showSetPasscode = true
-                }
-            }
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            // Security Policies (P6 Integration)
-            SettingsRow(
-                icon: "shield.checkered",
-                iconColor: HawalaTheme.Colors.accent,
-                title: "Security Policies",
-                subtitle: "Spending limits, threat detection"
-            ) {
-                showSecurityPolicies = true
+                .buttonStyle(.plain)
             }
         }
+        .padding(.horizontal, 24)
+        .padding(.top, 24)
+        .padding(.bottom, 20)
     }
     
-    // MARK: - Privacy Section
-    private var privacySection: some View {
-        SettingsSection("Privacy") {
-            // Privacy Mode Toggle (new)
-            SettingsToggleRow(
+    // MARK: - Quick Toggles Card
+    private var quickTogglesCard: some View {
+        VStack(spacing: 0) {
+            // Privacy Mode Toggle
+            SettingsQuickToggle(
                 icon: privacyManager.isPrivacyModeEnabled ? "eye.slash.fill" : "eye.fill",
-                iconColor: privacyManager.isPrivacyModeEnabled ? HawalaTheme.Colors.warning : HawalaTheme.Colors.info,
                 title: "Privacy Mode",
-                subtitle: "Hide all sensitive information",
+                subtitle: "Hide sensitive info",
                 isOn: $privacyManager.isPrivacyModeEnabled
             )
             
             Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
+                .background(Color.white.opacity(0.06))
+                .padding(.leading, 52)
             
-            // Privacy Settings Row (new)
-            SettingsRow(
-                icon: "hand.raised.fill",
-                iconColor: HawalaTheme.Colors.warning,
-                title: "Privacy & Duress Settings",
-                subtitle: "Decoy wallet, panic wipe, screenshot prevention"
-            ) {
-                showPrivacySettings = true
-            }
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            SettingsToggleRow(
-                icon: "eye.slash.fill",
-                iconColor: HawalaTheme.Colors.info,
-                title: "Hide Balances",
-                subtitle: "Show ••••• instead of amounts",
-                isOn: Binding(
-                    get: { !showBalances },
-                    set: { showBalances = !$0 }
-                )
+            // Testnets Toggle
+            SettingsQuickToggle(
+                icon: "testtube.2",
+                title: "Testnets",
+                subtitle: "Show test networks",
+                isOn: $showTestnets
             )
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            SettingsRow(
-                icon: "list.bullet.rectangle",
-                iconColor: HawalaTheme.Colors.accent,
-                title: "Address Management",
-                subtitle: "HD wallet addresses, reuse warnings"
-            ) {
-                showAddressManagement = true
+        }
+        .background(Color.white.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+        )
+        .padding(.bottom, 8)
+    }
+    
+    // MARK: - Settings Grid
+    private var settingsGrid: some View {
+        VStack(spacing: 8) {
+            // Row 1: Security & Privacy
+            HStack(spacing: 8) {
+                SettingsGridCard(
+                    icon: "lock.shield.fill",
+                    title: "Security",
+                    subtitle: passcodeManager.hasPasscode ? "Protected" : "Set passcode",
+                    accentColor: .white
+                ) {
+                    triggerHaptic()
+                    if passcodeManager.hasPasscode {
+                        showChangePasscode = true
+                    } else {
+                        showSetPasscode = true
+                    }
+                }
+                
+                SettingsGridCard(
+                    icon: "hand.raised.fill",
+                    title: "Privacy",
+                    subtitle: "Duress & stealth",
+                    accentColor: .white
+                ) {
+                    triggerHaptic()
+                    showPrivacySettings = true
+                }
             }
             
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            SettingsRow(
-                icon: "eye.slash.circle.fill",
-                iconColor: HawalaTheme.Colors.success,
-                title: "Stealth Addresses",
-                subtitle: "One-time addresses for maximum privacy"
-            ) {
-                showStealthAddresses = true
+            // Row 2: Network & Appearance
+            HStack(spacing: 8) {
+                SettingsGridCard(
+                    icon: "server.rack",
+                    title: "Network",
+                    subtitle: "Providers & sync",
+                    accentColor: .white
+                ) {
+                    triggerHaptic()
+                    showProviderSettings = true
+                }
+                
+                SettingsGridCard(
+                    icon: "paintbrush.fill",
+                    title: "Appearance",
+                    subtitle: themeManager.currentTheme.rawValue,
+                    accentColor: .white
+                ) {
+                    triggerHaptic()
+                    cycleTheme()
+                }
             }
+            
+            // Row 3: Wallet & Tokens
+            HStack(spacing: 8) {
+                SettingsGridCard(
+                    icon: "key.fill",
+                    title: "Backup",
+                    subtitle: "Recovery phrase",
+                    accentColor: .white
+                ) {
+                    triggerHaptic()
+                    showBackupSheet = true
+                }
+                
+                SettingsGridCard(
+                    icon: "circle.hexagongrid.fill",
+                    title: "Tokens",
+                    subtitle: "Custom tokens",
+                    accentColor: .white
+                ) {
+                    triggerHaptic()
+                    showCustomTokensSheet = true
+                }
+            }
+            
+            // Additional options list
+            additionalOptionsList
         }
     }
     
-    // MARK: - Notifications Section
-    private var notificationsSection: some View {
-        SettingsSection("Notifications") {
-            SettingsToggleRow(
-                icon: "bell.fill",
-                iconColor: HawalaTheme.Colors.warning,
-                title: "Enable Notifications",
-                subtitle: nil,
-                isOn: $enableNotifications
-            )
-            
-            if enableNotifications {
-                Divider()
-                    .background(HawalaTheme.Colors.border)
-                    .padding(.leading, 56)
-                
-                // Transaction Alerts with Test button
-                HStack {
-                    SettingsToggleRow(
-                        icon: "arrow.left.arrow.right",
-                        iconColor: HawalaTheme.Colors.success,
-                        title: "Transaction Alerts",
-                        subtitle: "When you send or receive",
-                        isOn: $transactionAlerts
-                    )
-                    
-                    Button(action: {
-                        triggerHaptic()
-                        sendTestNotification(type: .transaction)
-                    }) {
-                        Text("Test")
-                            .font(HawalaTheme.Typography.caption)
-                            .foregroundColor(HawalaTheme.Colors.accent)
-                            .padding(.horizontal, HawalaTheme.Spacing.sm)
-                            .padding(.vertical, 4)
-                            .background(HawalaTheme.Colors.accent.opacity(0.15))
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, HawalaTheme.Spacing.md)
-                }
-                
-                Divider()
-                    .background(HawalaTheme.Colors.border)
-                    .padding(.leading, 56)
-                
-                // Price Alerts with Test button
-                HStack {
-                    SettingsToggleRow(
-                        icon: "chart.line.uptrend.xyaxis",
-                        iconColor: HawalaTheme.Colors.accent,
-                        title: "Price Alerts",
-                        subtitle: "Significant price changes",
-                        isOn: $priceAlerts
-                    )
-                    
-                    Button(action: {
-                        triggerHaptic()
-                        sendTestNotification(type: .price)
-                    }) {
-                        Text("Test")
-                            .font(HawalaTheme.Typography.caption)
-                            .foregroundColor(HawalaTheme.Colors.accent)
-                            .padding(.horizontal, HawalaTheme.Spacing.sm)
-                            .padding(.vertical, 4)
-                            .background(HawalaTheme.Colors.accent.opacity(0.15))
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, HawalaTheme.Spacing.md)
-                }
-                
-                Divider()
-                    .background(HawalaTheme.Colors.border)
-                    .padding(.leading, 56)
-                
-                // Network Alerts with Test button
-                HStack {
-                    SettingsToggleRow(
-                        icon: "network",
-                        iconColor: HawalaTheme.Colors.info,
-                        title: "Network Alerts",
-                        subtitle: "Connectivity issues",
-                        isOn: $networkAlerts
-                    )
-                    
-                    Button(action: {
-                        triggerHaptic()
-                        sendTestNotification(type: .network)
-                    }) {
-                        Text("Test")
-                            .font(HawalaTheme.Typography.caption)
-                            .foregroundColor(HawalaTheme.Colors.accent)
-                            .padding(.horizontal, HawalaTheme.Spacing.sm)
-                            .padding(.vertical, 4)
-                            .background(HawalaTheme.Colors.accent.opacity(0.15))
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, HawalaTheme.Spacing.md)
-                }
-            }
-        }
-    }
-    
-    // MARK: - Network Section
-    private var networkSection: some View {
-        SettingsSection("Network & Sync") {
-            // Provider Settings
-            SettingsRow(
-                icon: "server.rack",
-                iconColor: HawalaTheme.Colors.accent,
-                title: "Data Providers",
-                subtitle: "Configure API sources and keys"
-            ) {
+    // MARK: - Additional Options List
+    private var additionalOptionsList: some View {
+        VStack(spacing: 0) {
+            SettingsListRow(icon: "shield.checkered", title: "Security Policies") {
                 triggerHaptic()
-                showProviderSettings = true
+                showSecurityPolicies = true
             }
             
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
+            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
             
-            // WebSocket real-time prices
-            WebSocketConnectionControl()
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            // Background sync
-            SyncSettingsControl()
-        }
-        .sheet(isPresented: $showProviderSettings) {
-            ProviderSettingsView()
-                .frame(minWidth: 500, minHeight: 700)
-        }
-    }
-    
-    // MARK: - Appearance Section
-    private var appearanceSection: some View {
-        SettingsSection("Appearance") {
-            // Theme Picker
-            ThemePickerRow()
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            // Animated Background Picker
-            VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
-                HStack(spacing: HawalaTheme.Spacing.md) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.purple.opacity(0.15))
-                            .frame(width: 36, height: 36)
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 16))
-                            .foregroundColor(.purple)
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Animated Background")
-                            .font(HawalaTheme.Typography.body)
-                            .foregroundColor(HawalaTheme.Colors.textPrimary)
-                        Text("Choose background animation style")
-                            .font(HawalaTheme.Typography.caption)
-                            .foregroundColor(HawalaTheme.Colors.textSecondary)
-                    }
-                }
-                .padding(.horizontal, HawalaTheme.Spacing.md)
-                .padding(.top, HawalaTheme.Spacing.sm)
-                
-                BackgroundTypePicker(selectedBackground: $selectedBackgroundType)
-                    .padding(.horizontal, HawalaTheme.Spacing.md)
-                    .padding(.bottom, HawalaTheme.Spacing.sm)
-            }
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            // Currency Dropdown
-            CurrencyPickerRow(currency: $currency)
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            // Haptic Feedback with Test button
-            HStack {
-                SettingsToggleRow(
-                    icon: "hand.tap.fill",
-                    iconColor: HawalaTheme.Colors.info,
-                    title: "Haptic Feedback",
-                    subtitle: "Tactile response on actions",
-                    isOn: $hapticFeedback
-                )
-                
-                Button(action: {
-                    triggerHaptic(force: true)
-                    ToastManager.shared.info("Haptic triggered!")
-                }) {
-                    Text("Test")
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.accent)
-                        .padding(.horizontal, HawalaTheme.Spacing.sm)
-                        .padding(.vertical, 4)
-                        .background(HawalaTheme.Colors.accent.opacity(0.15))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-                .padding(.trailing, HawalaTheme.Spacing.md)
-            }
-        }
-    }
-    
-    // MARK: - Tokens Section
-    private var tokensSection: some View {
-        SettingsSection("Tokens") {
-            SettingsRow(
-                icon: "circle.hexagongrid.fill",
-                iconColor: HawalaTheme.Colors.accent,
-                title: "Custom Tokens",
-                subtitle: "Add ERC-20, BEP-20, or SPL tokens"
-            ) {
-                triggerHaptic()
-                showCustomTokensSheet = true
-            }
-        }
-    }
-    
-    // MARK: - General Section
-    private var generalSection: some View {
-        SettingsSection("General") {
-            SettingsRow(
-                icon: "tag.fill",
-                iconColor: .blue,
-                title: "Address Labels",
-                subtitle: "Organize addresses with custom labels & tags"
-            ) {
+            SettingsListRow(icon: "tag.fill", title: "Address Labels") {
                 triggerHaptic()
                 showAddressLabels = true
             }
             
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
+            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
             
-            SettingsRow(
-                icon: "calendar.badge.clock",
-                iconColor: HawalaTheme.Colors.accent,
-                title: "Scheduled Transactions",
-                subtitle: "Automate recurring payments"
-            ) {
+            SettingsListRow(icon: "list.bullet.rectangle", title: "Address Management") {
+                triggerHaptic()
+                showAddressManagement = true
+            }
+            
+            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
+            
+            SettingsListRow(icon: "calendar.badge.clock", title: "Scheduled Transactions") {
                 triggerHaptic()
                 showScheduledTransactions = true
             }
             
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
+            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
             
-            SettingsRow(
-                icon: "chart.line.uptrend.xyaxis",
-                iconColor: .orange,
-                title: "Fee Intelligence",
-                subtitle: "Optimize transaction fees"
-            ) {
-                triggerHaptic()
-                showFeeIntelligence = true
-            }
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            SettingsRow(
-                icon: "doc.text.magnifyingglass",
-                iconColor: .purple,
-                title: "Transaction Intent Preview",
-                subtitle: "Human-readable transaction signing"
-            ) {
-                triggerHaptic()
-                showTransactionIntentDemo = true
-            }
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            SettingsRow(
-                icon: "shield.lefthalf.filled.badge.checkmark",
-                iconColor: .cyan,
-                title: "Address Intelligence",
-                subtitle: "Analyze addresses for risks"
-            ) {
-                triggerHaptic()
-                showAddressIntelligence = true
-            }
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            SettingsRow(
-                icon: "square.and.arrow.up.fill",
-                iconColor: HawalaTheme.Colors.success,
-                title: "Backup Wallet",
-                subtitle: "View recovery phrase"
-            ) {
-                triggerHaptic()
-                showBackupSheet = true
-            }
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            SettingsRow(
-                icon: "network",
-                iconColor: HawalaTheme.Colors.info,
-                title: "Network Settings",
-                subtitle: "RPC endpoints, network selection"
-            ) {
+            SettingsListRow(icon: "network", title: "Network Settings") {
                 triggerHaptic()
                 showNetworkSettingsSheet = true
             }
             
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
+            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
             
-            SettingsRow(
-                icon: "doc.text.fill",
-                iconColor: HawalaTheme.Colors.textSecondary,
-                title: "Export Transaction History",
-                subtitle: "Download as CSV"
-            ) {
+            SettingsListRow(icon: "doc.text.fill", title: "Export History") {
                 triggerHaptic()
                 showExportSheet = true
             }
-        }
-    }
-    
-    // MARK: - Developer Section
-    private var developerSection: some View {
-        SettingsSection("Developer") {
-            SettingsToggleRow(
-                icon: "testtube.2",
-                iconColor: HawalaTheme.Colors.warning,
-                title: "Show Testnets",
-                subtitle: "Display Bitcoin Testnet & Ethereum Sepolia",
-                isOn: $showTestnets
-            )
             
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
+            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
             
-            // Debug Console
-            SettingsRow(
-                icon: "terminal.fill",
-                iconColor: HawalaTheme.Colors.accent,
-                title: "Debug Console",
-                subtitle: "\(debugLogger.entries.count) log entries"
-            ) {
+            SettingsListRow(icon: "terminal.fill", title: "Debug Console") {
                 triggerHaptic()
                 showDebugConsole = true
             }
             
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
+            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
             
-            // Network Latency
-            HStack {
-                ZStack {
-                    Circle()
-                        .fill(HawalaTheme.Colors.info.opacity(0.15))
-                        .frame(width: 36, height: 36)
-                    Image(systemName: "antenna.radiowaves.left.and.right")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(HawalaTheme.Colors.info)
-                }
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Network Latency")
-                        .font(HawalaTheme.Typography.body)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    Text(debugLogger.latencyDescription)
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
-                }
-                
-                Spacer()
-                
-                // Latency indicator
-                Circle()
-                    .fill(latencyIndicatorColor)
-                    .frame(width: 8, height: 8)
-            }
-            .padding(.horizontal, HawalaTheme.Spacing.md)
-            .padding(.vertical, HawalaTheme.Spacing.sm)
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            // WebSocket Status
-            HStack {
-                ZStack {
-                    Circle()
-                        .fill(HawalaTheme.Colors.success.opacity(0.15))
-                        .frame(width: 36, height: 36)
-                    Image(systemName: "bolt.fill")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(HawalaTheme.Colors.success)
-                }
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("WebSocket")
-                        .font(HawalaTheme.Typography.body)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    Text(debugLogger.webSocketStatus)
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(debugLogger.webSocketStatus == "Connected" ? HawalaTheme.Colors.success : HawalaTheme.Colors.textSecondary)
-                }
-                
-                Spacer()
-                
-                // Force Sync button
-                Button(action: {
-                    triggerHaptic()
-                    forceSyncWebSocket()
-                }) {
-                    HStack(spacing: 4) {
-                        if isForceSyncing {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                                .frame(width: 14, height: 14)
-                        } else {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                                .font(.system(size: 11, weight: .semibold))
-                        }
-                        Text("Sync")
-                            .font(HawalaTheme.Typography.caption)
-                    }
-                    .foregroundColor(HawalaTheme.Colors.accent)
-                    .padding(.horizontal, HawalaTheme.Spacing.sm)
-                    .padding(.vertical, 4)
-                    .background(HawalaTheme.Colors.accent.opacity(0.15))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-                .disabled(isForceSyncing)
-            }
-            .padding(.horizontal, HawalaTheme.Spacing.md)
-            .padding(.vertical, HawalaTheme.Spacing.sm)
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            // Clear Cache
-            SettingsRow(
-                icon: "trash.fill",
-                iconColor: HawalaTheme.Colors.error,
-                title: "Clear App Cache",
-                subtitle: "Removes cached data"
-            ) {
+            SettingsListRow(icon: "info.circle.fill", title: "About Hawala") {
                 triggerHaptic()
-                clearAppCache()
+                showAbout = true
+            }
+            
+            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
+            
+            SettingsListRow(icon: "questionmark.circle.fill", title: "Help & Support") {
+                triggerHaptic()
+                showSupportSheet = true
             }
         }
+        .background(Color.white.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+        )
+        .padding(.top, 8)
     }
     
+    // MARK: - Danger Zone Card
+    private var dangerZoneCard: some View {
+        Button(action: { showResetConfirm = true }) {
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(Color.red.opacity(0.15))
+                    .frame(width: 36, height: 36)
+                    .overlay(
+                        Image(systemName: "trash.fill")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Color.red.opacity(0.8))
+                    )
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Reset Wallet")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color.red.opacity(0.9))
+                    Text("Erase all data from this device")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color.white.opacity(0.35))
+                }
+                
+                Spacer()
+                
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color.red.opacity(0.4))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+        }
+        .buttonStyle(.plain)
+        .background(Color.red.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.red.opacity(0.15), lineWidth: 1)
+        )
+        .padding(.top, 16)
+    }
+    
+    // MARK: - Security Section
     // Latency indicator color based on average latency
     private var latencyIndicatorColor: Color {
         guard let avg = debugLogger.averageLatency else { return .gray }
@@ -854,76 +479,6 @@ struct SettingsView: View {
         }
     }
     
-    // MARK: - About Section
-    private var aboutSection: some View {
-        SettingsSection("About") {
-            SettingsRow(
-                icon: "info.circle.fill",
-                iconColor: HawalaTheme.Colors.accent,
-                title: "About Hawala",
-                subtitle: "Version \(AppVersion.version)"
-            ) {
-                showAbout = true
-            }
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            SettingsRow(
-                icon: "doc.plaintext.fill",
-                iconColor: HawalaTheme.Colors.textSecondary,
-                title: "Terms of Service",
-                subtitle: nil
-            ) {
-                triggerHaptic()
-                showTermsSheet = true
-            }
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            SettingsRow(
-                icon: "hand.raised.fill",
-                iconColor: HawalaTheme.Colors.textSecondary,
-                title: "Privacy Policy",
-                subtitle: nil
-            ) {
-                triggerHaptic()
-                showPrivacySheet = true
-            }
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-                .padding(.leading, 56)
-            
-            SettingsRow(
-                icon: "questionmark.circle.fill",
-                iconColor: HawalaTheme.Colors.info,
-                title: "Help & Support",
-                subtitle: nil
-            ) {
-                triggerHaptic()
-                showSupportSheet = true
-            }
-        }
-    }
-    
-    // MARK: - Danger Zone
-    private var dangerZone: some View {
-        SettingsSection("Danger Zone") {
-            SettingsRow(
-                icon: "trash.fill",
-                iconColor: HawalaTheme.Colors.error,
-                title: "Reset Wallet",
-                subtitle: "Erase all data from this device"
-            ) {
-                showResetConfirm = true
-            }
-        }
-    }
-    
     // MARK: - Helper Methods
     private func cycleTheme() {
         let themes = ThemeManager.AppTheme.allCases
@@ -944,42 +499,8 @@ struct SettingsView: View {
         }
     }
     
-    // MARK: - Test Notification
-    private enum TestNotificationType {
-        case transaction, price, network
-    }
-    
-    private func sendTestNotification(type: TestNotificationType) {
-        Task {
-            switch type {
-            case .transaction:
-                await NotificationManager.shared.sendNotification(
-                    type: .transactionConfirmed,
-                    title: "Transaction Received",
-                    body: "You received 0.005 BTC ($485.00) from bc1q...xyz"
-                )
-                ToastManager.shared.success("Test Sent", message: "Transaction notification sent!")
-            case .price:
-                await NotificationManager.shared.sendNotification(
-                    type: .priceAlert,
-                    title: "Price Alert: Bitcoin",
-                    body: "BTC is up 5.2% in the last hour. Current price: $97,500"
-                )
-                ToastManager.shared.success("Test Sent", message: "Price alert notification sent!")
-            case .network:
-                await NotificationManager.shared.sendNotification(
-                    type: .securityReminder,
-                    title: "Network Status",
-                    body: "Connection restored. All services are operational."
-                )
-                ToastManager.shared.success("Test Sent", message: "Network notification sent!")
-            }
-        }
-    }
-    
     // MARK: - Haptic Feedback
-    private func triggerHaptic(force: Bool = false) {
-        guard hapticFeedback || force else { return }
+    private func triggerHaptic() {
         #if os(macOS)
         NSHapticFeedbackManager.defaultPerformer.perform(
             .generic,
@@ -989,31 +510,177 @@ struct SettingsView: View {
     }
 }
 
+// MARK: - Settings Quick Toggle
+struct SettingsQuickToggle: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    @Binding var isOn: Bool
+    
+    @State private var isHovered = false
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(isOn ? Color.white.opacity(0.12) : Color.white.opacity(0.06))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Image(systemName: icon)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(isOn ? .white : Color.white.opacity(0.4))
+                )
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(Color.white.opacity(0.4))
+            }
+            
+            Spacer()
+            
+            // Modern pill toggle
+            ZStack {
+                Capsule()
+                    .fill(isOn ? Color.white : Color.white.opacity(0.1))
+                    .frame(width: 44, height: 26)
+                
+                Circle()
+                    .fill(isOn ? Color(red: 0.10, green: 0.10, blue: 0.12) : Color.white.opacity(0.6))
+                    .frame(width: 20, height: 20)
+                    .shadow(color: Color.black.opacity(0.2), radius: 2, x: 0, y: 1)
+                    .offset(x: isOn ? 9 : -9)
+            }
+            .onTapGesture {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    isOn.toggle()
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(isHovered ? Color.white.opacity(0.02) : Color.clear)
+        .onHover { isHovered = $0 }
+    }
+}
+
+// MARK: - Settings Grid Card
+struct SettingsGridCard: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    let accentColor: Color
+    let action: () -> Void
+    
+    @State private var isHovered = false
+    @State private var isPressed = false
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 12) {
+                // Icon
+                Circle()
+                    .fill(Color.white.opacity(isHovered ? 0.12 : 0.08))
+                    .frame(width: 40, height: 40)
+                    .overlay(
+                        Image(systemName: icon)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Color.white.opacity(isHovered ? 0.9 : 0.6))
+                    )
+                
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                    
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundColor(Color.white.opacity(0.4))
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(isHovered ? 0.06 : 0.03))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.white.opacity(isHovered ? 0.12 : 0.06), lineWidth: 1)
+            )
+            .scaleEffect(isPressed ? 0.97 : 1)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+}
+
+// MARK: - Settings List Row
+struct SettingsListRow: View {
+    let icon: String
+    let title: String
+    let action: () -> Void
+    
+    @State private var isHovered = false
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(Color.white.opacity(0.06))
+                    .frame(width: 32, height: 32)
+                    .overlay(
+                        Image(systemName: icon)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(Color.white.opacity(0.5))
+                    )
+                
+                Text(title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
+                
+                Spacer()
+                
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.25))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(isHovered ? Color.white.opacity(0.03) : Color.clear)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+}
+
 // MARK: - Theme Picker Row
 struct ThemePickerRow: View {
     @ObservedObject var themeManager = ThemeManager.shared
     @State private var isHovered = false
     
     var body: some View {
-        HStack(spacing: HawalaTheme.Spacing.md) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(HawalaTheme.Colors.accent.opacity(0.15))
-                    .frame(width: 32, height: 32)
-                
-                Image(systemName: "paintbrush.fill")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(HawalaTheme.Colors.accent)
-            }
+        HStack(spacing: 14) {
+            Circle()
+                .fill(Color.white.opacity(0.06))
+                .frame(width: 32, height: 32)
+                .overlay(
+                    Image(systemName: "paintbrush.fill")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.5))
+                )
             
             VStack(alignment: .leading, spacing: 2) {
                 Text("Theme")
-                    .font(HawalaTheme.Typography.body)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
                 
                 Text("App appearance")
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(Color.white.opacity(0.4))
             }
             
             Spacer()
@@ -1031,11 +698,12 @@ struct ThemePickerRow: View {
                 }
             }
             .pickerStyle(.menu)
-            .tint(HawalaTheme.Colors.accent)
+            .tint(Color.white.opacity(0.6))
             .frame(width: 110)
         }
-        .padding(HawalaTheme.Spacing.md)
-        .background(isHovered ? HawalaTheme.Colors.backgroundHover : Color.clear)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(isHovered ? Color.white.opacity(0.04) : Color.clear)
         .onHover { isHovered = $0 }
     }
 }
@@ -1060,25 +728,24 @@ struct CurrencyPickerRow: View {
     ]
     
     var body: some View {
-        HStack(spacing: HawalaTheme.Spacing.md) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(HawalaTheme.Colors.success.opacity(0.15))
-                    .frame(width: 32, height: 32)
-                
-                Image(systemName: "dollarsign.circle.fill")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(HawalaTheme.Colors.success)
-            }
+        HStack(spacing: 14) {
+            Circle()
+                .fill(Color.white.opacity(0.06))
+                .frame(width: 32, height: 32)
+                .overlay(
+                    Image(systemName: "dollarsign.circle.fill")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.5))
+                )
             
             VStack(alignment: .leading, spacing: 2) {
                 Text("Display Currency")
-                    .font(HawalaTheme.Typography.body)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
                 
                 Text("For balance display")
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(Color.white.opacity(0.4))
             }
             
             Spacer()
@@ -1090,11 +757,12 @@ struct CurrencyPickerRow: View {
                 }
             }
             .pickerStyle(.menu)
-            .tint(HawalaTheme.Colors.accent)
+            .tint(Color.white.opacity(0.6))
             .frame(width: 110)
         }
-        .padding(HawalaTheme.Spacing.md)
-        .background(isHovered ? HawalaTheme.Colors.backgroundHover : Color.clear)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(isHovered ? Color.white.opacity(0.04) : Color.clear)
         .onHover { isHovered = $0 }
     }
 }
@@ -1203,25 +871,24 @@ struct AutoLockTimeoutPicker: View {
     ]
     
     var body: some View {
-        HStack(spacing: HawalaTheme.Spacing.md) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(HawalaTheme.Colors.warning.opacity(0.15))
-                    .frame(width: 32, height: 32)
-                
-                Image(systemName: "timer")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(HawalaTheme.Colors.warning)
-            }
+        HStack(spacing: 14) {
+            Circle()
+                .fill(Color.white.opacity(0.06))
+                .frame(width: 32, height: 32)
+                .overlay(
+                    Image(systemName: "timer")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.5))
+                )
             
             VStack(alignment: .leading, spacing: 2) {
                 Text("Auto-Lock Timeout")
-                    .font(HawalaTheme.Typography.body)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
                 
                 Text("Lock app after inactivity")
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(Color.white.opacity(0.4))
             }
             
             Spacer()
@@ -1232,11 +899,12 @@ struct AutoLockTimeoutPicker: View {
                 }
             }
             .pickerStyle(.menu)
-            .tint(HawalaTheme.Colors.accent)
+            .tint(Color.white.opacity(0.6))
             .frame(width: 120)
         }
-        .padding(HawalaTheme.Spacing.md)
-        .background(isHovered ? HawalaTheme.Colors.backgroundHover : Color.clear)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(isHovered ? Color.white.opacity(0.04) : Color.clear)
         .onHover { isHovered = $0 }
     }
 }

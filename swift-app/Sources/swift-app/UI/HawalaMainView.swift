@@ -522,12 +522,12 @@ struct HawalaMainView: View {
                 } else {
                     let total = calculateTotalBalance()
                     
-                    // Main balance - Clash Grotesk Bold
+                    // Main balance with magnetic hover effect
                     if showBalances {
-                        Text(selectedFiatSymbol + formatLargeNumber(total))
-                            .font(.clashGroteskBold(size: 56))
-                            .monospacedDigit()
-                            .foregroundColor(.white)
+                        MagneticBalanceText(
+                            text: selectedFiatSymbol + formatLargeNumber(total),
+                            fontSize: 56
+                        )
                     } else {
                         Text("••••••")
                             .font(.clashGroteskBold(size: 56))

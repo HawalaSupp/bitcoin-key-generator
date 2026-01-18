@@ -3,6 +3,44 @@ import SwiftUI
 // MARK: - Hawala UI Components
 // Reusable components following the design system
 
+// MARK: - Elegant Balance Text (Subtle Hover Effect)
+struct MagneticBalanceText: View {
+    let text: String
+    let fontSize: CGFloat
+    
+    @State private var isHovering = false
+    @State private var hoverProgress: CGFloat = 0
+    
+    var body: some View {
+        Text(text)
+            .font(.clashGroteskBold(size: fontSize))
+            .foregroundStyle(
+                isHovering ?
+                    LinearGradient(
+                        colors: [
+                            Color.white,
+                            Color.white.opacity(0.85),
+                            Color.white
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ) :
+                    LinearGradient(
+                        colors: [Color.white],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+            )
+            .shadow(color: Color.white.opacity(isHovering ? 0.3 : 0), radius: isHovering ? 20 : 0, x: 0, y: 0)
+            .shadow(color: Color.white.opacity(isHovering ? 0.15 : 0), radius: isHovering ? 40 : 0, x: 0, y: 0)
+            .scaleEffect(isHovering ? 1.03 : 1.0)
+            .animation(.spring(response: 0.4, dampingFraction: 0.7), value: isHovering)
+            .onHover { hovering in
+                isHovering = hovering
+            }
+    }
+}
+
 // MARK: - Animated Counter (Optimized - no repeated withAnimation calls)
 struct AnimatedCounter: View {
     let value: Double
@@ -2702,21 +2740,21 @@ struct SettingsSection<Content: View>: View {
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(HawalaTheme.Typography.caption)
-                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(Color.white.opacity(0.4))
                 .textCase(.uppercase)
-                .tracking(1)
+                .tracking(1.5)
             
             VStack(spacing: 0) {
                 content
             }
-            .background(HawalaTheme.Colors.backgroundSecondary)
-            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous))
+            .background(Color.white.opacity(0.04))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                    .strokeBorder(HawalaTheme.Colors.border, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
             )
         }
     }
@@ -2731,7 +2769,7 @@ struct SettingsRow: View {
     
     @State private var isHovered = false
     
-    init(icon: String, iconColor: Color = HawalaTheme.Colors.accent, title: String, subtitle: String? = nil, action: @escaping () -> Void) {
+    init(icon: String, iconColor: Color = Color.white.opacity(0.6), title: String, subtitle: String? = nil, action: @escaping () -> Void) {
         self.icon = icon
         self.iconColor = iconColor
         self.title = title
@@ -2741,37 +2779,38 @@ struct SettingsRow: View {
     
     var body: some View {
         Button(action: action) {
-            HStack(spacing: HawalaTheme.Spacing.md) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(iconColor.opacity(0.15))
-                        .frame(width: 32, height: 32)
-                    
-                    Image(systemName: icon)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(iconColor)
-                }
+            HStack(spacing: 14) {
+                // Minimal icon circle
+                Circle()
+                    .fill(Color.white.opacity(0.06))
+                    .frame(width: 32, height: 32)
+                    .overlay(
+                        Image(systemName: icon)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(Color.white.opacity(0.5))
+                    )
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(HawalaTheme.Typography.body)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
                     
                     if let subtitle = subtitle {
                         Text(subtitle)
-                            .font(HawalaTheme.Typography.caption)
-                            .foregroundColor(HawalaTheme.Colors.textTertiary)
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundColor(Color.white.opacity(0.4))
                     }
                 }
                 
                 Spacer()
                 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.25))
             }
-            .padding(HawalaTheme.Spacing.md)
-            .background(isHovered ? HawalaTheme.Colors.backgroundHover : Color.clear)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(isHovered ? Color.white.opacity(0.04) : Color.clear)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -2787,7 +2826,7 @@ struct SettingsToggleRow: View {
     
     @State private var isHovered = false
     
-    init(icon: String, iconColor: Color = HawalaTheme.Colors.accent, title: String, subtitle: String? = nil, isOn: Binding<Bool>) {
+    init(icon: String, iconColor: Color = Color.white.opacity(0.6), title: String, subtitle: String? = nil, isOn: Binding<Bool>) {
         self.icon = icon
         self.iconColor = iconColor
         self.title = title
@@ -2796,62 +2835,67 @@ struct SettingsToggleRow: View {
     }
     
     var body: some View {
-        HStack(spacing: HawalaTheme.Spacing.md) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(iconColor.opacity(0.15))
-                    .frame(width: 32, height: 32)
-                
-                Image(systemName: icon)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(iconColor)
-            }
+        HStack(spacing: 14) {
+            // Minimal icon circle
+            Circle()
+                .fill(Color.white.opacity(0.06))
+                .frame(width: 32, height: 32)
+                .overlay(
+                    Image(systemName: icon)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.5))
+                )
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(HawalaTheme.Typography.body)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
                 
                 if let subtitle = subtitle {
                     Text(subtitle)
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundColor(Color.white.opacity(0.4))
                 }
             }
             
             Spacer()
             
             Toggle("", isOn: $isOn)
-                .toggleStyle(HawalaToggleStyle())
+                .toggleStyle(MonochromeToggleStyle())
         }
-        .padding(HawalaTheme.Spacing.md)
-        .background(isHovered ? HawalaTheme.Colors.backgroundHover : Color.clear)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(isHovered ? Color.white.opacity(0.04) : Color.clear)
         .onHover { isHovered = $0 }
     }
 }
 
-struct HawalaToggleStyle: ToggleStyle {
+// Clean monochrome toggle style
+struct MonochromeToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack {
             configuration.label
             
-            RoundedRectangle(cornerRadius: 16)
-                .fill(configuration.isOn ? HawalaTheme.Colors.accent : HawalaTheme.Colors.backgroundTertiary)
-                .frame(width: 44, height: 26)
+            RoundedRectangle(cornerRadius: 14)
+                .fill(configuration.isOn ? Color.white.opacity(0.9) : Color.white.opacity(0.12))
+                .frame(width: 40, height: 24)
                 .overlay(
                     Circle()
-                        .fill(Color.white)
-                        .shadow(color: Color.black.opacity(0.15), radius: 2, x: 0, y: 1)
+                        .fill(configuration.isOn ? Color(red: 0.1, green: 0.1, blue: 0.125) : Color.white.opacity(0.6))
+                        .shadow(color: Color.black.opacity(0.2), radius: 2, x: 0, y: 1)
                         .padding(2)
-                        .offset(x: configuration.isOn ? 9 : -9)
+                        .offset(x: configuration.isOn ? 8 : -8)
                 )
-                .animation(OptimizedAnimations.snappySpring, value: configuration.isOn) // 120fps
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: configuration.isOn)
                 .onTapGesture {
                     configuration.isOn.toggle()
                 }
         }
     }
 }
+
+// Alias for backward compatibility
+typealias HawalaToggleStyle = MonochromeToggleStyle
 
 // MARK: - Copy Button with Feedback
 struct CopyButton: View {
