@@ -74,14 +74,14 @@
 - [x] **Custom SPL token support** - Add any Solana token by mint address with Helius/Solscan metadata lookup
 - [x] **Token balance auto-detection** - Scan wallets for tokens with non-zero balances (ERC-20 via Alchemy, SPL via RPC)
 
+### Phase 14: Advanced Wallet Features (Priority: MEDIUM) ✅
+- [x] **Batch transactions** - Send to multiple recipients with real blockchain execution
+- [x] **Transaction scheduling** - Schedule future transactions with real blockchain integration
+- [x] **Multisig UI** - Full PSBT creation, signing, and export UI
+
 ---
 
 ## 🔄 IN PROGRESS / REMAINING
-
-### Phase 14: Advanced Wallet Features (Priority: MEDIUM)
-- [ ] **Batch transactions** - Send to multiple recipients in one transaction
-- [ ] **Functional multisig support** - UI exists but needs backend logic
-- [ ] **Transaction scheduling** - Schedule future transactions
 
 ### Phase 15: Platform Expansion (Priority: LOW)
 - [ ] **iOS app** - Share core logic, native iOS UI
