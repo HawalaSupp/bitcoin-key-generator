@@ -24,68 +24,102 @@ struct PasscodeLockScreen: View {
     
     var body: some View {
         ZStack {
-            // Background
-            HawalaTheme.Colors.background
+            // Background - matching main app
+            Color(red: 0.08, green: 0.08, blue: 0.10)
                 .ignoresSafeArea()
             
             VStack(spacing: HawalaTheme.Spacing.xxl) {
                 Spacer()
                 
-                // Logo
-                VStack(spacing: HawalaTheme.Spacing.md) {
+                // Logo & Title - redesigned
+                VStack(spacing: HawalaTheme.Spacing.lg) {
+                    // Glassmorphic lock icon
                     ZStack {
                         Circle()
                             .fill(
                                 LinearGradient(
                                     colors: [
-                                        HawalaTheme.Colors.accent,
-                                        HawalaTheme.Colors.accentHover
+                                        Color.white.opacity(0.08),
+                                        Color.white.opacity(0.03)
                                     ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
                             )
-                            .frame(width: 80, height: 80)
+                            .frame(width: 100, height: 100)
+                        
+                        Circle()
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.15),
+                                        Color.white.opacity(0.05)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                            .frame(width: 100, height: 100)
                         
                         Image(systemName: "lock.shield.fill")
-                            .font(.system(size: 36, weight: .medium))
-                            .foregroundColor(.white)
+                            .font(.system(size: 40, weight: .medium))
+                            .foregroundColor(.white.opacity(0.9))
                     }
+                    .shadow(color: Color.black.opacity(0.3), radius: 20, x: 0, y: 10)
                     
-                    Text("Enter Passcode")
-                        .font(HawalaTheme.Typography.h2)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    
-                    Text("Enter your passcode to unlock Hawala")
-                        .font(HawalaTheme.Typography.body)
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    VStack(spacing: 8) {
+                        Text("Enter Passcode")
+                            .font(.clashGroteskMedium(size: 28))
+                            .foregroundColor(.white)
+                        
+                        Text("Unlock your wallet")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(Color.white.opacity(0.5))
+                    }
                 }
                 
-                // Passcode dots
-                HStack(spacing: HawalaTheme.Spacing.md) {
+                // Passcode dots - refined style
+                HStack(spacing: 16) {
                     ForEach(0..<maxDigits, id: \.self) { index in
                         Circle()
-                            .fill(index < enteredPasscode.count ? HawalaTheme.Colors.accent : HawalaTheme.Colors.border)
-                            .frame(width: 16, height: 16)
+                            .fill(index < enteredPasscode.count ? Color.white : Color.white.opacity(0.15))
+                            .frame(width: 14, height: 14)
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(Color.white.opacity(index < enteredPasscode.count ? 0 : 0.2), lineWidth: 1)
+                            )
+                            .scaleEffect(index < enteredPasscode.count ? 1.1 : 1.0)
+                            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: enteredPasscode.count)
                     }
                 }
                 .modifier(ShakeEffect(shakes: isShaking ? 2 : 0))
                 .animation(.easeInOut(duration: 0.4), value: isShaking)
+                .padding(.vertical, HawalaTheme.Spacing.lg)
                 
-                // Error message
+                // Error message - refined
                 if let error = errorMessage {
-                    Text(error)
-                        .font(HawalaTheme.Typography.bodySmall)
-                        .foregroundColor(HawalaTheme.Colors.error)
-                        .padding(.top, HawalaTheme.Spacing.sm)
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 12))
+                        Text(error)
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    .foregroundColor(HawalaTheme.Colors.error)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(
+                        Capsule()
+                            .fill(HawalaTheme.Colors.error.opacity(0.15))
+                    )
                 }
                 
                 Spacer()
                 
-                // Number pad
-                VStack(spacing: HawalaTheme.Spacing.md) {
+                // Number pad - using redesigned buttons
+                VStack(spacing: 16) {
                     ForEach(0..<3, id: \.self) { row in
-                        HStack(spacing: HawalaTheme.Spacing.lg) {
+                        HStack(spacing: 24) {
                             ForEach(1...3, id: \.self) { col in
                                 let number = row * 3 + col
                                 PasscodeButton(number: "\(number)") {
@@ -96,7 +130,7 @@ struct PasscodeLockScreen: View {
                     }
                     
                     // Bottom row: biometric, 0, delete
-                    HStack(spacing: HawalaTheme.Spacing.lg) {
+                    HStack(spacing: 24) {
                         // Biometric button
                         PasscodeButton(number: "", icon: biometricIcon) {
                             attemptBiometricUnlock()
@@ -113,9 +147,10 @@ struct PasscodeLockScreen: View {
                         }
                     }
                 }
-                .padding(.horizontal, HawalaTheme.Spacing.xxl)
+                .padding(.horizontal, HawalaTheme.Spacing.xl)
                 
                 Spacer()
+                    .frame(height: 40)
             }
             .padding(HawalaTheme.Spacing.xl)
             .onAppear {
@@ -320,67 +355,101 @@ struct PasscodeSetupScreen: View {
     
     var body: some View {
         ZStack {
-            HawalaTheme.Colors.background
+            // Background - matching main app
+            Color(red: 0.08, green: 0.08, blue: 0.10)
                 .ignoresSafeArea()
             
             VStack(spacing: HawalaTheme.Spacing.xxl) {
                 Spacer()
                 
-                // Header
-                VStack(spacing: HawalaTheme.Spacing.md) {
+                // Header - redesigned
+                VStack(spacing: HawalaTheme.Spacing.lg) {
                     ZStack {
                         Circle()
                             .fill(
                                 LinearGradient(
                                     colors: [
-                                        HawalaTheme.Colors.accent,
-                                        HawalaTheme.Colors.accentHover
+                                        Color.white.opacity(0.08),
+                                        Color.white.opacity(0.03)
                                     ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
                             )
-                            .frame(width: 80, height: 80)
+                            .frame(width: 100, height: 100)
+                        
+                        Circle()
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.15),
+                                        Color.white.opacity(0.05)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                            .frame(width: 100, height: 100)
                         
                         Image(systemName: step == .create ? "lock.fill" : "checkmark.shield.fill")
-                            .font(.system(size: 36, weight: .medium))
-                            .foregroundColor(.white)
+                            .font(.system(size: 40, weight: .medium))
+                            .foregroundColor(.white.opacity(0.9))
                     }
+                    .shadow(color: Color.black.opacity(0.3), radius: 20, x: 0, y: 10)
                     
-                    Text(step == .create ? "Create Passcode" : "Confirm Passcode")
-                        .font(HawalaTheme.Typography.h2)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    
-                    Text(step == .create ? "Choose a 4-6 digit passcode" : "Enter your passcode again")
-                        .font(HawalaTheme.Typography.body)
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    VStack(spacing: 8) {
+                        Text(step == .create ? "Create Passcode" : "Confirm Passcode")
+                            .font(.clashGroteskMedium(size: 28))
+                            .foregroundColor(.white)
+                        
+                        Text(step == .create ? "Choose a 4-6 digit passcode" : "Enter your passcode again")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(Color.white.opacity(0.5))
+                    }
                 }
                 
-                // Passcode dots
-                HStack(spacing: HawalaTheme.Spacing.md) {
+                // Passcode dots - refined style
+                HStack(spacing: 16) {
                     ForEach(0..<maxDigits, id: \.self) { index in
                         Circle()
-                            .fill(index < currentPasscode.count ? HawalaTheme.Colors.accent : HawalaTheme.Colors.border)
-                            .frame(width: 16, height: 16)
+                            .fill(index < currentPasscode.count ? Color.white : Color.white.opacity(0.15))
+                            .frame(width: 14, height: 14)
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(Color.white.opacity(index < currentPasscode.count ? 0 : 0.2), lineWidth: 1)
+                            )
+                            .scaleEffect(index < currentPasscode.count ? 1.1 : 1.0)
+                            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: currentPasscode.count)
                     }
                 }
                 .modifier(ShakeEffect(shakes: isShaking ? 2 : 0))
                 .animation(.easeInOut(duration: 0.4), value: isShaking)
+                .padding(.vertical, HawalaTheme.Spacing.lg)
                 
-                // Error message
+                // Error message - refined
                 if let error = errorMessage {
-                    Text(error)
-                        .font(HawalaTheme.Typography.bodySmall)
-                        .foregroundColor(HawalaTheme.Colors.error)
-                        .padding(.top, HawalaTheme.Spacing.sm)
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 12))
+                        Text(error)
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    .foregroundColor(HawalaTheme.Colors.error)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(
+                        Capsule()
+                            .fill(HawalaTheme.Colors.error.opacity(0.15))
+                    )
                 }
                 
                 Spacer()
                 
-                // Number pad
-                VStack(spacing: HawalaTheme.Spacing.md) {
+                // Number pad - redesigned
+                VStack(spacing: 16) {
                     ForEach(0..<3, id: \.self) { row in
-                        HStack(spacing: HawalaTheme.Spacing.lg) {
+                        HStack(spacing: 24) {
                             ForEach(1...3, id: \.self) { col in
                                 let number = row * 3 + col
                                 PasscodeButton(number: "\(number)") {
@@ -390,13 +459,13 @@ struct PasscodeSetupScreen: View {
                         }
                     }
                     
-                    HStack(spacing: HawalaTheme.Spacing.lg) {
+                    HStack(spacing: 24) {
                         // Skip button (only on create step)
                         if step == .create {
                             PasscodeButton(number: "", icon: "xmark") {
                                 onSkip()
                             }
-                            .opacity(0.7)
+                            .opacity(0.6)
                         } else {
                             // Back button
                             PasscodeButton(number: "", icon: "arrow.left") {
@@ -415,20 +484,21 @@ struct PasscodeSetupScreen: View {
                         }
                     }
                 }
-                .padding(.horizontal, HawalaTheme.Spacing.xxl)
+                .padding(.horizontal, HawalaTheme.Spacing.xl)
                 
                 // Skip text (only on create step)
                 if step == .create {
                     Button(action: onSkip) {
                         Text("Skip for now")
-                            .font(HawalaTheme.Typography.body)
-                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Color.white.opacity(0.4))
                     }
                     .buttonStyle(.plain)
                     .padding(.top, HawalaTheme.Spacing.md)
                 }
                 
                 Spacer()
+                    .frame(height: 40)
             }
             .padding(HawalaTheme.Spacing.xl)
         }
@@ -501,36 +571,75 @@ struct PasscodeButton: View {
     let action: () -> Void
     
     @State private var isPressed = false
+    @State private var isHovered = false
     
     var body: some View {
         Button(action: {
-            withAnimation(.easeOut(duration: 0.1)) {
+            withAnimation(.spring(response: 0.15, dampingFraction: 0.6)) {
                 isPressed = true
             }
+            // Haptic feedback
+            #if os(macOS)
+            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .default)
+            #endif
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                isPressed = false
+                withAnimation(.spring(response: 0.2, dampingFraction: 0.7)) {
+                    isPressed = false
+                }
                 action()
             }
         }) {
             ZStack {
+                // Glassmorphic background
                 Circle()
-                    .fill(isPressed ? HawalaTheme.Colors.accent.opacity(0.3) : HawalaTheme.Colors.backgroundSecondary)
-                    .frame(width: 72, height: 72)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(isPressed ? 0.15 : (isHovered ? 0.10 : 0.06)),
+                                Color.white.opacity(isPressed ? 0.10 : (isHovered ? 0.06 : 0.03))
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 76, height: 76)
+                
+                // Border glow
+                Circle()
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(isHovered ? 0.20 : 0.10),
+                                Color.white.opacity(isHovered ? 0.08 : 0.04)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+                    .frame(width: 76, height: 76)
                 
                 if let icon = icon {
                     Image(systemName: icon)
-                        .font(.system(size: 24, weight: .medium))
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.8))
                 } else if !number.isEmpty {
                     Text(number)
-                        .font(.system(size: 32, weight: .medium, design: .rounded))
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
+                        .font(.clashGroteskMedium(size: 32))
+                        .foregroundColor(.white)
                 }
             }
+            .shadow(color: Color.black.opacity(0.2), radius: isHovered ? 12 : 6, x: 0, y: isHovered ? 6 : 3)
         }
         .buttonStyle(.plain)
+        .scaleEffect(isPressed ? 0.92 : 1.0)
         .disabled(number.isEmpty && icon == nil)
         .opacity(number.isEmpty && icon == nil ? 0 : 1)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
     }
 }
 

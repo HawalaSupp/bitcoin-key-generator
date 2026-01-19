@@ -230,6 +230,17 @@ extension HawalaTheme.Colors {
             return bnb
         case "monero":
             return monero
+        // New chains from wallet-core integration
+        case "ton":
+            return Color(hex: "0098E1") // TON blue
+        case "aptos":
+            return Color(hex: "00D1B0") // Aptos teal
+        case "sui":
+            return Color(hex: "4A90E2") // Sui blue
+        case "polkadot":
+            return Color(hex: "E6007A") // Polkadot pink
+        case "kusama":
+            return Color(hex: "000000") // Kusama black/dark
         default:
             return accent
         }

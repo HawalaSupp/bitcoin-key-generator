@@ -242,7 +242,16 @@ final class MultiProviderAPI: ObservableObject {
     
     // MARK: - CoinCap API (Free, generous limits)
     private func fetchPricesFromCoinCap() async throws -> [String: Double] {
-        let url = URL(string: "https://api.coincap.io/v2/assets?ids=bitcoin,ethereum,litecoin,monero,solana,xrp,binance-coin")!
+        // Include all supported chains - CoinCap uses hyphenated IDs
+        let coinCapIds = [
+            "bitcoin", "ethereum", "litecoin", "monero", "solana", "xrp", "binance-coin",
+            "dogecoin", "bitcoin-cash", "cosmos", "cardano", "tron", "algorand", "stellar",
+            "near-protocol", "tezos", "hedera-hashgraph", "polkadot", "aptos", "sui", "toncoin",
+            "zcash", "dash", "ravencoin", "vechain", "filecoin", "harmony", "oasis-network",
+            "internet-computer", "waves", "elrond-egld", "flow", "mina", "zilliqa", "eos", "neo", "nervos-network"
+        ].joined(separator: ",")
+        
+        let url = URL(string: "https://api.coincap.io/v2/assets?ids=\(coinCapIds)")!
         
         var request = URLRequest(url: url)
         request.setValue("HawalaApp/2.0", forHTTPHeaderField: "User-Agent")
@@ -265,21 +274,54 @@ final class MultiProviderAPI: ObservableObject {
         
         var prices: [String: Double] = [:]
         
+        // Map CoinCap IDs to our chain IDs
+        let coinCapToChainId: [String: String] = [
+            "bitcoin": "bitcoin",
+            "ethereum": "ethereum",
+            "litecoin": "litecoin",
+            "monero": "monero",
+            "solana": "solana",
+            "xrp": "ripple",
+            "binance-coin": "binancecoin",
+            "dogecoin": "dogecoin",
+            "bitcoin-cash": "bitcoin-cash",
+            "cosmos": "cosmos",
+            "cardano": "cardano",
+            "tron": "tron",
+            "algorand": "algorand",
+            "stellar": "stellar",
+            "near-protocol": "near",
+            "tezos": "tezos",
+            "hedera-hashgraph": "hedera",
+            "polkadot": "polkadot",
+            "aptos": "aptos",
+            "sui": "sui",
+            "toncoin": "ton",
+            "zcash": "zcash",
+            "dash": "dash",
+            "ravencoin": "ravencoin",
+            "vechain": "vechain",
+            "filecoin": "filecoin",
+            "harmony": "harmony",
+            "oasis-network": "oasis",
+            "internet-computer": "internet-computer",
+            "waves": "waves",
+            "elrond-egld": "multiversx",
+            "flow": "flow",
+            "mina": "mina",
+            "zilliqa": "zilliqa",
+            "eos": "eos",
+            "neo": "neo",
+            "nervos-network": "nervos"
+        ]
+        
         for asset in dataArray {
             guard let id = asset["id"] as? String,
                   let priceString = asset["priceUsd"] as? String,
                   let price = Double(priceString) else { continue }
             
-            // Map CoinCap IDs to our chain IDs
-            switch id {
-            case "bitcoin": prices["bitcoin"] = price
-            case "ethereum": prices["ethereum"] = price
-            case "litecoin": prices["litecoin"] = price
-            case "monero": prices["monero"] = price
-            case "solana": prices["solana"] = price
-            case "xrp": prices["ripple"] = price
-            case "binance-coin": prices["binancecoin"] = price
-            default: break
+            if let chainId = coinCapToChainId[id] {
+                prices[chainId] = price
             }
         }
         
@@ -323,18 +365,40 @@ final class MultiProviderAPI: ObservableObject {
         }
         
         // For non-EVM chains, use fallback to CoinGecko simple API
-        let fallbackURL = URL(string: "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,litecoin,monero,solana,ripple&vs_currencies=usd")!
+        let nonEvmIds = [
+            "bitcoin", "litecoin", "monero", "solana", "ripple",
+            "dogecoin", "bitcoin-cash", "cosmos", "cardano", "tron", "algorand", "stellar",
+            "near", "tezos", "hedera-hashgraph", "polkadot", "aptos", "sui", "the-open-network",
+            "zcash", "dash", "ravencoin", "vechain", "filecoin", "harmony", "oasis-network",
+            "internet-computer", "waves", "elrond-erd-2", "flow", "mina-protocol", "zilliqa", "eos", "neo", "nervos-network"
+        ].joined(separator: ",")
+        let fallbackURL = URL(string: "https://api.coingecko.com/api/v3/simple/price?ids=\(nonEvmIds)&vs_currencies=usd")!
         var request = URLRequest(url: fallbackURL)
         request.timeoutInterval = 10
+        
+        // Map CoinGecko IDs to chain IDs
+        let geckoToChainId: [String: String] = [
+            "bitcoin": "bitcoin", "litecoin": "litecoin", "monero": "monero", 
+            "solana": "solana", "ripple": "ripple", "dogecoin": "dogecoin",
+            "bitcoin-cash": "bitcoin-cash", "cosmos": "cosmos", "cardano": "cardano",
+            "tron": "tron", "algorand": "algorand", "stellar": "stellar",
+            "near": "near", "tezos": "tezos", "hedera-hashgraph": "hedera",
+            "polkadot": "polkadot", "aptos": "aptos", "sui": "sui",
+            "the-open-network": "ton", "zcash": "zcash", "dash": "dash",
+            "ravencoin": "ravencoin", "vechain": "vechain", "filecoin": "filecoin",
+            "harmony": "harmony", "oasis-network": "oasis", "internet-computer": "internet-computer",
+            "waves": "waves", "elrond-erd-2": "multiversx", "flow": "flow",
+            "mina-protocol": "mina", "zilliqa": "zilliqa", "eos": "eos", "neo": "neo", "nervos-network": "nervos"
+        ]
         
         do {
             let (data, _) = try await URLSession.shared.data(for: request)
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: [String: Double]] {
-                if let btcPrice = json["bitcoin"]?["usd"] { prices["bitcoin"] = btcPrice }
-                if let ltcPrice = json["litecoin"]?["usd"] { prices["litecoin"] = ltcPrice }
-                if let xmrPrice = json["monero"]?["usd"] { prices["monero"] = xmrPrice }
-                if let solPrice = json["solana"]?["usd"] { prices["solana"] = solPrice }
-                if let xrpPrice = json["ripple"]?["usd"] { prices["ripple"] = xrpPrice }
+                for (geckoId, chainId) in geckoToChainId {
+                    if let price = json[geckoId]?["usd"] {
+                        prices[chainId] = price
+                    }
+                }
             }
         } catch {
             #if DEBUG
@@ -354,7 +418,9 @@ final class MultiProviderAPI: ObservableObject {
     
     // MARK: - CryptoCompare API (Free tier available)
     private func fetchPricesFromCryptoCompare() async throws -> [String: Double] {
-        let url = URL(string: "https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC,ETH,LTC,XMR,SOL,XRP,BNB&tsyms=USD")!
+        // Include all supported symbols
+        let symbols = "BTC,ETH,LTC,XMR,SOL,XRP,BNB,DOGE,BCH,ATOM,ADA,TRX,ALGO,XLM,NEAR,XTZ,HBAR,DOT,APT,SUI,TON,ZEC,DASH,RVN,VET,FIL,ONE,ROSE,ICP,WAVES,EGLD,FLOW,MINA,ZIL,EOS,NEO,CKB"
+        let url = URL(string: "https://min-api.cryptocompare.com/data/pricemulti?fsyms=\(symbols)&tsyms=USD")!
         
         var request = URLRequest(url: url)
         request.setValue("HawalaApp/2.0", forHTTPHeaderField: "User-Agent")
@@ -377,14 +443,44 @@ final class MultiProviderAPI: ObservableObject {
         var prices: [String: Double] = [:]
         
         // Map symbols to chain IDs
-        let symbolMap = [
+        let symbolMap: [String: String] = [
             "BTC": "bitcoin",
             "ETH": "ethereum", 
             "LTC": "litecoin",
             "XMR": "monero",
             "SOL": "solana",
             "XRP": "ripple",
-            "BNB": "binancecoin"
+            "BNB": "binancecoin",
+            "DOGE": "dogecoin",
+            "BCH": "bitcoin-cash",
+            "ATOM": "cosmos",
+            "ADA": "cardano",
+            "TRX": "tron",
+            "ALGO": "algorand",
+            "XLM": "stellar",
+            "NEAR": "near",
+            "XTZ": "tezos",
+            "HBAR": "hedera",
+            "DOT": "polkadot",
+            "APT": "aptos",
+            "SUI": "sui",
+            "TON": "ton",
+            "ZEC": "zcash",
+            "DASH": "dash",
+            "RVN": "ravencoin",
+            "VET": "vechain",
+            "FIL": "filecoin",
+            "ONE": "harmony",
+            "ROSE": "oasis",
+            "ICP": "internet-computer",
+            "WAVES": "waves",
+            "EGLD": "multiversx",
+            "FLOW": "flow",
+            "MINA": "mina",
+            "ZIL": "zilliqa",
+            "EOS": "eos",
+            "NEO": "neo",
+            "CKB": "nervos"
         ]
         
         for (symbol, chainId) in symbolMap {
@@ -406,7 +502,16 @@ final class MultiProviderAPI: ObservableObject {
     
     // MARK: - CoinGecko API (Most restricted, use as last resort)
     private func fetchPricesFromCoinGecko() async throws -> [String: Double] {
-        let url = URL(string: "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,litecoin,monero,solana,ripple,binancecoin&vs_currencies=usd")!
+        // Include all supported CoinGecko IDs
+        let coinGeckoIds = [
+            "bitcoin", "ethereum", "litecoin", "monero", "solana", "ripple", "binancecoin",
+            "dogecoin", "bitcoin-cash", "cosmos", "cardano", "tron", "algorand", "stellar",
+            "near", "tezos", "hedera-hashgraph", "polkadot", "aptos", "sui", "the-open-network",
+            "zcash", "dash", "ravencoin", "vechain", "filecoin", "harmony", "oasis-network",
+            "internet-computer", "waves", "elrond-erd-2", "flow", "mina-protocol", "zilliqa", "eos", "neo", "nervos-network"
+        ].joined(separator: ",")
+        
+        let url = URL(string: "https://api.coingecko.com/api/v3/simple/price?ids=\(coinGeckoIds)&vs_currencies=usd")!
         
         var request = URLRequest(url: url)
         request.setValue("HawalaApp/2.0", forHTTPHeaderField: "User-Agent")
@@ -432,11 +537,51 @@ final class MultiProviderAPI: ObservableObject {
         
         var prices: [String: Double] = [:]
         
-        let coinIds = ["bitcoin", "ethereum", "litecoin", "monero", "solana", "ripple", "binancecoin"]
-        for coinId in coinIds {
-            if let coinData = json[coinId] as? [String: Any],
+        // Map CoinGecko IDs to chain IDs
+        let coinGeckoToChainId: [String: String] = [
+            "bitcoin": "bitcoin",
+            "ethereum": "ethereum",
+            "litecoin": "litecoin",
+            "monero": "monero",
+            "solana": "solana",
+            "ripple": "ripple",
+            "binancecoin": "binancecoin",
+            "dogecoin": "dogecoin",
+            "bitcoin-cash": "bitcoin-cash",
+            "cosmos": "cosmos",
+            "cardano": "cardano",
+            "tron": "tron",
+            "algorand": "algorand",
+            "stellar": "stellar",
+            "near": "near",
+            "tezos": "tezos",
+            "hedera-hashgraph": "hedera",
+            "polkadot": "polkadot",
+            "aptos": "aptos",
+            "sui": "sui",
+            "the-open-network": "ton",
+            "zcash": "zcash",
+            "dash": "dash",
+            "ravencoin": "ravencoin",
+            "vechain": "vechain",
+            "filecoin": "filecoin",
+            "harmony": "harmony",
+            "oasis-network": "oasis",
+            "internet-computer": "internet-computer",
+            "waves": "waves",
+            "elrond-erd-2": "multiversx",
+            "flow": "flow",
+            "mina-protocol": "mina",
+            "zilliqa": "zilliqa",
+            "eos": "eos",
+            "neo": "neo",
+            "nervos-network": "nervos"
+        ]
+        
+        for (coinGeckoId, chainId) in coinGeckoToChainId {
+            if let coinData = json[coinGeckoId] as? [String: Any],
                let usdPrice = coinData["usd"] as? Double {
-                prices[coinId] = usdPrice
+                prices[chainId] = usdPrice
             }
         }
         
@@ -464,9 +609,68 @@ final class MultiProviderAPI: ObservableObject {
             #endif
         }
         
-        // Fallback to CoinGecko
+        // Fallback to CryptoCompare (reliable, generous limits)
+        let symbol = symbolFor(chainId)
+        do {
+            return try await fetchSparklineFromCryptoCompare(symbol: symbol)
+        } catch {
+            #if DEBUG
+            print("⚠️ CryptoCompare sparkline failed for \(chainId): \(error.localizedDescription)")
+            #endif
+        }
+        
+        // Last resort: CoinGecko (most likely to be rate limited)
         let coinGeckoId = coinGeckoIdFor(chainId)
         return try await fetchSparklineFromCoinGecko(coinId: coinGeckoId)
+    }
+    
+    /// Map chain ID to CryptoCompare symbol
+    private func symbolFor(_ chainId: String) -> String {
+        let mapping: [String: String] = [
+            "bitcoin": "BTC", "ethereum": "ETH", "litecoin": "LTC", "monero": "XMR",
+            "solana": "SOL", "xrp": "XRP", "ripple": "XRP", "bnb": "BNB", "binancecoin": "BNB",
+            "dogecoin": "DOGE", "bitcoin-cash": "BCH", "cosmos": "ATOM", "cardano": "ADA",
+            "tron": "TRX", "algorand": "ALGO", "stellar": "XLM", "near": "NEAR",
+            "tezos": "XTZ", "hedera": "HBAR", "polkadot": "DOT", "aptos": "APT",
+            "sui": "SUI", "ton": "TON", "zcash": "ZEC", "dash": "DASH", "ravencoin": "RVN",
+            "vechain": "VET", "filecoin": "FIL", "harmony": "ONE", "oasis": "ROSE",
+            "internet-computer": "ICP", "waves": "WAVES", "multiversx": "EGLD", "flow": "FLOW",
+            "mina": "MINA", "zilliqa": "ZIL", "eos": "EOS", "neo": "NEO", "nervos": "CKB",
+            // Stablecoins
+            "usdt-erc20": "USDT", "usdc-erc20": "USDC", "dai-erc20": "DAI"
+        ]
+        return mapping[chainId] ?? chainId.uppercased()
+    }
+    
+    private func fetchSparklineFromCryptoCompare(symbol: String) async throws -> [Double] {
+        // CryptoCompare histohour gives 24 hourly data points
+        let url = URL(string: "https://min-api.cryptocompare.com/data/v2/histohour?fsym=\(symbol)&tsym=USD&limit=24")!
+        
+        var request = URLRequest(url: url)
+        request.setValue("HawalaApp/2.0", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 15
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw APIError.invalidResponse
+        }
+        
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataWrapper = json["Data"] as? [String: Any],
+              let dataArray = dataWrapper["Data"] as? [[String: Any]] else {
+            throw APIError.parseError
+        }
+        
+        let prices = dataArray.compactMap { item -> Double? in
+            return item["close"] as? Double
+        }
+        
+        guard !prices.isEmpty else {
+            throw APIError.noData
+        }
+        
+        return prices
     }
     
     private func fetchSparklineFromCoinCap(coinId: String) async throws -> [Double] {
@@ -1217,24 +1421,62 @@ final class MultiProviderAPI: ObservableObject {
     // MARK: - Helper Functions
     
     private func coinCapIdFor(_ chainId: String) -> String {
-        switch chainId {
-        case "bitcoin": return "bitcoin"
-        case "ethereum": return "ethereum"
-        case "litecoin": return "litecoin"
-        case "monero": return "monero"
-        case "solana": return "solana"
-        case "xrp": return "xrp"
-        case "bnb": return "binance-coin"
-        default: return chainId
-        }
+        let mapping: [String: String] = [
+            "bitcoin": "bitcoin",
+            "ethereum": "ethereum",
+            "litecoin": "litecoin",
+            "monero": "monero",
+            "solana": "solana",
+            "xrp": "xrp",
+            "bnb": "binance-coin",
+            "dogecoin": "dogecoin",
+            "bitcoin-cash": "bitcoin-cash",
+            "cosmos": "cosmos",
+            "cardano": "cardano",
+            "tron": "tron",
+            "algorand": "algorand",
+            "stellar": "stellar",
+            "near": "near-protocol",
+            "tezos": "tezos",
+            "hedera": "hedera-hashgraph",
+            "polkadot": "polkadot",
+            "aptos": "aptos",
+            "sui": "sui",
+            "ton": "toncoin",
+            "zcash": "zcash",
+            "dash": "dash",
+            "ravencoin": "ravencoin",
+            "vechain": "vechain",
+            "filecoin": "filecoin",
+            "harmony": "harmony",
+            "oasis": "oasis-network",
+            "internet-computer": "internet-computer",
+            "waves": "waves",
+            "multiversx": "elrond-egld",
+            "flow": "flow",
+            "mina": "mina",
+            "zilliqa": "zilliqa",
+            "eos": "eos",
+            "neo": "neo",
+            "nervos": "nervos-network"
+        ]
+        return mapping[chainId] ?? chainId
     }
     
     private func coinGeckoIdFor(_ chainId: String) -> String {
-        switch chainId {
-        case "xrp": return "ripple"
-        case "bnb": return "binancecoin"
-        default: return chainId
-        }
+        let mapping: [String: String] = [
+            "xrp": "ripple",
+            "bnb": "binancecoin",
+            "hedera": "hedera-hashgraph",
+            "near": "near",
+            "ton": "the-open-network",
+            "oasis": "oasis-network",
+            "internet-computer": "internet-computer",
+            "multiversx": "elrond-erd-2",
+            "mina": "mina-protocol",
+            "nervos": "nervos-network"
+        ]
+        return mapping[chainId] ?? chainId
     }
     
     private func hexToDecimal(_ hex: String) -> Double {

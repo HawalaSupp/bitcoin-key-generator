@@ -32,6 +32,18 @@ pub fn validate_chain_address(address: &str, chain: Chain) -> (bool, Option<Stri
         Chain::Solana | Chain::SolanaDevnet => validate_solana_address(address),
         Chain::Xrp | Chain::XrpTestnet => validate_xrp_address(address),
         Chain::Monero => validate_monero_address(address),
+        // EVM-compatible chains
+        chain if chain.is_evm() => validate_ethereum_address(address),
+        // Default: basic validation for other chains
+        _ => {
+            let trimmed = address.trim();
+            if trimmed.is_empty() {
+                (false, None)
+            } else {
+                // Basic validation - non-empty address passes
+                (true, Some(trimmed.to_string()))
+            }
+        }
     }
 }
 

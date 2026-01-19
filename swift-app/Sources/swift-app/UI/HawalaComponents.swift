@@ -41,6 +41,394 @@ struct MagneticBalanceText: View {
     }
 }
 
+// MARK: - Portfolio Gradient Text (Animated gradient reflecting asset allocation)
+struct PortfolioGradientText: View {
+    let segments: [RingSegment]
+    let totalValue: String
+    let currencySymbol: String
+    let showBalances: Bool
+    var portfolioChange: Double = 0.0  // Percentage change
+    var onRefresh: (() -> Void)? = nil
+    
+    @State private var animationProgress: CGFloat = 0
+    @State private var isHovered = false
+    @State private var isRefreshing = false
+    
+    init(
+        segments: [RingSegment],
+        totalValue: String,
+        currencySymbol: String = "$",
+        showBalances: Bool = true,
+        portfolioChange: Double = 0.0,
+        onRefresh: (() -> Void)? = nil
+    ) {
+        self.segments = segments
+        self.totalValue = totalValue
+        self.currencySymbol = currencySymbol
+        self.showBalances = showBalances
+        self.portfolioChange = portfolioChange
+        self.onRefresh = onRefresh
+    }
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("Portfolio Value")
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundColor(HawalaTheme.Colors.textSecondary)
+                .textCase(.uppercase)
+                .tracking(1.5)
+            
+            if showBalances {
+                // Main portfolio value - white with glow on hover, tappable to refresh
+                ZStack {
+                    // Soft white glow effect (only visible on hover)
+                    Text(currencySymbol + totalValue)
+                        .font(.clashGroteskBold(size: 72))
+                        .foregroundColor(.white)
+                        .blur(radius: 30)
+                        .opacity(isHovered ? 0.5 : 0)
+                    
+                    // Second glow layer for extra softness
+                    Text(currencySymbol + totalValue)
+                        .font(.clashGroteskBold(size: 72))
+                        .foregroundColor(.white)
+                        .blur(radius: 60)
+                        .opacity(isHovered ? 0.3 : 0)
+                    
+                    // Main text - always white
+                    Text(currencySymbol + totalValue)
+                        .font(.clashGroteskBold(size: 72))
+                        .foregroundColor(.white)
+                    
+                    // Refresh indicator overlay
+                    if isRefreshing {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                            .offset(x: 0, y: 50)
+                    }
+                }
+                .scaleEffect(isHovered ? 1.03 : (isRefreshing ? 0.98 : 1.0))
+                .animation(.easeInOut(duration: 0.4), value: isHovered)
+                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isRefreshing)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard !isRefreshing, let onRefresh = onRefresh else { return }
+                    // Haptic feedback
+                    #if os(macOS)
+                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+                    #endif
+                    withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) {
+                        isRefreshing = true
+                    }
+                    onRefresh()
+                    // Reset after delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        withAnimation { isRefreshing = false }
+                    }
+                }
+                
+                // Portfolio percentage change - always show, even if 0
+                HStack(spacing: 4) {
+                    Image(systemName: portfolioChange >= 0 ? "arrow.up.right" : "arrow.down.right")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(String(format: "%@%.2f%% (24h)", portfolioChange >= 0 ? "+" : "", portfolioChange))
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                }
+                .foregroundColor(portfolioChange >= 0 ? Color(red: 0.2, green: 0.8, blue: 0.4) : Color(red: 1.0, green: 0.4, blue: 0.4))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill((portfolioChange >= 0 ? Color.green : Color.red).opacity(0.15))
+                )
+                .padding(.top, 4)
+            } else {
+                Text("••••••")
+                    .font(.clashGroteskBold(size: 72))
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+            }
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.8)) {
+                animationProgress = 1.0
+            }
+        }
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.3)) {
+                isHovered = hovering
+            }
+        }
+    }
+}
+
+// MARK: - Portfolio Ring Chart (Legacy - kept for reference)
+struct PortfolioRingChart: View {
+    let segments: [RingSegment]
+    let totalValue: String
+    let currencySymbol: String
+    let ringSize: CGFloat
+    let strokeWidth: CGFloat
+    let showBalances: Bool
+    
+    @State private var animationProgress: CGFloat = 0
+    @State private var isHovered = false
+    @State private var hoveredSegmentIndex: Int? = nil
+    
+    init(
+        segments: [RingSegment],
+        totalValue: String,
+        currencySymbol: String = "$",
+        ringSize: CGFloat = 240,
+        strokeWidth: CGFloat = 16,
+        showBalances: Bool = true
+    ) {
+        self.segments = segments
+        self.totalValue = totalValue
+        self.currencySymbol = currencySymbol
+        self.ringSize = ringSize
+        self.strokeWidth = strokeWidth
+        self.showBalances = showBalances
+    }
+    
+    var body: some View {
+        ZStack {
+            // Background ring (visible track)
+            Circle()
+                .stroke(
+                    Color.white.opacity(0.12),
+                    style: StrokeStyle(lineWidth: strokeWidth, lineCap: .round)
+                )
+                .frame(width: ringSize, height: ringSize)
+            
+            // Animated segments
+            ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+                RingSegmentShape(
+                    startAngle: segmentStartAngle(for: index),
+                    endAngle: segmentEndAngle(for: index),
+                    progress: animationProgress
+                )
+                .stroke(
+                    segment.color,
+                    style: StrokeStyle(
+                        lineWidth: hoveredSegmentIndex == index ? strokeWidth + 6 : strokeWidth,
+                        lineCap: .round
+                    )
+                )
+                .frame(width: ringSize, height: ringSize)
+                .shadow(
+                    color: segment.color.opacity(hoveredSegmentIndex == index ? 0.7 : 0.4),
+                    radius: hoveredSegmentIndex == index ? 16 : 8,
+                    x: 0,
+                    y: 0
+                )
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hoveredSegmentIndex)
+            }
+            
+            // Glow effect on outer edge
+            Circle()
+                .stroke(
+                    AngularGradient(
+                        gradient: Gradient(colors: glowColors),
+                        center: .center,
+                        startAngle: .degrees(-90),
+                        endAngle: .degrees(270)
+                    ),
+                    style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                )
+                .frame(width: ringSize + strokeWidth + 8, height: ringSize + strokeWidth + 8)
+                .opacity(animationProgress * 0.4)
+                .blur(radius: 4)
+            
+            // Center content
+            centerContent
+        }
+        .frame(width: ringSize + strokeWidth * 2 + 20, height: ringSize + strokeWidth * 2 + 20)
+        .onAppear {
+            withAnimation(.spring(response: 1.2, dampingFraction: 0.8)) {
+                animationProgress = 1.0
+            }
+        }
+        .onHover { hovering in
+            isHovered = hovering
+            if !hovering {
+                hoveredSegmentIndex = nil
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    updateHoveredSegment(at: value.location)
+                }
+                .onEnded { _ in
+                    hoveredSegmentIndex = nil
+                }
+        )
+    }
+    
+    // MARK: - Center Content
+    private var centerContent: some View {
+        VStack(spacing: 8) {
+            Text("Portfolio Value")
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundColor(HawalaTheme.Colors.textSecondary)
+                .textCase(.uppercase)
+                .tracking(1.2)
+            
+            if showBalances {
+                Text(currencySymbol + totalValue)
+                    .font(.clashGroteskBold(size: 64))
+                    .foregroundStyle(
+                        isHovered ?
+                            LinearGradient(
+                                colors: [Color.white, Color.white.opacity(0.85), Color.white],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ) :
+                            LinearGradient(
+                                colors: [Color.white],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                    )
+                    .shadow(color: .white.opacity(isHovered ? 0.4 : 0), radius: isHovered ? 30 : 0)
+                    .shadow(color: .white.opacity(isHovered ? 0.25 : 0), radius: isHovered ? 60 : 0)
+                    .scaleEffect(isHovered ? 1.05 : 1.0)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: isHovered)
+            } else {
+                Text("••••••")
+                    .font(.clashGroteskBold(size: 64))
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+            }
+            
+            // Show hovered segment info
+            if let index = hoveredSegmentIndex, index < segments.count {
+                let segment = segments[index]
+                VStack(spacing: 4) {
+                    Text(segment.label)
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(segment.color)
+                    Text(String(format: "%.1f%%", segment.percentage * 100))
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+        }
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: hoveredSegmentIndex)
+    }
+    
+    // MARK: - Helpers
+    
+    private func segmentStartAngle(for index: Int) -> Angle {
+        let totalPercentage = segments.prefix(index).reduce(0) { $0 + $1.percentage }
+        return .degrees(-90 + totalPercentage * 360)
+    }
+    
+    private func segmentEndAngle(for index: Int) -> Angle {
+        let totalPercentage = segments.prefix(index + 1).reduce(0) { $0 + $1.percentage }
+        // Small gap between segments for visual separation
+        let gapDegrees: Double = segments.count > 1 ? 2.0 : 0
+        return .degrees(-90 + totalPercentage * 360 - gapDegrees)
+    }
+    
+    private func segmentGradient(for segment: RingSegment, index: Int) -> LinearGradient {
+        LinearGradient(
+            colors: [
+                segment.color.opacity(hoveredSegmentIndex == index ? 1.0 : 0.9),
+                segment.color.opacity(hoveredSegmentIndex == index ? 0.8 : 0.6)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+    
+    private var glowColors: [Color] {
+        if segments.isEmpty {
+            return [Color.white.opacity(0.2)]
+        }
+        var colors: [Color] = []
+        for segment in segments {
+            colors.append(segment.color.opacity(0.8))
+        }
+        colors.append(colors.first ?? Color.white.opacity(0.2))
+        return colors
+    }
+    
+    private func updateHoveredSegment(at location: CGPoint) {
+        let center = CGPoint(x: (ringSize + strokeWidth * 2 + 20) / 2, y: (ringSize + strokeWidth * 2 + 20) / 2)
+        let dx = location.x - center.x
+        let dy = location.y - center.y
+        let distance = sqrt(dx * dx + dy * dy)
+        
+        // Check if within ring bounds
+        let innerRadius = (ringSize - strokeWidth) / 2
+        let outerRadius = (ringSize + strokeWidth) / 2
+        
+        guard distance >= innerRadius && distance <= outerRadius + 10 else {
+            hoveredSegmentIndex = nil
+            return
+        }
+        
+        // Calculate angle
+        var angle = atan2(dy, dx) * 180 / .pi
+        angle = angle + 90 // Adjust for starting at top
+        if angle < 0 { angle += 360 }
+        
+        // Find which segment this angle belongs to
+        var cumulativeAngle: Double = 0
+        for (index, segment) in segments.enumerated() {
+            let segmentAngle = segment.percentage * 360
+            if angle >= cumulativeAngle && angle < cumulativeAngle + segmentAngle {
+                hoveredSegmentIndex = index
+                return
+            }
+            cumulativeAngle += segmentAngle
+        }
+        
+        hoveredSegmentIndex = nil
+    }
+}
+
+// MARK: - Ring Segment Data
+struct RingSegment: Identifiable {
+    let id = UUID()
+    let label: String
+    let percentage: Double // 0.0 to 1.0
+    let color: Color
+    let value: Double
+}
+
+// MARK: - Ring Segment Shape
+struct RingSegmentShape: Shape {
+    let startAngle: Angle
+    let endAngle: Angle
+    var progress: CGFloat
+    
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+    
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let radius = min(rect.width, rect.height) / 2
+        
+        let animatedEndAngle = Angle(
+            degrees: startAngle.degrees + (endAngle.degrees - startAngle.degrees) * Double(progress)
+        )
+        
+        var path = Path()
+        path.addArc(
+            center: center,
+            radius: radius,
+            startAngle: startAngle,
+            endAngle: animatedEndAngle,
+            clockwise: false
+        )
+        return path
+    }
+}
+
 // MARK: - Animated Counter (Optimized - no repeated withAnimation calls)
 struct AnimatedCounter: View {
     let value: Double

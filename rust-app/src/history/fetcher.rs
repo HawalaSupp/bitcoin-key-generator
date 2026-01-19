@@ -66,6 +66,12 @@ pub fn fetch_chain_history(address: &str, chain: Chain) -> HawalaResult<Vec<Tran
             // Monero requires special handling due to privacy
             Ok(Vec::new())
         }
+        // EVM-compatible chains
+        chain if chain.is_evm() => {
+            fetch_evm_history(address, chain)
+        }
+        // Default fallback
+        _ => Ok(Vec::new()),
     }
 }
 

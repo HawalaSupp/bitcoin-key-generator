@@ -41,6 +41,40 @@ pub fn derive_all_keys(seed: &[u8]) -> HawalaResult<AllKeys> {
         ethereum_sepolia: derive_ethereum_keys(&secp, &master)?, // Same keys, different network
         bnb: derive_bnb_keys(&secp, &master)?,
         xrp: derive_xrp_keys(&secp, &master)?,
+        // New chains from wallet-core integration
+        ton: derive_ton_keys(seed)?,
+        aptos: derive_aptos_keys(seed)?,
+        sui: derive_sui_keys(seed)?,
+        polkadot: derive_polkadot_keys(seed)?,
+        // Additional chains (wallet-core expansion)
+        dogecoin: derive_dogecoin_keys_wrapper(seed)?,
+        bitcoin_cash: derive_bitcoin_cash_keys_wrapper(seed)?,
+        cosmos: derive_cosmos_keys_wrapper(seed)?,
+        cardano: derive_cardano_keys_wrapper(seed)?,
+        tron: derive_tron_keys_wrapper(seed)?,
+        algorand: derive_algorand_keys_wrapper(seed)?,
+        stellar: derive_stellar_keys_wrapper(seed)?,
+        near: derive_near_keys_wrapper(seed)?,
+        tezos: derive_tezos_keys_wrapper(seed)?,
+        hedera: derive_hedera_keys_wrapper(seed)?,
+        // Bitcoin forks
+        zcash: derive_zcash_keys_wrapper(seed)?,
+        dash: derive_dash_keys_wrapper(seed)?,
+        ravencoin: derive_ravencoin_keys_wrapper(seed)?,
+        // L1 chains
+        vechain: derive_vechain_keys_wrapper(seed)?,
+        filecoin: derive_filecoin_keys_wrapper(seed)?,
+        harmony: derive_harmony_keys_wrapper(seed)?,
+        oasis: derive_oasis_keys_wrapper(seed)?,
+        internet_computer: derive_icp_keys_wrapper(seed)?,
+        waves: derive_waves_keys_wrapper(seed)?,
+        multiversx: derive_multiversx_keys_wrapper(seed)?,
+        flow: derive_flow_keys_wrapper(seed)?,
+        mina: derive_mina_keys_wrapper(seed)?,
+        zilliqa: derive_zilliqa_keys_wrapper(seed)?,
+        eos: derive_eos_keys_wrapper(seed)?,
+        neo: derive_neo_keys_wrapper(seed)?,
+        nervos: derive_nervos_keys_wrapper(seed)?,
     })
 }
 
@@ -302,4 +336,283 @@ fn encode_litecoin_wif(secret_key: &SecretKey) -> String {
     payload.extend_from_slice(&checksum[..4]);
 
     bs58::encode(payload).into_string()
+}
+
+// New chain derivation functions
+
+fn derive_ton_keys(seed: &[u8]) -> HawalaResult<TonKeys> {
+    use ed25519_dalek::SigningKey;
+    use crate::ton_wallet::TonKeyPair;
+    
+    let mut hasher = Sha256::new();
+    hasher.update(seed);
+    hasher.update(b"TON_DERIVATION");
+    let result = hasher.finalize();
+    
+    let mut seed_bytes = [0u8; 32];
+    seed_bytes.copy_from_slice(&result);
+    
+    let keypair = TonKeyPair::from_seed(&seed_bytes)?;
+    
+    Ok(TonKeys {
+        private_hex: hex::encode(&seed_bytes),
+        public_hex: hex::encode(&keypair.public_key),
+        address: keypair.address.to_user_friendly(),
+    })
+}
+
+fn derive_aptos_keys(seed: &[u8]) -> HawalaResult<AptosKeys> {
+    use crate::aptos_wallet::AptosKeyPair;
+    
+    // Convert seed to 64 bytes for HD derivation
+    let mut seed64 = [0u8; 64];
+    seed64[..seed.len().min(64)].copy_from_slice(&seed[..seed.len().min(64)]);
+    
+    let keypair = AptosKeyPair::from_mnemonic_seed(&seed64, 0)?;
+    
+    Ok(AptosKeys {
+        private_hex: hex::encode(keypair.signing_key.to_bytes()),
+        public_hex: hex::encode(&keypair.public_key),
+        address: keypair.address.to_hex(),
+    })
+}
+
+fn derive_sui_keys(seed: &[u8]) -> HawalaResult<SuiKeys> {
+    use crate::sui_wallet::SuiKeyPair;
+    
+    // Convert seed to 64 bytes for HD derivation
+    let mut seed64 = [0u8; 64];
+    seed64[..seed.len().min(64)].copy_from_slice(&seed[..seed.len().min(64)]);
+    
+    let keypair = SuiKeyPair::from_mnemonic_seed(&seed64, 0)?;
+    
+    Ok(SuiKeys {
+        private_hex: hex::encode(keypair.signing_key.to_bytes()),
+        public_hex: hex::encode(&keypair.public_key),
+        address: keypair.address.to_hex(),
+    })
+}
+
+fn derive_polkadot_keys(seed: &[u8]) -> HawalaResult<PolkadotKeys> {
+    use crate::polkadot_wallet::{SubstrateKeyPair, Ss58Network};
+    
+    // Convert seed to 64 bytes for HD derivation
+    let mut seed64 = [0u8; 64];
+    seed64[..seed.len().min(64)].copy_from_slice(&seed[..seed.len().min(64)]);
+    
+    let keypair = SubstrateKeyPair::from_mnemonic_seed(&seed64, 0, Ss58Network::Polkadot)?;
+    
+    // Create addresses for both Polkadot and Kusama
+    let kusama_addr = keypair.address_for_network(Ss58Network::Kusama);
+    
+    Ok(PolkadotKeys {
+        private_hex: hex::encode(keypair.signing_key.to_bytes()),
+        public_hex: hex::encode(&keypair.public_key),
+        address: keypair.address.to_ss58(),
+        kusama_address: kusama_addr.to_ss58(),
+    })
+}
+
+// =============================================================================
+// New Chain Wrapper Functions
+// =============================================================================
+
+fn derive_dogecoin_keys_wrapper(seed: &[u8]) -> HawalaResult<DogecoinKeys> {
+    let doge_keys = crate::dogecoin_wallet::derive_dogecoin_keys(seed)
+        .map_err(|e| crate::error::HawalaError::crypto_error(e))?;
+    
+    Ok(DogecoinKeys {
+        private_hex: doge_keys.private_hex,
+        private_wif: doge_keys.private_wif,
+        public_compressed_hex: doge_keys.public_compressed_hex,
+        address: doge_keys.address,
+    })
+}
+
+fn derive_bitcoin_cash_keys_wrapper(seed: &[u8]) -> HawalaResult<BitcoinCashKeys> {
+    let bch_keys = crate::bitcoin_cash_wallet::derive_bitcoin_cash_keys(seed)
+        .map_err(|e| crate::error::HawalaError::crypto_error(e))?;
+    
+    Ok(BitcoinCashKeys {
+        private_hex: bch_keys.private_hex,
+        private_wif: bch_keys.private_wif,
+        public_compressed_hex: bch_keys.public_compressed_hex,
+        legacy_address: bch_keys.legacy_address,
+        cash_address: bch_keys.cash_address,
+    })
+}
+
+fn derive_cosmos_keys_wrapper(seed: &[u8]) -> HawalaResult<CosmosKeys> {
+    let cosmos = crate::cosmos_wallet::derive_cosmos_keys(seed)
+        .map_err(|e| crate::error::HawalaError::crypto_error(e))?;
+    
+    Ok(CosmosKeys {
+        private_hex: cosmos.private_hex,
+        public_hex: cosmos.public_hex,
+        cosmos_address: cosmos.cosmos_address,
+        osmosis_address: cosmos.osmosis_address,
+        celestia_address: cosmos.celestia_address,
+        dydx_address: cosmos.dydx_address,
+        injective_address: cosmos.injective_address,
+        sei_address: cosmos.sei_address,
+        akash_address: cosmos.akash_address,
+        kujira_address: cosmos.kujira_address,
+        stride_address: cosmos.stride_address,
+        secret_address: cosmos.secret_address,
+        stargaze_address: cosmos.stargaze_address,
+        juno_address: cosmos.juno_address,
+        terra_address: cosmos.terra_address,
+        neutron_address: cosmos.neutron_address,
+        noble_address: cosmos.noble_address,
+        axelar_address: cosmos.axelar_address,
+        fetch_address: cosmos.fetch_address,
+        persistence_address: cosmos.persistence_address,
+        sommelier_address: cosmos.sommelier_address,
+    })
+}
+
+fn derive_cardano_keys_wrapper(seed: &[u8]) -> HawalaResult<CardanoKeys> {
+    let ada = crate::cardano_wallet::derive_cardano_keys(seed)
+        .map_err(|e| crate::error::HawalaError::crypto_error(e))?;
+    
+    Ok(CardanoKeys {
+        private_hex: ada.private_hex,
+        public_hex: ada.public_hex,
+        address: ada.address,
+    })
+}
+
+fn derive_tron_keys_wrapper(seed: &[u8]) -> HawalaResult<TronKeys> {
+    let trx = crate::tron_wallet::derive_tron_keys(seed)
+        .map_err(|e| crate::error::HawalaError::crypto_error(e))?;
+    
+    Ok(TronKeys {
+        private_hex: trx.private_hex,
+        public_hex: trx.public_hex,
+        address: trx.address,
+    })
+}
+
+fn derive_algorand_keys_wrapper(seed: &[u8]) -> HawalaResult<AlgorandKeys> {
+    let algo = crate::algorand_wallet::derive_algorand_keys(seed)
+        .map_err(|e| crate::error::HawalaError::crypto_error(e))?;
+    
+    Ok(AlgorandKeys {
+        private_hex: algo.private_hex,
+        public_hex: algo.public_hex,
+        address: algo.address,
+    })
+}
+
+fn derive_stellar_keys_wrapper(seed: &[u8]) -> HawalaResult<StellarKeys> {
+    let xlm = crate::stellar_wallet::derive_stellar_keys(seed)
+        .map_err(|e| crate::error::HawalaError::crypto_error(e))?;
+    
+    Ok(StellarKeys {
+        private_hex: xlm.private_hex,
+        secret_key: xlm.secret_key,
+        public_hex: xlm.public_hex,
+        address: xlm.address,
+    })
+}
+
+fn derive_near_keys_wrapper(seed: &[u8]) -> HawalaResult<NearKeys> {
+    let near = crate::near_wallet::derive_near_keys(seed)
+        .map_err(|e| crate::error::HawalaError::crypto_error(e))?;
+    
+    Ok(NearKeys {
+        private_hex: near.private_hex,
+        public_hex: near.public_hex,
+        implicit_address: near.implicit_address,
+    })
+}
+
+fn derive_tezos_keys_wrapper(seed: &[u8]) -> HawalaResult<TezosKeys> {
+    let xtz = crate::tezos_wallet::derive_tezos_keys(seed)
+        .map_err(|e| crate::error::HawalaError::crypto_error(e))?;
+    
+    Ok(TezosKeys {
+        private_hex: xtz.private_hex,
+        secret_key: xtz.secret_key,
+        public_hex: xtz.public_hex,
+        public_key: xtz.public_key,
+        address: xtz.address,
+    })
+}
+
+fn derive_hedera_keys_wrapper(seed: &[u8]) -> HawalaResult<HederaKeys> {
+    let hbar = crate::hedera_wallet::derive_hedera_keys(seed)
+        .map_err(|e| crate::error::HawalaError::crypto_error(e))?;
+    
+    Ok(HederaKeys {
+        private_hex: hbar.private_hex,
+        public_hex: hbar.public_hex,
+        public_key_der: hbar.public_key_der,
+    })
+}
+
+// Bitcoin fork wrappers
+fn derive_zcash_keys_wrapper(seed: &[u8]) -> HawalaResult<ZcashKeys> {
+    crate::zcash_wallet::derive_zcash_keys(seed)
+}
+
+fn derive_dash_keys_wrapper(seed: &[u8]) -> HawalaResult<DashKeys> {
+    crate::dash_wallet::derive_dash_keys(seed)
+}
+
+fn derive_ravencoin_keys_wrapper(seed: &[u8]) -> HawalaResult<RavencoinKeys> {
+    crate::ravencoin_wallet::derive_ravencoin_keys(seed)
+}
+
+// L1 chain wrappers
+fn derive_vechain_keys_wrapper(seed: &[u8]) -> HawalaResult<VechainKeys> {
+    crate::vechain_wallet::derive_vechain_keys(seed)
+}
+
+fn derive_filecoin_keys_wrapper(seed: &[u8]) -> HawalaResult<FilecoinKeys> {
+    crate::filecoin_wallet::derive_filecoin_keys(seed)
+}
+
+fn derive_harmony_keys_wrapper(seed: &[u8]) -> HawalaResult<HarmonyKeys> {
+    crate::harmony_wallet::derive_harmony_keys(seed)
+}
+
+fn derive_oasis_keys_wrapper(seed: &[u8]) -> HawalaResult<OasisKeys> {
+    crate::oasis_wallet::derive_oasis_keys(seed)
+}
+
+fn derive_icp_keys_wrapper(seed: &[u8]) -> HawalaResult<InternetComputerKeys> {
+    crate::internet_computer_wallet::derive_internet_computer_keys(seed)
+}
+
+fn derive_waves_keys_wrapper(seed: &[u8]) -> HawalaResult<WavesKeys> {
+    crate::waves_wallet::derive_waves_keys(seed)
+}
+
+fn derive_multiversx_keys_wrapper(seed: &[u8]) -> HawalaResult<MultiversXKeys> {
+    crate::multiversx_wallet::derive_multiversx_keys(seed)
+}
+
+fn derive_flow_keys_wrapper(seed: &[u8]) -> HawalaResult<FlowKeys> {
+    crate::flow_wallet::derive_flow_keys(seed)
+}
+
+fn derive_mina_keys_wrapper(seed: &[u8]) -> HawalaResult<MinaKeys> {
+    crate::mina_wallet::derive_mina_keys(seed)
+}
+
+fn derive_zilliqa_keys_wrapper(seed: &[u8]) -> HawalaResult<ZilliqaKeys> {
+    crate::zilliqa_wallet::derive_zilliqa_keys(seed)
+}
+
+fn derive_eos_keys_wrapper(seed: &[u8]) -> HawalaResult<EosKeys> {
+    crate::eos_wallet::derive_eos_keys(seed)
+}
+
+fn derive_neo_keys_wrapper(seed: &[u8]) -> HawalaResult<NeoKeys> {
+    crate::neo_wallet::derive_neo_keys(seed)
+}
+
+fn derive_nervos_keys_wrapper(seed: &[u8]) -> HawalaResult<NervosKeys> {
+    crate::nervos_wallet::derive_nervos_keys(seed)
 }

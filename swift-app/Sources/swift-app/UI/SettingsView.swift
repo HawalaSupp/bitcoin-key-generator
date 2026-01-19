@@ -15,6 +15,14 @@ struct SettingsView: View {
     @AppStorage("hawala.selectedFiatCurrency") private var currency = "USD"
     @AppStorage("showTestnets") private var showTestnets = false
     @AppStorage("selectedBackgroundType") private var selectedBackgroundType = "none"
+    @AppStorage("portfolioTestMode") private var portfolioTestMode = false
+    
+    // Demo mode editable amounts
+    @AppStorage("demo_bitcoin") private var demoBitcoin: Double = 45230.0
+    @AppStorage("demo_ethereum") private var demoEthereum: Double = 28150.0
+    @AppStorage("demo_solana") private var demoSolana: Double = 12890.0
+    @AppStorage("demo_litecoin") private var demoLitecoin: Double = 8420.0
+    @AppStorage("demo_monero") private var demoMonero: Double = 5310.0
     
     @State private var showAbout = false
     @State private var showBackupSheet = false
@@ -36,6 +44,8 @@ struct SettingsView: View {
     @State private var showPrivacySettings = false
     @State private var showSecurityPolicies = false
     @State private var showAddressLabels = false
+    @State private var showHardwareWallet = false
+    @State private var showAirGapSigning = false
     
     // Animation states
     @State private var contentOpacity: Double = 0
@@ -168,6 +178,14 @@ struct SettingsView: View {
         .sheet(isPresented: $showSecurityPolicies) {
             SecurityPoliciesView()
         }
+        .sheet(isPresented: $showHardwareWallet) {
+            HardwareWalletView()
+                .frame(minWidth: 500, minHeight: 600)
+        }
+        .sheet(isPresented: $showAirGapSigning) {
+            AirGapDemoView()
+                .frame(minWidth: 400, minHeight: 500)
+        }
         .alert("Reset Wallet", isPresented: $showResetConfirm) {
             Button("Cancel", role: .cancel) { }
             Button("Reset", role: .destructive) {
@@ -210,6 +228,7 @@ struct SettingsView: View {
     }
     
     // MARK: - Quick Toggles Card
+    @ViewBuilder
     private var quickTogglesCard: some View {
         VStack(spacing: 0) {
             // Privacy Mode Toggle
@@ -231,6 +250,18 @@ struct SettingsView: View {
                 subtitle: "Show test networks",
                 isOn: $showTestnets
             )
+            
+            Divider()
+                .background(Color.white.opacity(0.06))
+                .padding(.leading, 52)
+            
+            // Portfolio Test Mode Toggle
+            SettingsQuickToggle(
+                icon: "chart.pie.fill",
+                title: "Demo Mode",
+                subtitle: "Show fake portfolio",
+                isOn: $portfolioTestMode
+            )
         }
         .background(Color.white.opacity(0.03))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -239,6 +270,91 @@ struct SettingsView: View {
                 .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
         )
         .padding(.bottom, 8)
+        
+        // Demo Mode Amount Configuration (only show when demo mode is enabled)
+        if portfolioTestMode {
+            demoAmountsCard
+        }
+    }
+    
+    // MARK: - Demo Amounts Configuration Card
+    private var demoAmountsCard: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                Text("Demo Portfolio Amounts")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .textCase(.uppercase)
+                    .tracking(0.8)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            
+            Divider()
+                .background(Color.white.opacity(0.06))
+            
+            // Bitcoin
+            DemoAmountRow(
+                icon: "bitcoinsign.circle.fill",
+                label: "Bitcoin",
+                color: HawalaTheme.Colors.bitcoin,
+                amount: $demoBitcoin
+            )
+            
+            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
+            
+            // Ethereum
+            DemoAmountRow(
+                icon: "e.circle.fill",
+                label: "Ethereum",
+                color: HawalaTheme.Colors.ethereum,
+                amount: $demoEthereum
+            )
+            
+            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
+            
+            // Solana
+            DemoAmountRow(
+                icon: "s.circle.fill",
+                label: "Solana",
+                color: HawalaTheme.Colors.solana,
+                amount: $demoSolana
+            )
+            
+            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
+            
+            // Litecoin
+            DemoAmountRow(
+                icon: "l.circle.fill",
+                label: "Litecoin",
+                color: HawalaTheme.Colors.litecoin,
+                amount: $demoLitecoin
+            )
+            
+            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
+            
+            // Monero
+            DemoAmountRow(
+                icon: "m.circle.fill",
+                label: "Monero",
+                color: HawalaTheme.Colors.monero,
+                amount: $demoMonero
+            )
+        }
+        .background(Color.white.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+        )
+        .padding(.bottom, 8)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: portfolioTestMode)
     }
     
     // MARK: - Settings Grid
@@ -328,6 +444,20 @@ struct SettingsView: View {
             SettingsListRow(icon: "shield.checkered", title: "Security Policies") {
                 triggerHaptic()
                 showSecurityPolicies = true
+            }
+            
+            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
+            
+            SettingsListRow(icon: "cpu", title: "Hardware Wallet") {
+                triggerHaptic()
+                showHardwareWallet = true
+            }
+            
+            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
+            
+            SettingsListRow(icon: "qrcode.viewfinder", title: "Air-Gap Signing") {
+                triggerHaptic()
+                showAirGapSigning = true
             }
             
             Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
@@ -563,6 +693,92 @@ struct SettingsQuickToggle: View {
         .padding(.vertical, 14)
         .background(isHovered ? Color.white.opacity(0.02) : Color.clear)
         .onHover { isHovered = $0 }
+    }
+}
+
+// MARK: - Demo Amount Row
+struct DemoAmountRow: View {
+    let icon: String
+    let label: String
+    let color: Color
+    @Binding var amount: Double
+    
+    @State private var isEditing = false
+    @State private var textValue: String = ""
+    @FocusState private var isFocused: Bool
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(color.opacity(0.2))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Image(systemName: icon)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(color)
+                )
+            
+            Text(label)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white)
+            
+            Spacer()
+            
+            // Amount input
+            HStack(spacing: 4) {
+                Text("$")
+                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .foregroundColor(Color.white.opacity(0.5))
+                
+                TextField("0", text: $textValue)
+                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 100)
+                    .textFieldStyle(.plain)
+                    .focused($isFocused)
+                    .onAppear {
+                        textValue = formatAmount(amount)
+                    }
+                    .onChange(of: isFocused) { focused in
+                        if !focused {
+                            // Parse and save when losing focus
+                            if let parsed = parseAmount(textValue) {
+                                amount = parsed
+                            }
+                            textValue = formatAmount(amount)
+                        }
+                    }
+                    .onSubmit {
+                        if let parsed = parseAmount(textValue) {
+                            amount = parsed
+                        }
+                        textValue = formatAmount(amount)
+                        isFocused = false
+                    }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.white.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+    
+    private func formatAmount(_ value: Double) -> String {
+        if value >= 1000 {
+            return String(format: "%.0f", value)
+        } else {
+            return String(format: "%.2f", value)
+        }
+    }
+    
+    private func parseAmount(_ text: String) -> Double? {
+        let cleaned = text.replacingOccurrences(of: ",", with: "")
+                          .replacingOccurrences(of: "$", with: "")
+                          .trimmingCharacters(in: .whitespaces)
+        return Double(cleaned)
     }
 }
 

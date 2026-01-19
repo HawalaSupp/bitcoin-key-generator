@@ -11,6 +11,10 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/21-DOT-DEV/swift-secp256k1.git", from: "0.21.1"),
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0")
+        // Note: Trust Wallet's wallet-core only supports iOS/Android, not macOS desktop.
+        // For macOS support, we either:
+        // 1. Build wallet-core from source (see WALLET_CORE_INTEGRATION.md)
+        // 2. Use our existing Rust backend with equivalent implementations
     ],
     targets: [
         .target(

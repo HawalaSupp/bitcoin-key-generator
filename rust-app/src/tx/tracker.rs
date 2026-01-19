@@ -95,6 +95,7 @@ pub fn required_confirmations(chain: Chain) -> u32 {
         Chain::Solana | Chain::SolanaDevnet => 1,
         Chain::Xrp | Chain::XrpTestnet => 1,
         Chain::Monero => 10,
+        _ => chain.required_confirmations(),
     }
 }
 
@@ -158,6 +159,12 @@ pub fn check_transaction(txid: &str, chain: Chain) -> HawalaResult<TrackedTransa
         Chain::Xrp | Chain::XrpTestnet => check_xrp_transaction(txid)?,
         Chain::Monero => {
             return Err(HawalaError::new(ErrorCode::NotImplemented, "Monero tracking not yet implemented"));
+        }
+        // EVM-compatible chains
+        chain if chain.is_evm() => check_evm_transaction(txid, chain)?,
+        // Default fallback
+        _ => {
+            return Err(HawalaError::new(ErrorCode::NotImplemented, format!("Transaction tracking not yet implemented for {:?}", chain)));
         }
     };
     

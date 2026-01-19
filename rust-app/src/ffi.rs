@@ -223,6 +223,14 @@ pub extern "C" fn hawala_prepare_transaction(input: *const c_char) -> *mut c_cha
         Chain::Monero => {
             error_response(HawalaError::new(ErrorCode::NotImplemented, "Monero transactions not yet supported"))
         }
+        // EVM-compatible chains
+        chain if chain.is_evm() => {
+            crate::tx::prepare_evm_transaction(&request)
+        }
+        // Default fallback
+        _ => {
+            error_response(HawalaError::new(ErrorCode::NotImplemented, format!("Transactions not yet supported for {:?}", request.chain)))
+        }
     }
 }
 
@@ -1819,4 +1827,2688 @@ pub extern "C" fn hawala_redact(input: *const c_char) -> *mut c_char {
     let redacted = crate::security::secure_memory::redact(&request.data);
 
     success_response(serde_json::json!({"redacted": redacted}))
+}
+
+// =============================================================================
+// EIP-712 Typed Data Signing
+// =============================================================================
+
+/// Hash EIP-712 typed data
+/// 
+/// # Input
+/// ```json
+/// {
+///   "types": { ... },
+///   "primaryType": "Mail",
+///   "domain": { ... },
+///   "message": { ... }
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "hash": "0x...",
+///     "domainSeparator": "0x...",
+///     "structHash": "0x..."
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_eip712_hash(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let typed_data: crate::eip712::TypedData = match serde_json::from_str(json_str) {
+        Ok(t) => t,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid typed data: {}", e))),
+    };
+
+    // Validate the typed data
+    if let Err(e) = typed_data.validate() {
+        return error_response(HawalaError::invalid_input(format!("Validation failed: {}", e)));
+    }
+
+    // Get the pre-image components
+    let pre_image = match crate::eip712::get_pre_image(&typed_data) {
+        Ok(p) => p,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Hash failed: {}", e))),
+    };
+
+    success_response(serde_json::json!({
+        "hash": format!("0x{}", hex::encode(pre_image.final_hash)),
+        "domainSeparator": format!("0x{}", hex::encode(pre_image.domain_separator)),
+        "structHash": format!("0x{}", hex::encode(pre_image.struct_hash))
+    }))
+}
+
+/// Sign EIP-712 typed data
+/// 
+/// # Input
+/// ```json
+/// {
+///   "typedData": { ... },
+///   "privateKey": "0x..."
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "signature": "0x...",
+///     "r": "0x...",
+///     "s": "0x...",
+///     "v": 27
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_eip712_sign(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SignRequest {
+        typed_data: crate::eip712::TypedData,
+        private_key: String,
+    }
+
+    let request: SignRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid request: {}", e))),
+    };
+
+    // Parse the private key
+    let key_hex = request.private_key.strip_prefix("0x").unwrap_or(&request.private_key);
+    let private_key = match hex::decode(key_hex) {
+        Ok(k) => k,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid private key: {}", e))),
+    };
+
+    // Sign the typed data
+    let signature = match crate::eip712::sign_typed_data(&request.typed_data, &private_key) {
+        Ok(s) => s,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Signing failed: {}", e))),
+    };
+
+    success_response(serde_json::json!({
+        "signature": signature.to_hex(),
+        "r": format!("0x{}", hex::encode(signature.r)),
+        "s": format!("0x{}", hex::encode(signature.s)),
+        "v": signature.v
+    }))
+}
+
+/// Verify an EIP-712 signature
+/// 
+/// # Input
+/// ```json
+/// {
+///   "typedData": { ... },
+///   "signature": "0x...",
+///   "address": "0x..."
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "valid": true,
+///     "recoveredAddress": "0x..."
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_eip712_verify(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct VerifyRequest {
+        typed_data: crate::eip712::TypedData,
+        signature: String,
+        address: String,
+    }
+
+    let request: VerifyRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid request: {}", e))),
+    };
+
+    // Parse the signature
+    let sig_hex = request.signature.strip_prefix("0x").unwrap_or(&request.signature);
+    let sig_bytes = match hex::decode(sig_hex) {
+        Ok(b) => b,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid signature: {}", e))),
+    };
+
+    let signature = match crate::eip712::Eip712Signature::from_bytes(&sig_bytes) {
+        Ok(s) => s,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid signature format: {}", e))),
+    };
+
+    // Calculate the hash
+    let hash = match crate::eip712::hash_typed_data(&request.typed_data) {
+        Ok(h) => h,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Hash failed: {}", e))),
+    };
+
+    // Recover the address
+    let recovered = match crate::eip712::recover_address(&hash, &signature) {
+        Ok(a) => a,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Recovery failed: {}", e))),
+    };
+
+    // Verify the address matches
+    let valid = match crate::eip712::verify_signature(&hash, &signature, &request.address) {
+        Ok(v) => v,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Verification failed: {}", e))),
+    };
+
+    success_response(serde_json::json!({
+        "valid": valid,
+        "recoveredAddress": recovered
+    }))
+}
+
+/// Recover address from EIP-712 signature
+/// 
+/// # Input
+/// ```json
+/// {
+///   "typedData": { ... },
+///   "signature": "0x..."
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "address": "0x..."
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_eip712_recover(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RecoverRequest {
+        typed_data: crate::eip712::TypedData,
+        signature: String,
+    }
+
+    let request: RecoverRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid request: {}", e))),
+    };
+
+    // Parse the signature
+    let sig_hex = request.signature.strip_prefix("0x").unwrap_or(&request.signature);
+    let sig_bytes = match hex::decode(sig_hex) {
+        Ok(b) => b,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid signature: {}", e))),
+    };
+
+    let signature = match crate::eip712::Eip712Signature::from_bytes(&sig_bytes) {
+        Ok(s) => s,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid signature format: {}", e))),
+    };
+
+    // Calculate the hash
+    let hash = match crate::eip712::hash_typed_data(&request.typed_data) {
+        Ok(h) => h,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Hash failed: {}", e))),
+    };
+
+    // Recover the address
+    let address = match crate::eip712::recover_address(&hash, &signature) {
+        Ok(a) => a,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Recovery failed: {}", e))),
+    };
+
+    success_response(serde_json::json!({
+        "address": address
+    }))
+}
+
+// =============================================================================
+// Message Signing (Personal Sign / EIP-191)
+// =============================================================================
+
+/// Sign a message using Ethereum personal_sign
+/// 
+/// # Input
+/// ```json
+/// {
+///   "message": "Hello, World!",
+///   "privateKey": "0x...",
+///   "encoding": "utf8"  // or "hex"
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "signature": "0x...",
+///     "r": "0x...",
+///     "s": "0x...",
+///     "v": 27
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_personal_sign(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SignRequest {
+        message: String,
+        private_key: String,
+        #[serde(default)]
+        encoding: Option<String>,
+    }
+
+    let request: SignRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid request: {}", e))),
+    };
+
+    // Parse the private key
+    let key_hex = request.private_key.strip_prefix("0x").unwrap_or(&request.private_key);
+    let private_key = match hex::decode(key_hex) {
+        Ok(k) => k,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid private key: {}", e))),
+    };
+
+    // Parse the message based on encoding
+    let message_bytes = match request.encoding.as_deref() {
+        Some("hex") => {
+            let msg_hex = request.message.strip_prefix("0x").unwrap_or(&request.message);
+            match hex::decode(msg_hex) {
+                Ok(m) => m,
+                Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid hex message: {}", e))),
+            }
+        }
+        _ => request.message.into_bytes(),
+    };
+
+    // Sign the message
+    let sig = match crate::message_signer::ethereum::personal_sign(&message_bytes, &private_key) {
+        Ok(s) => s,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Signing failed: {}", e))),
+    };
+
+    success_response(serde_json::json!({
+        "signature": sig.signature,
+        "r": sig.r,
+        "s": sig.s,
+        "v": sig.v
+    }))
+}
+
+/// Verify an Ethereum personal_sign signature
+/// 
+/// # Input
+/// ```json
+/// {
+///   "message": "Hello, World!",
+///   "signature": "0x...",
+///   "address": "0x...",
+///   "encoding": "utf8"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_personal_verify(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct VerifyRequest {
+        message: String,
+        signature: String,
+        address: String,
+        #[serde(default)]
+        encoding: Option<String>,
+    }
+
+    let request: VerifyRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid request: {}", e))),
+    };
+
+    // Parse the signature
+    let sig_hex = request.signature.strip_prefix("0x").unwrap_or(&request.signature);
+    let sig_bytes = match hex::decode(sig_hex) {
+        Ok(s) => s,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid signature: {}", e))),
+    };
+
+    // Parse the message
+    let message_bytes = match request.encoding.as_deref() {
+        Some("hex") => {
+            let msg_hex = request.message.strip_prefix("0x").unwrap_or(&request.message);
+            match hex::decode(msg_hex) {
+                Ok(m) => m,
+                Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid hex message: {}", e))),
+            }
+        }
+        _ => request.message.into_bytes(),
+    };
+
+    // Verify the signature
+    let valid = match crate::message_signer::ethereum::verify_personal_sign(&message_bytes, &sig_bytes, &request.address) {
+        Ok(v) => v,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Verification failed: {}", e))),
+    };
+
+    success_response(serde_json::json!({
+        "valid": valid,
+        "address": request.address
+    }))
+}
+
+/// Recover the signer's address from a personal_sign signature
+/// 
+/// # Input
+/// ```json
+/// {
+///   "message": "Hello, World!",
+///   "signature": "0x...",
+///   "encoding": "utf8"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_personal_recover(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RecoverRequest {
+        message: String,
+        signature: String,
+        #[serde(default)]
+        encoding: Option<String>,
+    }
+
+    let request: RecoverRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid request: {}", e))),
+    };
+
+    // Parse the signature
+    let sig_hex = request.signature.strip_prefix("0x").unwrap_or(&request.signature);
+    let sig_bytes = match hex::decode(sig_hex) {
+        Ok(s) => s,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid signature: {}", e))),
+    };
+
+    // Parse the message
+    let message_bytes = match request.encoding.as_deref() {
+        Some("hex") => {
+            let msg_hex = request.message.strip_prefix("0x").unwrap_or(&request.message);
+            match hex::decode(msg_hex) {
+                Ok(m) => m,
+                Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid hex message: {}", e))),
+            }
+        }
+        _ => request.message.into_bytes(),
+    };
+
+    // Recover the address
+    let address = match crate::message_signer::ethereum::recover_address(&message_bytes, &sig_bytes) {
+        Ok(a) => a,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Recovery failed: {}", e))),
+    };
+
+    success_response(serde_json::json!({
+        "address": address
+    }))
+}
+
+/// Sign a message for Solana (Ed25519)
+/// 
+/// # Input
+/// ```json
+/// {
+///   "message": "Hello, Solana!",
+///   "privateKey": "0x...",
+///   "encoding": "utf8"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_solana_sign_message(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SignRequest {
+        message: String,
+        private_key: String,
+        #[serde(default)]
+        encoding: Option<String>,
+    }
+
+    let request: SignRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid request: {}", e))),
+    };
+
+    // Parse the private key
+    let key_hex = request.private_key.strip_prefix("0x").unwrap_or(&request.private_key);
+    let private_key = match hex::decode(key_hex) {
+        Ok(k) => k,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid private key: {}", e))),
+    };
+
+    // Parse the message
+    let message_bytes = match request.encoding.as_deref() {
+        Some("hex") => {
+            let msg_hex = request.message.strip_prefix("0x").unwrap_or(&request.message);
+            match hex::decode(msg_hex) {
+                Ok(m) => m,
+                Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid hex message: {}", e))),
+            }
+        }
+        _ => request.message.into_bytes(),
+    };
+
+    // Sign the message
+    let sig = match crate::message_signer::solana::sign_message(&message_bytes, &private_key) {
+        Ok(s) => s,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Signing failed: {}", e))),
+    };
+
+    // Get the public key for verification
+    let public_key = match crate::message_signer::solana::get_public_key(&private_key) {
+        Ok(p) => crate::message_signer::solana::encode_public_key_base58(&p),
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Failed to get public key: {}", e))),
+    };
+
+    success_response(serde_json::json!({
+        "signature": sig.signature,
+        "publicKey": public_key
+    }))
+}
+
+/// Verify a Solana message signature
+/// 
+/// # Input
+/// ```json
+/// {
+///   "message": "Hello, Solana!",
+///   "signature": "0x...",
+///   "publicKey": "base58address",
+///   "encoding": "utf8"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_solana_verify_message(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct VerifyRequest {
+        message: String,
+        signature: String,
+        public_key: String,
+        #[serde(default)]
+        encoding: Option<String>,
+    }
+
+    let request: VerifyRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid request: {}", e))),
+    };
+
+    // Parse the signature
+    let sig_hex = request.signature.strip_prefix("0x").unwrap_or(&request.signature);
+    let sig_bytes = match hex::decode(sig_hex) {
+        Ok(s) => s,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid signature: {}", e))),
+    };
+
+    // Parse the public key (base58)
+    let public_key = match crate::message_signer::solana::decode_public_key_base58(&request.public_key) {
+        Ok(p) => p,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid public key: {}", e))),
+    };
+
+    // Parse the message
+    let message_bytes = match request.encoding.as_deref() {
+        Some("hex") => {
+            let msg_hex = request.message.strip_prefix("0x").unwrap_or(&request.message);
+            match hex::decode(msg_hex) {
+                Ok(m) => m,
+                Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid hex message: {}", e))),
+            }
+        }
+        _ => request.message.into_bytes(),
+    };
+
+    // Verify the signature
+    let valid = match crate::message_signer::solana::verify_message(&message_bytes, &sig_bytes, &public_key) {
+        Ok(v) => v,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Verification failed: {}", e))),
+    };
+
+    success_response(serde_json::json!({
+        "valid": valid,
+        "publicKey": request.public_key
+    }))
+}
+
+/// Sign a Cosmos ADR-036 arbitrary message
+/// 
+/// # Input
+/// ```json
+/// {
+///   "message": "Hello, Cosmos!",
+///   "signer": "cosmos1...",
+///   "privateKey": "0x...",
+///   "chainId": "cosmoshub-4"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_cosmos_sign_arbitrary(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SignRequest {
+        message: String,
+        signer: String,
+        private_key: String,
+        #[serde(default)]
+        chain_id: Option<String>,
+    }
+
+    let request: SignRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid request: {}", e))),
+    };
+
+    // Parse the private key
+    let key_hex = request.private_key.strip_prefix("0x").unwrap_or(&request.private_key);
+    let private_key = match hex::decode(key_hex) {
+        Ok(k) => k,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid private key: {}", e))),
+    };
+
+    let message_bytes = request.message.as_bytes();
+
+    // Sign with or without chain ID
+    let sig = match &request.chain_id {
+        Some(chain_id) => {
+            match crate::message_signer::cosmos::sign_keplr_arbitrary(chain_id, &request.signer, message_bytes, &private_key) {
+                Ok(s) => s,
+                Err(e) => return error_response(HawalaError::crypto_error(format!("Signing failed: {}", e))),
+            }
+        }
+        None => {
+            match crate::message_signer::cosmos::sign_arbitrary(message_bytes, &request.signer, &private_key) {
+                Ok(s) => s,
+                Err(e) => return error_response(HawalaError::crypto_error(format!("Signing failed: {}", e))),
+            }
+        }
+    };
+
+    // Get the public key
+    let public_key = match crate::message_signer::cosmos::get_public_key(&private_key) {
+        Ok(p) => format!("0x{}", hex::encode(&p)),
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Failed to get public key: {}", e))),
+    };
+
+    success_response(serde_json::json!({
+        "signature": sig.signature,
+        "publicKey": public_key,
+        "r": sig.r,
+        "s": sig.s
+    }))
+}
+
+/// Sign a Tezos message
+/// 
+/// # Input
+/// ```json
+/// {
+///   "message": "Hello, Tezos!",
+///   "dappUrl": "https://example.com",
+///   "privateKey": "0x..."
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_tezos_sign_message(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SignRequest {
+        message: String,
+        dapp_url: String,
+        private_key: String,
+    }
+
+    let request: SignRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid request: {}", e))),
+    };
+
+    // Parse the private key
+    let key_hex = request.private_key.strip_prefix("0x").unwrap_or(&request.private_key);
+    let private_key = match hex::decode(key_hex) {
+        Ok(k) => k,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid private key: {}", e))),
+    };
+
+    // Sign the message
+    let sig = match crate::message_signer::tezos::sign_message(&request.message, &request.dapp_url, &private_key) {
+        Ok(s) => s,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Signing failed: {}", e))),
+    };
+
+    // Encode signature in base58
+    let sig_bytes = match hex::decode(sig.signature.trim_start_matches("0x")) {
+        Ok(b) => b,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Signature encoding failed: {}", e))),
+    };
+
+    let sig_base58 = if sig_bytes.len() == 64 {
+        match crate::message_signer::tezos::encode_signature_base58(&sig_bytes) {
+            Ok(s) => s,
+            Err(e) => return error_response(HawalaError::crypto_error(format!("Base58 encoding failed: {}", e))),
+        }
+    } else {
+        sig.signature.clone()
+    };
+
+    success_response(serde_json::json!({
+        "signature": sig.signature,
+        "signatureBase58": sig_base58
+    }))
+}
+
+// =============================================================================
+// EIP-7702 Account Delegation
+// =============================================================================
+
+/// Sign an EIP-7702 authorization
+/// 
+/// Allows an EOA to authorize delegation to a contract address.
+/// 
+/// # Input
+/// ```json
+/// {
+///   "chainId": 1,
+///   "address": "0x...",  // Contract to delegate to (20 bytes hex)
+///   "nonce": 0,
+///   "privateKey": "0x..." // 32 bytes hex
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "chainId": 1,
+///   "address": "0x...",
+///   "nonce": 0,
+///   "yParity": 0,
+///   "r": "0x...",
+///   "s": "0x..."
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_eip7702_sign_authorization(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        #[serde(rename = "chainId")]
+        chain_id: u64,
+        address: String,
+        nonce: u64,
+        #[serde(rename = "privateKey")]
+        private_key: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid JSON: {}", e))),
+    };
+
+    // Parse address
+    let addr_hex = request.address.trim_start_matches("0x");
+    let addr_bytes = match hex::decode(addr_hex) {
+        Ok(b) if b.len() == 20 => {
+            let mut arr = [0u8; 20];
+            arr.copy_from_slice(&b);
+            arr
+        }
+        Ok(_) => return error_response(HawalaError::invalid_input("Address must be 20 bytes")),
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid address hex: {}", e))),
+    };
+
+    // Parse private key
+    let key_hex = request.private_key.trim_start_matches("0x");
+    let key_bytes: [u8; 32] = match hex::decode(key_hex) {
+        Ok(k) if k.len() == 32 => {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&k);
+            arr
+        }
+        Ok(_) => return error_response(HawalaError::invalid_input("Private key must be 32 bytes")),
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid private key: {}", e))),
+    };
+
+    // Sign authorization
+    let signed = match crate::eip7702::authorization::sign_authorization(
+        request.chain_id,
+        addr_bytes,
+        request.nonce,
+        &key_bytes,
+    ) {
+        Ok(s) => s,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Authorization signing failed: {}", e))),
+    };
+
+    success_response(serde_json::json!({
+        "chainId": signed.chain_id,
+        "address": format!("0x{}", hex::encode(signed.address)),
+        "nonce": signed.nonce,
+        "yParity": signed.y_parity,
+        "r": format!("0x{}", hex::encode(signed.r)),
+        "s": format!("0x{}", hex::encode(signed.s))
+    }))
+}
+
+/// Sign an EIP-7702 transaction
+/// 
+/// Creates and signs a complete EIP-7702 transaction (type 0x04).
+/// 
+/// # Input
+/// ```json
+/// {
+///   "chainId": 1,
+///   "nonce": 0,
+///   "maxPriorityFeePerGas": "1000000000",
+///   "maxFeePerGas": "50000000000",
+///   "gasLimit": 100000,
+///   "to": "0x...",           // Optional, 20 bytes hex
+///   "value": "0",            // Wei as string
+///   "data": "0x...",         // Optional hex data
+///   "authorizationList": [   // Array of signed authorizations
+///     {
+///       "chainId": 1,
+///       "address": "0x...",
+///       "nonce": 0,
+///       "yParity": 0,
+///       "r": "0x...",
+///       "s": "0x..."
+///     }
+///   ],
+///   "privateKey": "0x..."    // Transaction signer key
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_eip7702_sign_transaction(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct AuthItem {
+        #[serde(rename = "chainId")]
+        chain_id: u64,
+        address: String,
+        nonce: u64,
+        #[serde(rename = "yParity")]
+        y_parity: u8,
+        r: String,
+        s: String,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        #[serde(rename = "chainId")]
+        chain_id: u64,
+        nonce: u64,
+        #[serde(rename = "maxPriorityFeePerGas")]
+        max_priority_fee_per_gas: String,
+        #[serde(rename = "maxFeePerGas")]
+        max_fee_per_gas: String,
+        #[serde(rename = "gasLimit")]
+        gas_limit: u64,
+        to: Option<String>,
+        value: Option<String>,
+        data: Option<String>,
+        #[serde(rename = "authorizationList")]
+        authorization_list: Vec<AuthItem>,
+        #[serde(rename = "privateKey")]
+        private_key: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid JSON: {}", e))),
+    };
+
+    // Build transaction
+    let mut tx = crate::eip7702::Eip7702Transaction::new(request.chain_id);
+    tx.nonce = request.nonce;
+    tx.max_priority_fee_per_gas = request.max_priority_fee_per_gas.parse().unwrap_or(0);
+    tx.max_fee_per_gas = request.max_fee_per_gas.parse().unwrap_or(0);
+    tx.gas_limit = request.gas_limit;
+
+    if let Some(to_str) = &request.to {
+        let to_hex = to_str.trim_start_matches("0x");
+        if let Ok(to_bytes) = hex::decode(to_hex) {
+            if to_bytes.len() == 20 {
+                let mut arr = [0u8; 20];
+                arr.copy_from_slice(&to_bytes);
+                tx.to = Some(arr);
+            }
+        }
+    }
+
+    if let Some(value_str) = &request.value {
+        tx.value = value_str.parse().unwrap_or(0);
+    }
+
+    if let Some(data_str) = &request.data {
+        let data_hex = data_str.trim_start_matches("0x");
+        if let Ok(data_bytes) = hex::decode(data_hex) {
+            tx.data = data_bytes;
+        }
+    }
+
+    // Parse authorization list
+    for auth_item in &request.authorization_list {
+        let addr_hex = auth_item.address.trim_start_matches("0x");
+        let addr_bytes = match hex::decode(addr_hex) {
+            Ok(b) if b.len() == 20 => {
+                let mut arr = [0u8; 20];
+                arr.copy_from_slice(&b);
+                arr
+            }
+            _ => continue,
+        };
+
+        let r_hex = auth_item.r.trim_start_matches("0x");
+        let r_bytes = match hex::decode(r_hex) {
+            Ok(b) if b.len() == 32 => {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&b);
+                arr
+            }
+            _ => continue,
+        };
+
+        let s_hex = auth_item.s.trim_start_matches("0x");
+        let s_bytes = match hex::decode(s_hex) {
+            Ok(b) if b.len() == 32 => {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&b);
+                arr
+            }
+            _ => continue,
+        };
+
+        let auth = crate::eip7702::Authorization::with_signature(
+            auth_item.chain_id,
+            addr_bytes,
+            auth_item.nonce,
+            auth_item.y_parity,
+            r_bytes,
+            s_bytes,
+        );
+        tx.authorization_list.push(auth);
+    }
+
+    // Parse private key
+    let key_hex = request.private_key.trim_start_matches("0x");
+    let key_bytes: [u8; 32] = match hex::decode(key_hex) {
+        Ok(k) if k.len() == 32 => {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&k);
+            arr
+        }
+        Ok(_) => return error_response(HawalaError::invalid_input("Private key must be 32 bytes")),
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid private key: {}", e))),
+    };
+
+    // Sign transaction
+    let signed = match crate::eip7702::signer::sign_eip7702_transaction(&tx, &key_bytes) {
+        Ok(s) => s,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Transaction signing failed: {}", e))),
+    };
+
+    // Serialize for broadcast
+    let serialized = crate::eip7702::signer::serialize_for_broadcast(&signed);
+    let tx_hash = crate::eip7702::signer::get_transaction_hash(&signed);
+
+    success_response(serde_json::json!({
+        "rawTransaction": format!("0x{}", hex::encode(&serialized)),
+        "transactionHash": format!("0x{}", hex::encode(&tx_hash)),
+        "yParity": signed.y_parity,
+        "r": format!("0x{}", hex::encode(signed.r)),
+        "s": format!("0x{}", hex::encode(signed.s))
+    }))
+}
+
+/// Recover the signer of an EIP-7702 authorization
+/// 
+/// # Input
+/// ```json
+/// {
+///   "chainId": 1,
+///   "address": "0x...",
+///   "nonce": 0,
+///   "yParity": 0,
+///   "r": "0x...",
+///   "s": "0x..."
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "signer": "0x..."
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_eip7702_recover_authorization_signer(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        #[serde(rename = "chainId")]
+        chain_id: u64,
+        address: String,
+        nonce: u64,
+        #[serde(rename = "yParity")]
+        y_parity: u8,
+        r: String,
+        s: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid JSON: {}", e))),
+    };
+
+    // Parse address
+    let addr_hex = request.address.trim_start_matches("0x");
+    let addr_bytes = match hex::decode(addr_hex) {
+        Ok(b) if b.len() == 20 => {
+            let mut arr = [0u8; 20];
+            arr.copy_from_slice(&b);
+            arr
+        }
+        Ok(_) => return error_response(HawalaError::invalid_input("Address must be 20 bytes")),
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid address: {}", e))),
+    };
+
+    // Parse r
+    let r_hex = request.r.trim_start_matches("0x");
+    let r_bytes = match hex::decode(r_hex) {
+        Ok(b) if b.len() == 32 => {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&b);
+            arr
+        }
+        Ok(_) => return error_response(HawalaError::invalid_input("R must be 32 bytes")),
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid r: {}", e))),
+    };
+
+    // Parse s
+    let s_hex = request.s.trim_start_matches("0x");
+    let s_bytes = match hex::decode(s_hex) {
+        Ok(b) if b.len() == 32 => {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&b);
+            arr
+        }
+        Ok(_) => return error_response(HawalaError::invalid_input("S must be 32 bytes")),
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid s: {}", e))),
+    };
+
+    let auth = crate::eip7702::Authorization::with_signature(
+        request.chain_id,
+        addr_bytes,
+        request.nonce,
+        request.y_parity,
+        r_bytes,
+        s_bytes,
+    );
+
+    let signer = match crate::eip7702::authorization::recover_authorization_signer(&auth) {
+        Ok(s) => s,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Recovery failed: {}", e))),
+    };
+
+    success_response(serde_json::json!({
+        "signer": format!("0x{}", hex::encode(signer))
+    }))
+}
+
+// =============================================================================
+// External Signature Compilation (Section 4)
+// =============================================================================
+
+/// Generate pre-image hashes for Bitcoin transaction signing
+/// 
+/// # Input
+/// ```json
+/// {
+///   "transaction": {
+///     "version": 2,
+///     "inputs": [...],
+///     "outputs": [...],
+///     "locktime": 0
+///   },
+///   "sighash_type": "All"
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "hashes": [
+///       {
+///         "hash": "0x...",
+///         "signer_id": "m/44'/0'/0'/0/0",
+///         "input_index": 0,
+///         "algorithm": "Secp256k1Ecdsa"
+///       }
+///     ]
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_get_bitcoin_sighashes(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        transaction: crate::signing::preimage::bitcoin::UnsignedBitcoinTransaction,
+        sighash_type: Option<String>,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    let sighash_type = match request.sighash_type.as_deref() {
+        Some("All") | None => crate::signing::preimage::bitcoin::BitcoinSigHashType::All,
+        Some("None") => crate::signing::preimage::bitcoin::BitcoinSigHashType::None,
+        Some("Single") => crate::signing::preimage::bitcoin::BitcoinSigHashType::Single,
+        Some("AllAnyoneCanPay") => crate::signing::preimage::bitcoin::BitcoinSigHashType::AllAnyoneCanPay,
+        Some("NoneAnyoneCanPay") => crate::signing::preimage::bitcoin::BitcoinSigHashType::NoneAnyoneCanPay,
+        Some("SingleAnyoneCanPay") => crate::signing::preimage::bitcoin::BitcoinSigHashType::SingleAnyoneCanPay,
+        Some("TaprootDefault") => crate::signing::preimage::bitcoin::BitcoinSigHashType::TaprootDefault,
+        Some(other) => return error_response(HawalaError::invalid_input(format!("Unknown sighash type: {}", other))),
+    };
+
+    match crate::signing::preimage::get_bitcoin_sighashes(&request.transaction, sighash_type) {
+        Ok(hashes) => {
+            let result: Vec<_> = hashes.iter().map(|h| serde_json::json!({
+                "hash": h.hash_hex(),
+                "signer_id": h.signer_id,
+                "input_index": h.input_index,
+                "description": h.description,
+                "algorithm": format!("{:?}", h.algorithm)
+            })).collect();
+            success_response(serde_json::json!({ "hashes": result }))
+        }
+        Err(e) => error_response(HawalaError::crypto_error(format!("Sighash error: {}", e))),
+    }
+}
+
+/// Generate signing hash for Ethereum transaction
+/// 
+/// # Input
+/// ```json
+/// {
+///   "transaction": {
+///     "tx_type": "FeeMarket",
+///     "chain_id": 1,
+///     "nonce": 0,
+///     ...
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_get_ethereum_signing_hash(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        transaction: crate::signing::preimage::ethereum::UnsignedEthereumTransaction,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    match crate::signing::preimage::get_ethereum_signing_hash(&request.transaction) {
+        Ok(hash) => success_response(serde_json::json!({
+            "hash": hash.hash_hex(),
+            "signer_id": hash.signer_id,
+            "description": hash.description,
+            "algorithm": format!("{:?}", hash.algorithm)
+        })),
+        Err(e) => error_response(HawalaError::crypto_error(format!("Hash error: {}", e))),
+    }
+}
+
+/// Generate signing hash for Cosmos transaction
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_get_cosmos_sign_doc_hash(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        transaction: crate::signing::preimage::cosmos::UnsignedCosmosTransaction,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    match crate::signing::preimage::get_cosmos_sign_doc_hash(&request.transaction) {
+        Ok(hash) => success_response(serde_json::json!({
+            "hash": hash.hash_hex(),
+            "signer_id": hash.signer_id,
+            "description": hash.description,
+            "algorithm": format!("{:?}", hash.algorithm)
+        })),
+        Err(e) => error_response(HawalaError::crypto_error(format!("Hash error: {}", e))),
+    }
+}
+
+/// Generate signing hashes for Solana transaction
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_get_solana_message_hash(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        transaction: crate::signing::preimage::solana::UnsignedSolanaTransaction,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    match crate::signing::preimage::get_solana_message_hash(&request.transaction) {
+        Ok(hashes) => {
+            let result: Vec<_> = hashes.iter().map(|h| serde_json::json!({
+                "hash": h.hash_hex(),
+                "signer_id": h.signer_id,
+                "input_index": h.input_index,
+                "description": h.description,
+                "algorithm": format!("{:?}", h.algorithm)
+            })).collect();
+            success_response(serde_json::json!({ "hashes": result }))
+        }
+        Err(e) => error_response(HawalaError::crypto_error(format!("Hash error: {}", e))),
+    }
+}
+
+/// Compile a Bitcoin transaction with external signatures
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_compile_bitcoin_transaction(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        transaction: crate::signing::preimage::bitcoin::UnsignedBitcoinTransaction,
+        signatures: Vec<crate::signing::preimage::ExternalSignature>,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    match crate::signing::compile_bitcoin_transaction(&request.transaction, &request.signatures) {
+        Ok(compiled) => success_response(serde_json::json!({
+            "raw_tx": format!("0x{}", hex::encode(&compiled.raw_tx)),
+            "txid": format!("0x{}", hex::encode(compiled.txid)),
+            "wtxid": compiled.wtxid.map(|w| format!("0x{}", hex::encode(w))),
+            "vsize": compiled.vsize
+        })),
+        Err(e) => error_response(HawalaError::crypto_error(format!("Compile error: {}", e))),
+    }
+}
+
+/// Compile an Ethereum transaction with external signature
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_compile_ethereum_transaction(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        transaction: crate::signing::preimage::ethereum::UnsignedEthereumTransaction,
+        signature: crate::signing::preimage::ExternalSignature,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    match crate::signing::compile_ethereum_transaction(&request.transaction, &request.signature) {
+        Ok(compiled) => success_response(serde_json::json!({
+            "raw_tx": format!("0x{}", hex::encode(&compiled.raw_tx)),
+            "tx_hash": format!("0x{}", hex::encode(compiled.tx_hash)),
+            "from": format!("0x{}", hex::encode(compiled.from))
+        })),
+        Err(e) => error_response(HawalaError::crypto_error(format!("Compile error: {}", e))),
+    }
+}
+
+/// Compile a Cosmos transaction with external signature
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_compile_cosmos_transaction(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        transaction: crate::signing::preimage::cosmos::UnsignedCosmosTransaction,
+        signature: crate::signing::preimage::ExternalSignature,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    match crate::signing::compile_cosmos_transaction(&request.transaction, &request.signature) {
+        Ok(compiled) => success_response(serde_json::json!({
+            "raw_tx": format!("0x{}", hex::encode(&compiled.raw_tx)),
+            "tx_hash": format!("0x{}", hex::encode(compiled.tx_hash))
+        })),
+        Err(e) => error_response(HawalaError::crypto_error(format!("Compile error: {}", e))),
+    }
+}
+
+/// Compile a Solana transaction with external signatures
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_compile_solana_transaction(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        transaction: crate::signing::preimage::solana::UnsignedSolanaTransaction,
+        signatures: Vec<crate::signing::preimage::ExternalSignature>,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    match crate::signing::compile_solana_transaction(&request.transaction, &request.signatures) {
+        Ok(compiled) => success_response(serde_json::json!({
+            "raw_tx": format!("0x{}", hex::encode(&compiled.raw_tx)),
+            "signature": bs58::encode(&compiled.signature).into_string()
+        })),
+        Err(e) => error_response(HawalaError::crypto_error(format!("Compile error: {}", e))),
+    }
+}
+
+// =============================================================================
+// BIP-340 Schnorr Signatures (Section 6: Bitcoin Taproot)
+// =============================================================================
+
+/// Sign a message using BIP-340 Schnorr signature scheme
+/// 
+/// # Input
+/// ```json
+/// {
+///   "message": "0x...",  // 32-byte message hash (hex)
+///   "private_key": "0x...",  // 32-byte private key (hex)
+///   "aux_rand": "0x..."  // optional 32-byte auxiliary randomness (hex)
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "signature": "0x...",  // 64-byte Schnorr signature (hex)
+///     "public_key": "0x..."  // 32-byte x-only public key (hex)
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_schnorr_sign(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        message: String,
+        private_key: String,
+        aux_rand: Option<String>,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    // Parse message (32 bytes)
+    let message_str = request.message.strip_prefix("0x").unwrap_or(&request.message);
+    let message_bytes = match hex::decode(message_str) {
+        Ok(b) if b.len() == 32 => {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&b);
+            arr
+        },
+        Ok(b) => return error_response(HawalaError::invalid_input(format!("Message must be 32 bytes, got {}", b.len()))),
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid message hex: {}", e))),
+    };
+
+    // Parse private key (32 bytes)
+    let key_str = request.private_key.strip_prefix("0x").unwrap_or(&request.private_key);
+    let private_key = match hex::decode(key_str) {
+        Ok(b) if b.len() == 32 => b,
+        Ok(b) => return error_response(HawalaError::invalid_input(format!("Private key must be 32 bytes, got {}", b.len()))),
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid private key hex: {}", e))),
+    };
+
+    let signer = crate::crypto::schnorr::SchnorrSigner::new();
+
+    // Sign with or without auxiliary randomness
+    let signature = if let Some(aux) = request.aux_rand {
+        let aux_str = aux.strip_prefix("0x").unwrap_or(&aux);
+        let aux_bytes = match hex::decode(aux_str) {
+            Ok(b) if b.len() == 32 => {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&b);
+                arr
+            },
+            Ok(b) => return error_response(HawalaError::invalid_input(format!("Aux random must be 32 bytes, got {}", b.len()))),
+            Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid aux random hex: {}", e))),
+        };
+        match signer.sign_with_aux_rand(&message_bytes, &private_key, &aux_bytes) {
+            Ok(sig) => sig,
+            Err(e) => return error_response(HawalaError::crypto_error(format!("Schnorr signing failed: {}", e))),
+        }
+    } else {
+        match signer.sign(&message_bytes, &private_key) {
+            Ok(sig) => sig,
+            Err(e) => return error_response(HawalaError::crypto_error(format!("Schnorr signing failed: {}", e))),
+        }
+    };
+
+    // Get public key
+    let public_key = match signer.public_key(&private_key) {
+        Ok(pk) => pk,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Failed to derive public key: {}", e))),
+    };
+
+    success_response(serde_json::json!({
+        "signature": format!("0x{}", signature.to_hex()),
+        "public_key": format!("0x{}", public_key.to_hex())
+    }))
+}
+
+/// Verify a BIP-340 Schnorr signature
+/// 
+/// # Input
+/// ```json
+/// {
+///   "message": "0x...",  // 32-byte message hash (hex)
+///   "signature": "0x...",  // 64-byte Schnorr signature (hex)
+///   "public_key": "0x..."  // 32-byte x-only public key (hex)
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "valid": true
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_schnorr_verify(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        message: String,
+        signature: String,
+        public_key: String,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    // Parse message (32 bytes)
+    let message_str = request.message.strip_prefix("0x").unwrap_or(&request.message);
+    let message_bytes = match hex::decode(message_str) {
+        Ok(b) if b.len() == 32 => {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&b);
+            arr
+        },
+        Ok(b) => return error_response(HawalaError::invalid_input(format!("Message must be 32 bytes, got {}", b.len()))),
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid message hex: {}", e))),
+    };
+
+    // Parse signature (64 bytes)
+    let sig_str = request.signature.strip_prefix("0x").unwrap_or(&request.signature);
+    let signature = match hex::decode(sig_str) {
+        Ok(b) => match crate::crypto::schnorr::SchnorrSig::from_slice(&b) {
+            Ok(sig) => sig,
+            Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid signature: {}", e))),
+        },
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid signature hex: {}", e))),
+    };
+
+    // Parse public key (32 bytes)
+    let pk_str = request.public_key.strip_prefix("0x").unwrap_or(&request.public_key);
+    let public_key = match hex::decode(pk_str) {
+        Ok(b) => match crate::crypto::schnorr::XOnlyPubKey::from_slice(&b) {
+            Ok(pk) => pk,
+            Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid public key: {}", e))),
+        },
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid public key hex: {}", e))),
+    };
+
+    let signer = crate::crypto::schnorr::SchnorrSigner::new();
+    
+    match signer.verify(&message_bytes, &signature, &public_key) {
+        Ok(valid) => success_response(serde_json::json!({
+            "valid": valid
+        })),
+        Err(e) => error_response(HawalaError::crypto_error(format!("Verification failed: {}", e))),
+    }
+}
+
+/// Tweak a public key for Taproot (key-path or with merkle root)
+/// 
+/// # Input
+/// ```json
+/// {
+///   "internal_key": "0x...",  // 32-byte x-only public key (hex)
+///   "merkle_root": "0x..."  // optional 32-byte merkle root (hex)
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "output_key": "0x...",  // 32-byte tweaked x-only public key (hex)
+///     "parity": true  // parity of output key (for script-path)
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_taproot_tweak_pubkey(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        internal_key: String,
+        merkle_root: Option<String>,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    // Parse internal key (32 bytes)
+    let key_str = request.internal_key.strip_prefix("0x").unwrap_or(&request.internal_key);
+    let internal_key = match hex::decode(key_str) {
+        Ok(b) => match crate::crypto::schnorr::XOnlyPubKey::from_slice(&b) {
+            Ok(pk) => pk,
+            Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid internal key: {}", e))),
+        },
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid internal key hex: {}", e))),
+    };
+
+    // Parse optional merkle root (32 bytes)
+    let merkle_root = if let Some(root) = request.merkle_root {
+        let root_str = root.strip_prefix("0x").unwrap_or(&root);
+        match hex::decode(root_str) {
+            Ok(b) => match crate::crypto::taproot::TapMerkleRoot::from_slice(&b) {
+                Ok(mr) => Some(mr),
+                Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid merkle root: {}", e))),
+            },
+            Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid merkle root hex: {}", e))),
+        }
+    } else {
+        None
+    };
+
+    let tweaker = crate::crypto::taproot::TaprootTweaker::new();
+    
+    match tweaker.tweak_public_key(&internal_key, merkle_root.as_ref()) {
+        Ok(output) => success_response(serde_json::json!({
+            "output_key": format!("0x{}", output.output_key.to_hex()),
+            "parity": output.parity
+        })),
+        Err(e) => error_response(HawalaError::crypto_error(format!("Tweak failed: {}", e))),
+    }
+}
+
+/// Sign a transaction hash for Taproot key-path spending
+/// 
+/// # Input
+/// ```json
+/// {
+///   "sighash": "0x...",  // 32-byte sighash (hex)
+///   "private_key": "0x...",  // 32-byte private key (hex)
+///   "merkle_root": "0x..."  // optional 32-byte merkle root (hex)
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "signature": "0x...",  // 64-byte Schnorr signature (hex)
+///     "output_key": "0x..."  // 32-byte tweaked x-only public key (hex)
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_taproot_sign_key_path(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        sighash: String,
+        private_key: String,
+        merkle_root: Option<String>,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    // Parse sighash (32 bytes)
+    let hash_str = request.sighash.strip_prefix("0x").unwrap_or(&request.sighash);
+    let sighash = match hex::decode(hash_str) {
+        Ok(b) if b.len() == 32 => {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&b);
+            arr
+        },
+        Ok(b) => return error_response(HawalaError::invalid_input(format!("Sighash must be 32 bytes, got {}", b.len()))),
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid sighash hex: {}", e))),
+    };
+
+    // Parse private key (32 bytes)
+    let key_str = request.private_key.strip_prefix("0x").unwrap_or(&request.private_key);
+    let private_key = match hex::decode(key_str) {
+        Ok(b) if b.len() == 32 => b,
+        Ok(b) => return error_response(HawalaError::invalid_input(format!("Private key must be 32 bytes, got {}", b.len()))),
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid private key hex: {}", e))),
+    };
+
+    // Parse optional merkle root (32 bytes)
+    let merkle_root = if let Some(root) = request.merkle_root {
+        let root_str = root.strip_prefix("0x").unwrap_or(&root);
+        match hex::decode(root_str) {
+            Ok(b) => match crate::crypto::taproot::TapMerkleRoot::from_slice(&b) {
+                Ok(mr) => Some(mr),
+                Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid merkle root: {}", e))),
+            },
+            Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid merkle root hex: {}", e))),
+        }
+    } else {
+        None
+    };
+
+    let signer = crate::crypto::taproot::TaprootSigner::new();
+    
+    // Sign
+    let signature = match signer.sign_key_path(&sighash, &private_key, merkle_root.as_ref()) {
+        Ok(sig) => sig,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Signing failed: {}", e))),
+    };
+
+    // Get output key
+    let output = match signer.get_output_key(&private_key, merkle_root.as_ref()) {
+        Ok(o) => o,
+        Err(e) => return error_response(HawalaError::crypto_error(format!("Failed to derive output key: {}", e))),
+    };
+
+    success_response(serde_json::json!({
+        "signature": format!("0x{}", signature.to_hex()),
+        "output_key": format!("0x{}", output.output_key.to_hex())
+    }))
+}
+
+/// Compute a TapLeaf hash for script-path spending
+/// 
+/// # Input
+/// ```json
+/// {
+///   "script": "0x...",  // script bytes (hex)
+///   "version": 192  // optional leaf version (default: 0xc0)
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "leaf_hash": "0x..."  // 32-byte leaf hash (hex)
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_taproot_leaf_hash(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        script: String,
+        version: Option<u8>,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    // Parse script
+    let script_str = request.script.strip_prefix("0x").unwrap_or(&request.script);
+    let script_bytes = match hex::decode(script_str) {
+        Ok(b) => b,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid script hex: {}", e))),
+    };
+
+    let version = request.version.unwrap_or(crate::crypto::taproot::TAPSCRIPT_LEAF_VERSION);
+    let leaf = crate::crypto::taproot::TapLeaf::with_version(version, script_bytes);
+
+    success_response(serde_json::json!({
+        "leaf_hash": format!("0x{}", hex::encode(leaf.hash()))
+    }))
+}
+
+/// Build a Merkle root from a list of TapLeaf scripts
+/// 
+/// # Input
+/// ```json
+/// {
+///   "scripts": ["0x...", "0x..."],  // array of script bytes (hex)
+///   "versions": [192, 192]  // optional array of leaf versions
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "merkle_root": "0x..."  // 32-byte merkle root (hex)
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_taproot_merkle_root(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        scripts: Vec<String>,
+        versions: Option<Vec<u8>>,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    let default_version = crate::crypto::taproot::TAPSCRIPT_LEAF_VERSION;
+    let mut leaves = Vec::with_capacity(request.scripts.len());
+
+    for (i, script) in request.scripts.iter().enumerate() {
+        let script_str = script.strip_prefix("0x").unwrap_or(script);
+        let script_bytes = match hex::decode(script_str) {
+            Ok(b) => b,
+            Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid script hex at index {}: {}", i, e))),
+        };
+
+        let version = request.versions
+            .as_ref()
+            .and_then(|v| v.get(i).copied())
+            .unwrap_or(default_version);
+
+        leaves.push(crate::crypto::taproot::TapLeaf::with_version(version, script_bytes));
+    }
+
+    let tweaker = crate::crypto::taproot::TaprootTweaker::new();
+    
+    match tweaker.build_merkle_root(&leaves) {
+        Ok(root) => success_response(serde_json::json!({
+            "merkle_root": format!("0x{}", root.to_hex())
+        })),
+        Err(e) => error_response(HawalaError::crypto_error(format!("Failed to build merkle root: {}", e))),
+    }
+}
+
+// =============================================================================
+// Multi-Curve Cryptography Operations
+// =============================================================================
+
+/// Generate a keypair for the specified curve
+///
+/// # Input
+/// ```json
+/// {
+///   "curve": "secp256k1" | "ed25519" | "sr25519" | "secp256r1",
+///   "seed": "0x..." // 32-byte seed (hex)
+/// }
+/// ```
+///
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "private_key": "0x...",
+///     "public_key": "0x...",
+///     "curve": "secp256k1"
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_curve_generate_keypair(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        curve: String,
+        seed: String,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    let curve_type = match crate::crypto::curves::CurveType::from_str(&request.curve) {
+        Some(c) => c,
+        None => return error_response(HawalaError::invalid_input(format!("Unknown curve: {}", request.curve))),
+    };
+
+    let seed_str = request.seed.strip_prefix("0x").unwrap_or(&request.seed);
+    let seed = match hex::decode(seed_str) {
+        Ok(b) => b,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid seed hex: {}", e))),
+    };
+
+    if seed.len() < 32 {
+        return error_response(HawalaError::invalid_input("Seed must be at least 32 bytes"));
+    }
+
+    match crate::crypto::curves::generate_keypair(curve_type, &seed) {
+        Ok((private_key, public_key)) => success_response(serde_json::json!({
+            "private_key": format!("0x{}", hex::encode(&private_key)),
+            "public_key": format!("0x{}", hex::encode(&public_key)),
+            "curve": curve_type.name()
+        })),
+        Err(e) => error_response(HawalaError::crypto_error(format!("Keypair generation failed: {}", e))),
+    }
+}
+
+/// Derive public key from private key for the specified curve
+///
+/// # Input
+/// ```json
+/// {
+///   "curve": "secp256k1" | "ed25519" | "sr25519" | "secp256r1",
+///   "private_key": "0x..." // hex-encoded private key
+/// }
+/// ```
+///
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "public_key": "0x...",
+///     "curve": "secp256k1"
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_curve_public_key(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        curve: String,
+        private_key: String,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    let curve_type = match crate::crypto::curves::CurveType::from_str(&request.curve) {
+        Some(c) => c,
+        None => return error_response(HawalaError::invalid_input(format!("Unknown curve: {}", request.curve))),
+    };
+
+    let pk_str = request.private_key.strip_prefix("0x").unwrap_or(&request.private_key);
+    let private_key = match hex::decode(pk_str) {
+        Ok(b) => b,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid private key hex: {}", e))),
+    };
+
+    match crate::crypto::curves::public_key_from_private(curve_type, &private_key) {
+        Ok(public_key) => success_response(serde_json::json!({
+            "public_key": format!("0x{}", hex::encode(&public_key)),
+            "curve": curve_type.name()
+        })),
+        Err(e) => error_response(HawalaError::crypto_error(format!("Public key derivation failed: {}", e))),
+    }
+}
+
+/// Sign a message using the specified curve
+///
+/// # Input
+/// ```json
+/// {
+///   "curve": "secp256k1" | "ed25519" | "sr25519" | "secp256r1",
+///   "private_key": "0x...",
+///   "message": "0x..." // hex-encoded message to sign
+/// }
+/// ```
+///
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "signature": "0x...",
+///     "public_key": "0x...",
+///     "curve": "secp256k1"
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_curve_sign(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        curve: String,
+        private_key: String,
+        message: String,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    let curve_type = match crate::crypto::curves::CurveType::from_str(&request.curve) {
+        Some(c) => c,
+        None => return error_response(HawalaError::invalid_input(format!("Unknown curve: {}", request.curve))),
+    };
+
+    let pk_str = request.private_key.strip_prefix("0x").unwrap_or(&request.private_key);
+    let private_key = match hex::decode(pk_str) {
+        Ok(b) => b,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid private key hex: {}", e))),
+    };
+
+    let msg_str = request.message.strip_prefix("0x").unwrap_or(&request.message);
+    let message = match hex::decode(msg_str) {
+        Ok(b) => b,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid message hex: {}", e))),
+    };
+
+    match crate::crypto::curves::sign_with_pubkey(curve_type, &private_key, &message) {
+        Ok((signature, public_key)) => success_response(serde_json::json!({
+            "signature": format!("0x{}", hex::encode(&signature)),
+            "public_key": format!("0x{}", hex::encode(&public_key)),
+            "curve": curve_type.name()
+        })),
+        Err(e) => error_response(HawalaError::crypto_error(format!("Signing failed: {}", e))),
+    }
+}
+
+/// Verify a signature using the specified curve
+///
+/// # Input
+/// ```json
+/// {
+///   "curve": "secp256k1" | "ed25519" | "sr25519" | "secp256r1",
+///   "public_key": "0x...",
+///   "message": "0x...",
+///   "signature": "0x..."
+/// }
+/// ```
+///
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "valid": true,
+///     "curve": "secp256k1"
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_curve_verify(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        curve: String,
+        public_key: String,
+        message: String,
+        signature: String,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    let curve_type = match crate::crypto::curves::CurveType::from_str(&request.curve) {
+        Some(c) => c,
+        None => return error_response(HawalaError::invalid_input(format!("Unknown curve: {}", request.curve))),
+    };
+
+    let pk_str = request.public_key.strip_prefix("0x").unwrap_or(&request.public_key);
+    let public_key = match hex::decode(pk_str) {
+        Ok(b) => b,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid public key hex: {}", e))),
+    };
+
+    let msg_str = request.message.strip_prefix("0x").unwrap_or(&request.message);
+    let message = match hex::decode(msg_str) {
+        Ok(b) => b,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid message hex: {}", e))),
+    };
+
+    let sig_str = request.signature.strip_prefix("0x").unwrap_or(&request.signature);
+    let signature = match hex::decode(sig_str) {
+        Ok(b) => b,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid signature hex: {}", e))),
+    };
+
+    match crate::crypto::curves::verify(curve_type, &public_key, &message, &signature) {
+        Ok(valid) => success_response(serde_json::json!({
+            "valid": valid,
+            "curve": curve_type.name()
+        })),
+        Err(e) => error_response(HawalaError::crypto_error(format!("Verification failed: {}", e))),
+    }
+}
+
+/// Get information about a curve type
+///
+/// # Input
+/// ```json
+/// {
+///   "curve": "secp256k1" | "ed25519" | "sr25519" | "secp256r1"
+/// }
+/// ```
+///
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "name": "secp256k1",
+///     "private_key_size": 32,
+///     "public_key_size": 33,
+///     "signature_size": 64,
+///     "chains": ["bitcoin", "ethereum", ...]
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_curve_info(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        curve: String,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    let curve_type = match crate::crypto::curves::CurveType::from_str(&request.curve) {
+        Some(c) => c,
+        None => return error_response(HawalaError::invalid_input(format!("Unknown curve: {}", request.curve))),
+    };
+
+    success_response(serde_json::json!({
+        "name": curve_type.name(),
+        "private_key_size": curve_type.private_key_size(),
+        "public_key_size": curve_type.public_key_size(),
+        "signature_size": curve_type.signature_size(),
+        "chains": curve_type.chains()
+    }))
+}
+
+// =============================================================================
+// QR Code Encoding/Decoding for Air-Gapped Signing
+// =============================================================================
+
+/// Encode data as UR (Uniform Resource) frames for animated QR display
+///
+/// # Input
+/// ```json
+/// {
+///   "type": "crypto-psbt" | "crypto-account" | "crypto-hdkey" | "bytes",
+///   "data": "0x...",  // hex-encoded data
+///   "max_fragment_size": 100  // optional, default 100
+/// }
+/// ```
+///
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "frames": ["ur:crypto-psbt/1-3/...", "ur:crypto-psbt/2-3/...", ...],
+///     "frame_count": 3,
+///     "type": "crypto-psbt"
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_qr_encode_ur(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        #[serde(rename = "type")]
+        ur_type: String,
+        data: String,
+        max_fragment_size: Option<usize>,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    let ur_type = match crate::qr::UrType::from_str(&request.ur_type) {
+        Some(t) => t,
+        None => return error_response(HawalaError::invalid_input(format!("Unknown UR type: {}", request.ur_type))),
+    };
+
+    let data_str = request.data.strip_prefix("0x").unwrap_or(&request.data);
+    let data = match hex::decode(data_str) {
+        Ok(b) => b,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid data hex: {}", e))),
+    };
+
+    let max_frag_size = request.max_fragment_size.unwrap_or(crate::qr::RECOMMENDED_FRAGMENT_SIZE);
+    
+    let encoder = crate::qr::UrEncoder::new(ur_type, &data)
+        .with_fragment_size(max_frag_size);
+    
+    match encoder.encode() {
+        Ok(frames) => {
+            let frame_count = frames.len();
+            success_response(serde_json::json!({
+                "frames": frames,
+                "frame_count": frame_count,
+                "type": ur_type.as_str()
+            }))
+        }
+        Err(e) => error_response(HawalaError::crypto_error(format!("UR encoding failed: {}", e))),
+    }
+}
+
+/// Encode data as a simple QR-ready payload (for small data)
+///
+/// # Input
+/// ```json
+/// {
+///   "data": "0x...",  // hex-encoded data
+///   "format": "hex" | "base64" | "raw"  // output format
+/// }
+/// ```
+///
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "payload": "...",
+///     "size": 256,
+///     "can_fit_single_qr": true
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_qr_encode_simple(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        data: String,
+        format: Option<String>,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    let data_str = request.data.strip_prefix("0x").unwrap_or(&request.data);
+    let data = match hex::decode(data_str) {
+        Ok(b) => b,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid data hex: {}", e))),
+    };
+
+    let format = request.format.unwrap_or_else(|| "hex".to_string());
+    
+    let payload = match format.as_str() {
+        "hex" => format!("0x{}", hex::encode(&data)),
+        "base64" => {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD.encode(&data)
+        },
+        "raw" => String::from_utf8_lossy(&data).to_string(),
+        _ => return error_response(HawalaError::invalid_input(format!("Unknown format: {}", format))),
+    };
+
+    let size = data.len();
+    let can_fit = size <= crate::qr::MAX_QR_BYTES_M;
+
+    success_response(serde_json::json!({
+        "payload": payload,
+        "size": size,
+        "can_fit_single_qr": can_fit
+    }))
+}
+
+/// Decode a UR (Uniform Resource) string
+///
+/// # Input
+/// ```json
+/// {
+///   "ur": "ur:crypto-psbt/..."
+/// }
+/// ```
+///
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "type": "crypto-psbt",
+///     "data": "0x...",
+///     "complete": true
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_qr_decode_ur(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        ur: String,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    let mut decoder = crate::qr::UrDecoder::new();
+    
+    // Try single-part decode first
+    match crate::qr::UrDecoder::decode_single(&request.ur) {
+        Ok((ur_type, data)) => success_response(serde_json::json!({
+            "type": ur_type.as_str(),
+            "data": format!("0x{}", hex::encode(&data)),
+            "complete": true
+        })),
+        Err(_) => {
+            // Try multi-part decode
+            match decoder.receive(&request.ur) {
+                Ok(complete) => {
+                    if complete {
+                        match decoder.result() {
+                            Ok((ur_type, data)) => success_response(serde_json::json!({
+                                "type": ur_type.as_str(),
+                                "data": format!("0x{}", hex::encode(&data)),
+                                "complete": true
+                            })),
+                            Err(e) => error_response(HawalaError::parse_error(format!("Failed to extract result: {}", e))),
+                        }
+                    } else {
+                        success_response(serde_json::json!({
+                            "complete": false,
+                            "progress": decoder.progress(),
+                            "message": "Submit more parts to complete"
+                        }))
+                    }
+                }
+                Err(e) => error_response(HawalaError::parse_error(format!("UR decode error: {}", e))),
+            }
+        }
+    }
+}
+
+/// Create a new UR decoder session for multi-part QR scanning
+///
+/// # Input
+/// None (empty string or "{}")
+///
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "session_id": "abc123..."
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_qr_decoder_create() -> *mut c_char {
+    // Generate a simple session ID
+    let session_id = format!("{:016x}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos());
+
+    success_response(serde_json::json!({
+        "session_id": session_id,
+        "message": "Use hawala_qr_decoder_receive to submit frames"
+    }))
+}
+
+/// Get supported UR types
+///
+/// # Input
+/// None
+///
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "types": [
+///       {"name": "crypto-psbt", "description": "Partially Signed Bitcoin Transaction"},
+///       {"name": "crypto-account", "description": "Cryptocurrency account"},
+///       ...
+///     ]
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_qr_supported_types() -> *mut c_char {
+    success_response(serde_json::json!({
+        "types": [
+            {"name": "crypto-psbt", "description": "Partially Signed Bitcoin Transaction (BIP-174)"},
+            {"name": "crypto-account", "description": "Cryptocurrency account descriptor"},
+            {"name": "crypto-hdkey", "description": "HD wallet key (BIP-32)"},
+            {"name": "crypto-output", "description": "Bitcoin output descriptor"},
+            {"name": "crypto-seed", "description": "Cryptographic seed"},
+            {"name": "crypto-keypath", "description": "Key derivation path"},
+            {"name": "bytes", "description": "Raw byte data"},
+            {"name": "crypto-request", "description": "Signing request"},
+            {"name": "crypto-response", "description": "Signing response"}
+        ],
+        "max_single_qr_size_bytes": crate::qr::MAX_QR_BYTES_M,
+        "recommended_fragment_size": crate::qr::RECOMMENDED_FRAGMENT_SIZE
+    }))
+}
+
+// =============================================================================
+// HD Key Derivation (BIP-32 / SLIP-0010)
+// =============================================================================
+
+/// Derive a child key from a parent key using BIP-32 or SLIP-0010
+///
+/// # Input
+/// ```json
+/// {
+///   "curve": "secp256k1" | "ed25519",
+///   "seed": "0x...",  // 64-byte seed from mnemonic
+///   "path": "m/44'/0'/0'/0/0"  // derivation path
+/// }
+/// ```
+///
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "private_key": "0x...",
+///     "public_key": "0x...",
+///     "chain_code": "0x...",
+///     "path": "m/44'/0'/0'/0/0"
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_derive_key(input: *const c_char) -> *mut c_char {
+    let input_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        curve: String,
+        seed: String,
+        path: String,
+    }
+
+    let request: Request = match serde_json::from_str(input_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("JSON parse error: {}", e))),
+    };
+
+    let seed_str = request.seed.strip_prefix("0x").unwrap_or(&request.seed);
+    let seed = match hex::decode(seed_str) {
+        Ok(b) => b,
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid seed hex: {}", e))),
+    };
+
+    // Use existing wallet derivation logic based on curve
+    match request.curve.to_lowercase().as_str() {
+        "secp256k1" => {
+            // BIP-32 derivation
+            match derive_secp256k1_key(&seed, &request.path) {
+                Ok((private_key, public_key, chain_code)) => success_response(serde_json::json!({
+                    "private_key": format!("0x{}", hex::encode(&private_key)),
+                    "public_key": format!("0x{}", hex::encode(&public_key)),
+                    "chain_code": format!("0x{}", hex::encode(&chain_code)),
+                    "path": request.path,
+                    "curve": "secp256k1"
+                })),
+                Err(e) => error_response(HawalaError::crypto_error(format!("Derivation failed: {}", e))),
+            }
+        }
+        "ed25519" => {
+            // SLIP-0010 derivation
+            match derive_ed25519_key(&seed, &request.path) {
+                Ok((private_key, public_key, chain_code)) => success_response(serde_json::json!({
+                    "private_key": format!("0x{}", hex::encode(&private_key)),
+                    "public_key": format!("0x{}", hex::encode(&public_key)),
+                    "chain_code": format!("0x{}", hex::encode(&chain_code)),
+                    "path": request.path,
+                    "curve": "ed25519"
+                })),
+                Err(e) => error_response(HawalaError::crypto_error(format!("Derivation failed: {}", e))),
+            }
+        }
+        _ => error_response(HawalaError::invalid_input(format!("Unsupported curve for derivation: {}", request.curve))),
+    }
+}
+
+// Helper for BIP-32 secp256k1 derivation
+fn derive_secp256k1_key(seed: &[u8], path: &str) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), String> {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha512;
+    
+    type HmacSha512 = Hmac<Sha512>;
+    
+    // Master key derivation
+    let mut mac = HmacSha512::new_from_slice(b"Bitcoin seed")
+        .map_err(|e| format!("HMAC error: {}", e))?;
+    mac.update(seed);
+    let result = mac.finalize().into_bytes();
+    
+    let mut key = result[..32].to_vec();
+    let mut chain_code = result[32..].to_vec();
+    
+    // Parse and apply path
+    let path = path.trim_start_matches("m/");
+    if !path.is_empty() {
+        for component in path.split('/') {
+            let (index, hardened) = if component.ends_with('\'') || component.ends_with('h') {
+                let idx: u32 = component.trim_end_matches(|c| c == '\'' || c == 'h')
+                    .parse()
+                    .map_err(|_| format!("Invalid path component: {}", component))?;
+                (idx | 0x80000000, true)
+            } else {
+                let idx: u32 = component.parse()
+                    .map_err(|_| format!("Invalid path component: {}", component))?;
+                (idx, false)
+            };
+            
+            let mut mac = HmacSha512::new_from_slice(&chain_code)
+                .map_err(|e| format!("HMAC error: {}", e))?;
+            
+            if hardened {
+                mac.update(&[0u8]);
+                mac.update(&key);
+            } else {
+                // Compute public key for non-hardened derivation
+                let secp = secp256k1::Secp256k1::new();
+                let secret_key = secp256k1::SecretKey::from_slice(&key)
+                    .map_err(|e| format!("Invalid key: {}", e))?;
+                let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
+                mac.update(&public_key.serialize());
+            }
+            
+            mac.update(&index.to_be_bytes());
+            let result = mac.finalize().into_bytes();
+            
+            // Add to parent key
+            let mut key_int = secp256k1::SecretKey::from_slice(&key)
+                .map_err(|e| format!("Invalid key: {}", e))?;
+            key_int = key_int.add_tweak(&secp256k1::Scalar::from_be_bytes(result[..32].try_into().unwrap()).unwrap())
+                .map_err(|e| format!("Key tweak failed: {}", e))?;
+            
+            key = key_int.secret_bytes().to_vec();
+            chain_code = result[32..].to_vec();
+        }
+    }
+    
+    // Compute public key
+    let secp = secp256k1::Secp256k1::new();
+    let secret_key = secp256k1::SecretKey::from_slice(&key)
+        .map_err(|e| format!("Invalid derived key: {}", e))?;
+    let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
+    
+    Ok((key, public_key.serialize().to_vec(), chain_code))
+}
+
+// Helper for SLIP-0010 ed25519 derivation
+fn derive_ed25519_key(seed: &[u8], path: &str) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), String> {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha512;
+    
+    type HmacSha512 = Hmac<Sha512>;
+    
+    // Master key derivation (SLIP-0010 uses "ed25519 seed" for Ed25519)
+    let mut mac = HmacSha512::new_from_slice(b"ed25519 seed")
+        .map_err(|e| format!("HMAC error: {}", e))?;
+    mac.update(seed);
+    let result = mac.finalize().into_bytes();
+    
+    let mut key = result[..32].to_vec();
+    let mut chain_code = result[32..].to_vec();
+    
+    // Parse and apply path (Ed25519 only supports hardened derivation)
+    let path = path.trim_start_matches("m/");
+    if !path.is_empty() {
+        for component in path.split('/') {
+            let index: u32 = if component.ends_with('\'') || component.ends_with('h') {
+                let idx: u32 = component.trim_end_matches(|c| c == '\'' || c == 'h')
+                    .parse()
+                    .map_err(|_| format!("Invalid path component: {}", component))?;
+                idx | 0x80000000
+            } else {
+                // Ed25519 SLIP-0010 requires all hardened
+                let idx: u32 = component.parse()
+                    .map_err(|_| format!("Invalid path component: {}", component))?;
+                idx | 0x80000000
+            };
+            
+            let mut mac = HmacSha512::new_from_slice(&chain_code)
+                .map_err(|e| format!("HMAC error: {}", e))?;
+            mac.update(&[0u8]);
+            mac.update(&key);
+            mac.update(&index.to_be_bytes());
+            let result = mac.finalize().into_bytes();
+            
+            key = result[..32].to_vec();
+            chain_code = result[32..].to_vec();
+        }
+    }
+    
+    // Compute public key
+    use ed25519_dalek::{SigningKey, VerifyingKey};
+    let signing_key = SigningKey::from_bytes(&key.clone().try_into().map_err(|_| "Invalid key length")?);
+    let verifying_key: VerifyingKey = (&signing_key).into();
+    
+    Ok((key, verifying_key.to_bytes().to_vec(), chain_code))
 }

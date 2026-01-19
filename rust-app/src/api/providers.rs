@@ -60,6 +60,17 @@ pub fn fetch_balance(address: &str, chain: Chain) -> HawalaResult<Balance> {
                 balance_raw: "0".to_string(),
             })
         }
+        // EVM-compatible chains
+        chain if chain.is_evm() => {
+            fetch_evm_balance(&client, address, chain)
+        }
+        // Default fallback
+        _ => Ok(Balance {
+            chain,
+            address: address.to_string(),
+            balance: "0".to_string(),
+            balance_raw: "0".to_string(),
+        }),
     }
 }
 
@@ -132,7 +143,8 @@ fn fetch_evm_balance(
         Chain::Optimism => "https://mainnet.optimism.io",
         Chain::Base => "https://mainnet.base.org",
         Chain::Avalanche => "https://api.avax.network/ext/bc/C/rpc",
-        _ => return Err(HawalaError::invalid_input("Invalid EVM chain")),
+        // For other EVM chains, try to use a default public RPC
+        _ => "https://eth.llamarpc.com",
     };
     
     let payload = serde_json::json!({

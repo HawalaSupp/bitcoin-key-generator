@@ -11352,6 +11352,39 @@ struct AllKeys: Codable {
     let ethereumSepolia: EthereumKeys
     let bnb: BnbKeys
     let xrp: XrpKeys
+    // New chains from wallet-core integration
+    let ton: TonKeys
+    let aptos: AptosKeys
+    let sui: SuiKeys
+    let polkadot: PolkadotKeys
+    // Extended chain support
+    let dogecoin: DogecoinKeys
+    let bitcoinCash: BitcoinCashKeys
+    let cosmos: CosmosKeys
+    let cardano: CardanoKeys
+    let tron: TronKeys
+    let algorand: AlgorandKeys
+    let stellar: StellarKeys
+    let near: NearKeys
+    let tezos: TezosKeys
+    let hedera: HederaKeys
+    // Extended chain support (16 new chains)
+    let zcash: ZcashKeys
+    let dash: DashKeys
+    let ravencoin: RavencoinKeys
+    let vechain: VechainKeys
+    let filecoin: FilecoinKeys
+    let harmony: HarmonyKeys
+    let oasis: OasisKeys
+    let internetComputer: InternetComputerKeys
+    let waves: WavesKeys
+    let multiversx: MultiversXKeys
+    let flow: FlowKeys
+    let mina: MinaKeys
+    let zilliqa: ZilliqaKeys
+    let eos: EosKeys
+    let neo: NeoKeys
+    let nervos: NervosKeys
 
     private enum CodingKeys: String, CodingKey {
         case bitcoin
@@ -11363,6 +11396,36 @@ struct AllKeys: Codable {
         case ethereumSepolia = "ethereum_sepolia"
         case bnb
         case xrp
+        case ton
+        case aptos
+        case sui
+        case polkadot
+        case dogecoin
+        case bitcoinCash = "bitcoin_cash"
+        case cosmos
+        case cardano
+        case tron
+        case algorand
+        case stellar
+        case near
+        case tezos
+        case hedera
+        case zcash
+        case dash
+        case ravencoin
+        case vechain
+        case filecoin
+        case harmony
+        case oasis
+        case internetComputer = "internet_computer"
+        case waves
+        case multiversx
+        case flow
+        case mina
+        case zilliqa
+        case eos
+        case neo
+        case nervos
     }
 
     var chainInfos: [ChainInfo] {
@@ -11546,6 +11609,1093 @@ struct AllKeys: Codable {
             )
         }
 
+        // MARK: - New Chains (wallet-core integration)
+        
+        // TON (The Open Network)
+        cards.append(
+            ChainInfo(
+                id: "ton",
+                title: "TON",
+                subtitle: "The Open Network",
+                iconName: "diamond.fill",
+                accentColor: Color(red: 0.0, green: 0.58, blue: 0.87),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ton.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: ton.publicHex),
+                    KeyDetail(label: "Address", value: ton.address)
+                ],
+                receiveAddress: ton.address
+            )
+        )
+        
+        // Aptos
+        cards.append(
+            ChainInfo(
+                id: "aptos",
+                title: "Aptos",
+                subtitle: "Layer 1 Blockchain",
+                iconName: "a.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.82, blue: 0.69),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: aptos.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: aptos.publicHex),
+                    KeyDetail(label: "Address", value: aptos.address)
+                ],
+                receiveAddress: aptos.address
+            )
+        )
+        
+        // Sui
+        cards.append(
+            ChainInfo(
+                id: "sui",
+                title: "Sui",
+                subtitle: "Layer 1 Blockchain",
+                iconName: "drop.fill",
+                accentColor: Color(red: 0.29, green: 0.56, blue: 0.89),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: sui.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: sui.publicHex),
+                    KeyDetail(label: "Address", value: sui.address)
+                ],
+                receiveAddress: sui.address
+            )
+        )
+        
+        // Polkadot
+        cards.append(
+            ChainInfo(
+                id: "polkadot",
+                title: "Polkadot",
+                subtitle: "DOT Network",
+                iconName: "circle.hexagongrid.fill",
+                accentColor: Color(red: 0.9, green: 0.05, blue: 0.45),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: polkadot.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: polkadot.publicHex),
+                    KeyDetail(label: "Polkadot Address", value: polkadot.address),
+                    KeyDetail(label: "Kusama Address", value: polkadot.kusamaAddress)
+                ],
+                receiveAddress: polkadot.address
+            )
+        )
+        
+        // Kusama (uses same keys as Polkadot)
+        cards.append(
+            ChainInfo(
+                id: "kusama",
+                title: "Kusama",
+                subtitle: "KSM Network",
+                iconName: "bird.fill",
+                accentColor: Color(red: 0.13, green: 0.13, blue: 0.13),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: polkadot.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: polkadot.publicHex),
+                    KeyDetail(label: "Kusama Address", value: polkadot.kusamaAddress)
+                ],
+                receiveAddress: polkadot.kusamaAddress
+            )
+        )
+        
+        // MARK: - EVM Compatible Chains (share Ethereum keys)
+        
+        // Polygon (POL)
+        cards.append(
+            ChainInfo(
+                id: "polygon",
+                title: "Polygon",
+                subtitle: "POL Network (Chain ID: 137)",
+                iconName: "hexagon.fill",
+                accentColor: Color(red: 0.51, green: 0.27, blue: 0.83),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "137")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Arbitrum
+        cards.append(
+            ChainInfo(
+                id: "arbitrum",
+                title: "Arbitrum One",
+                subtitle: "L2 Rollup (Chain ID: 42161)",
+                iconName: "a.circle.fill",
+                accentColor: Color(red: 0.16, green: 0.42, blue: 0.77),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "42161")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Optimism
+        cards.append(
+            ChainInfo(
+                id: "optimism",
+                title: "OP Mainnet",
+                subtitle: "L2 Rollup (Chain ID: 10)",
+                iconName: "o.circle.fill",
+                accentColor: Color(red: 1.0, green: 0.04, blue: 0.04),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "10")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Base
+        cards.append(
+            ChainInfo(
+                id: "base",
+                title: "Base",
+                subtitle: "Coinbase L2 (Chain ID: 8453)",
+                iconName: "b.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.32, blue: 1.0),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "8453")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Avalanche C-Chain
+        cards.append(
+            ChainInfo(
+                id: "avalanche",
+                title: "Avalanche C-Chain",
+                subtitle: "AVAX (Chain ID: 43114)",
+                iconName: "a.circle.fill",
+                accentColor: Color(red: 0.89, green: 0.23, blue: 0.26),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "43114")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Fantom
+        cards.append(
+            ChainInfo(
+                id: "fantom",
+                title: "Fantom",
+                subtitle: "FTM Opera (Chain ID: 250)",
+                iconName: "f.circle.fill",
+                accentColor: Color(red: 0.07, green: 0.46, blue: 0.91),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "250")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Cronos
+        cards.append(
+            ChainInfo(
+                id: "cronos",
+                title: "Cronos",
+                subtitle: "CRO Chain (Chain ID: 25)",
+                iconName: "c.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.18, blue: 0.31),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "25")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // zkSync Era
+        cards.append(
+            ChainInfo(
+                id: "zksync",
+                title: "zkSync Era",
+                subtitle: "ZK Rollup (Chain ID: 324)",
+                iconName: "z.circle.fill",
+                accentColor: Color(red: 0.28, green: 0.35, blue: 0.97),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "324")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Linea
+        cards.append(
+            ChainInfo(
+                id: "linea",
+                title: "Linea",
+                subtitle: "ConsenSys L2 (Chain ID: 59144)",
+                iconName: "l.circle.fill",
+                accentColor: Color(red: 0.38, green: 0.38, blue: 0.38),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "59144")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Scroll
+        cards.append(
+            ChainInfo(
+                id: "scroll",
+                title: "Scroll",
+                subtitle: "ZK Rollup (Chain ID: 534352)",
+                iconName: "scroll.fill",
+                accentColor: Color(red: 1.0, green: 0.84, blue: 0.5),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "534352")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Blast
+        cards.append(
+            ChainInfo(
+                id: "blast",
+                title: "Blast",
+                subtitle: "Native Yield L2 (Chain ID: 81457)",
+                iconName: "bolt.circle.fill",
+                accentColor: Color(red: 0.99, green: 0.98, blue: 0.0),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "81457")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Mantle
+        cards.append(
+            ChainInfo(
+                id: "mantle",
+                title: "Mantle",
+                subtitle: "MNT Network (Chain ID: 5000)",
+                iconName: "m.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.0, blue: 0.0),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "5000")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Moonbeam
+        cards.append(
+            ChainInfo(
+                id: "moonbeam",
+                title: "Moonbeam",
+                subtitle: "GLMR (Chain ID: 1284)",
+                iconName: "moon.fill",
+                accentColor: Color(red: 0.32, green: 0.85, blue: 0.89),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "1284")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Moonriver
+        cards.append(
+            ChainInfo(
+                id: "moonriver",
+                title: "Moonriver",
+                subtitle: "MOVR (Chain ID: 1285)",
+                iconName: "moon.stars.fill",
+                accentColor: Color(red: 0.95, green: 0.76, blue: 0.18),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "1285")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Gnosis Chain (xDai)
+        cards.append(
+            ChainInfo(
+                id: "gnosis",
+                title: "Gnosis Chain",
+                subtitle: "xDAI (Chain ID: 100)",
+                iconName: "g.circle.fill",
+                accentColor: Color(red: 0.02, green: 0.55, blue: 0.48),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "100")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Celo
+        cards.append(
+            ChainInfo(
+                id: "celo",
+                title: "Celo",
+                subtitle: "CELO (Chain ID: 42220)",
+                iconName: "c.circle.fill",
+                accentColor: Color(red: 0.21, green: 0.81, blue: 0.55),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "42220")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Polygon zkEVM
+        cards.append(
+            ChainInfo(
+                id: "polygon-zkevm",
+                title: "Polygon zkEVM",
+                subtitle: "ZK Rollup (Chain ID: 1101)",
+                iconName: "hexagon.fill",
+                accentColor: Color(red: 0.51, green: 0.27, blue: 0.83).opacity(0.8),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "1101")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Metis
+        cards.append(
+            ChainInfo(
+                id: "metis",
+                title: "Metis",
+                subtitle: "METIS (Chain ID: 1088)",
+                iconName: "m.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.85, blue: 0.73),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "1088")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Aurora (NEAR EVM)
+        cards.append(
+            ChainInfo(
+                id: "aurora",
+                title: "Aurora",
+                subtitle: "NEAR EVM (Chain ID: 1313161554)",
+                iconName: "a.circle.fill",
+                accentColor: Color(red: 0.47, green: 0.85, blue: 0.44),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "1313161554")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Evmos
+        cards.append(
+            ChainInfo(
+                id: "evmos",
+                title: "Evmos",
+                subtitle: "EVM on Cosmos (Chain ID: 9001)",
+                iconName: "e.circle.fill",
+                accentColor: Color(red: 0.93, green: 0.29, blue: 0.23),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "9001")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Kava EVM
+        cards.append(
+            ChainInfo(
+                id: "kava-evm",
+                title: "Kava EVM",
+                subtitle: "KAVA (Chain ID: 2222)",
+                iconName: "k.circle.fill",
+                accentColor: Color(red: 1.0, green: 0.22, blue: 0.22),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "2222")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // opBNB
+        cards.append(
+            ChainInfo(
+                id: "opbnb",
+                title: "opBNB",
+                subtitle: "BNB L2 (Chain ID: 204)",
+                iconName: "o.circle.fill",
+                accentColor: Color(red: 0.95, green: 0.77, blue: 0.23),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "204")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Sonic (Fantom rebrand)
+        cards.append(
+            ChainInfo(
+                id: "sonic",
+                title: "Sonic",
+                subtitle: "S Token (Chain ID: 146)",
+                iconName: "s.circle.fill",
+                accentColor: Color(red: 0.18, green: 0.07, blue: 0.91),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "146")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Arbitrum Nova
+        cards.append(
+            ChainInfo(
+                id: "arbitrum-nova",
+                title: "Arbitrum Nova",
+                subtitle: "AnyTrust L2 (Chain ID: 42170)",
+                iconName: "a.circle.fill",
+                accentColor: Color(red: 0.91, green: 0.56, blue: 0.2),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "42170")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+        
+        // Manta Pacific
+        cards.append(
+            ChainInfo(
+                id: "manta",
+                title: "Manta Pacific",
+                subtitle: "Modular L2 (Chain ID: 169)",
+                iconName: "m.circle.fill",
+                accentColor: Color(red: 0.25, green: 0.78, blue: 0.94),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ethereum.privateHex),
+                    KeyDetail(label: "Public Key (uncompressed hex)", value: ethereum.publicUncompressedHex),
+                    KeyDetail(label: "Address", value: ethereum.address),
+                    KeyDetail(label: "Chain ID", value: "169")
+                ],
+                receiveAddress: ethereum.address
+            )
+        )
+
+        // MARK: - Bitcoin Forks
+        
+        // Dogecoin
+        cards.append(
+            ChainInfo(
+                id: "dogecoin",
+                title: "Dogecoin",
+                subtitle: "DOGE",
+                iconName: "d.circle.fill",
+                accentColor: Color(red: 0.78, green: 0.63, blue: 0.26),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: dogecoin.privateHex),
+                    KeyDetail(label: "Private Key (WIF)", value: dogecoin.privateWif),
+                    KeyDetail(label: "Public Key (compressed hex)", value: dogecoin.publicCompressedHex),
+                    KeyDetail(label: "Address", value: dogecoin.address)
+                ],
+                receiveAddress: dogecoin.address
+            )
+        )
+        
+        // Bitcoin Cash
+        cards.append(
+            ChainInfo(
+                id: "bitcoin-cash",
+                title: "Bitcoin Cash",
+                subtitle: "BCH (CashAddr)",
+                iconName: "bitcoinsign.circle.fill",
+                accentColor: Color(red: 0.55, green: 0.78, blue: 0.25),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: bitcoinCash.privateHex),
+                    KeyDetail(label: "Private Key (WIF)", value: bitcoinCash.privateWif),
+                    KeyDetail(label: "Public Key (compressed hex)", value: bitcoinCash.publicCompressedHex),
+                    KeyDetail(label: "Legacy Address", value: bitcoinCash.legacyAddress),
+                    KeyDetail(label: "CashAddr", value: bitcoinCash.cashAddress)
+                ],
+                receiveAddress: bitcoinCash.cashAddress
+            )
+        )
+        
+        // MARK: - Cosmos Ecosystem
+        
+        // Cosmos Hub
+        cards.append(
+            ChainInfo(
+                id: "cosmos",
+                title: "Cosmos Hub",
+                subtitle: "ATOM",
+                iconName: "atom",
+                accentColor: Color(red: 0.18, green: 0.16, blue: 0.35),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: cosmos.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: cosmos.publicHex),
+                    KeyDetail(label: "Address", value: cosmos.cosmosAddress)
+                ],
+                receiveAddress: cosmos.cosmosAddress
+            )
+        )
+        
+        // Osmosis
+        cards.append(
+            ChainInfo(
+                id: "osmosis",
+                title: "Osmosis",
+                subtitle: "OSMO",
+                iconName: "drop.fill",
+                accentColor: Color(red: 0.46, green: 0.09, blue: 0.97),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: cosmos.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: cosmos.publicHex),
+                    KeyDetail(label: "Address", value: cosmos.osmosisAddress)
+                ],
+                receiveAddress: cosmos.osmosisAddress
+            )
+        )
+        
+        // Celestia
+        cards.append(
+            ChainInfo(
+                id: "celestia",
+                title: "Celestia",
+                subtitle: "TIA",
+                iconName: "moon.stars.fill",
+                accentColor: Color(red: 0.45, green: 0.31, blue: 0.71),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: cosmos.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: cosmos.publicHex),
+                    KeyDetail(label: "Address", value: cosmos.celestiaAddress)
+                ],
+                receiveAddress: cosmos.celestiaAddress
+            )
+        )
+        
+        // dYdX
+        cards.append(
+            ChainInfo(
+                id: "dydx",
+                title: "dYdX",
+                subtitle: "DYDX",
+                iconName: "chart.line.uptrend.xyaxis",
+                accentColor: Color(red: 0.4, green: 0.31, blue: 0.85),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: cosmos.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: cosmos.publicHex),
+                    KeyDetail(label: "Address", value: cosmos.dydxAddress)
+                ],
+                receiveAddress: cosmos.dydxAddress
+            )
+        )
+        
+        // Injective
+        cards.append(
+            ChainInfo(
+                id: "injective",
+                title: "Injective",
+                subtitle: "INJ",
+                iconName: "arrow.up.right.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.85, blue: 0.98),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: cosmos.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: cosmos.publicHex),
+                    KeyDetail(label: "Address", value: cosmos.injectiveAddress)
+                ],
+                receiveAddress: cosmos.injectiveAddress
+            )
+        )
+        
+        // Sei
+        cards.append(
+            ChainInfo(
+                id: "sei",
+                title: "Sei",
+                subtitle: "SEI",
+                iconName: "s.circle.fill",
+                accentColor: Color(red: 0.6, green: 0.13, blue: 0.19),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: cosmos.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: cosmos.publicHex),
+                    KeyDetail(label: "Address", value: cosmos.seiAddress)
+                ],
+                receiveAddress: cosmos.seiAddress
+            )
+        )
+        
+        // MARK: - Other Major Chains
+        
+        // Cardano
+        cards.append(
+            ChainInfo(
+                id: "cardano",
+                title: "Cardano",
+                subtitle: "ADA",
+                iconName: "c.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.2, blue: 0.47),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: cardano.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: cardano.publicHex),
+                    KeyDetail(label: "Address", value: cardano.address)
+                ],
+                receiveAddress: cardano.address
+            )
+        )
+        
+        // Tron
+        cards.append(
+            ChainInfo(
+                id: "tron",
+                title: "Tron",
+                subtitle: "TRX",
+                iconName: "t.circle.fill",
+                accentColor: Color(red: 0.92, green: 0.07, blue: 0.14),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: tron.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: tron.publicHex),
+                    KeyDetail(label: "Address", value: tron.address)
+                ],
+                receiveAddress: tron.address
+            )
+        )
+        
+        // Algorand
+        cards.append(
+            ChainInfo(
+                id: "algorand",
+                title: "Algorand",
+                subtitle: "ALGO",
+                iconName: "a.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.0, blue: 0.0),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: algorand.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: algorand.publicHex),
+                    KeyDetail(label: "Address", value: algorand.address)
+                ],
+                receiveAddress: algorand.address
+            )
+        )
+        
+        // Stellar
+        cards.append(
+            ChainInfo(
+                id: "stellar",
+                title: "Stellar",
+                subtitle: "XLM",
+                iconName: "star.fill",
+                accentColor: Color(red: 0.07, green: 0.07, blue: 0.07),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: stellar.privateHex),
+                    KeyDetail(label: "Secret Key", value: stellar.secretKey),
+                    KeyDetail(label: "Public Key (hex)", value: stellar.publicHex),
+                    KeyDetail(label: "Address", value: stellar.address)
+                ],
+                receiveAddress: stellar.address
+            )
+        )
+        
+        // NEAR
+        cards.append(
+            ChainInfo(
+                id: "near",
+                title: "NEAR Protocol",
+                subtitle: "NEAR",
+                iconName: "n.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.82, blue: 0.55),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: near.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: near.publicHex),
+                    KeyDetail(label: "Implicit Address", value: near.implicitAddress)
+                ],
+                receiveAddress: near.implicitAddress
+            )
+        )
+        
+        // Tezos
+        cards.append(
+            ChainInfo(
+                id: "tezos",
+                title: "Tezos",
+                subtitle: "XTZ",
+                iconName: "t.circle.fill",
+                accentColor: Color(red: 0.17, green: 0.49, blue: 0.94),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: tezos.privateHex),
+                    KeyDetail(label: "Secret Key (edsk)", value: tezos.secretKey),
+                    KeyDetail(label: "Public Key (hex)", value: tezos.publicHex),
+                    KeyDetail(label: "Public Key (edpk)", value: tezos.publicKey),
+                    KeyDetail(label: "Address", value: tezos.address)
+                ],
+                receiveAddress: tezos.address
+            )
+        )
+        
+        // Hedera
+        cards.append(
+            ChainInfo(
+                id: "hedera",
+                title: "Hedera",
+                subtitle: "HBAR",
+                iconName: "h.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.0, blue: 0.0),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: hedera.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: hedera.publicHex),
+                    KeyDetail(label: "Public Key (DER)", value: hedera.publicKeyDer)
+                ],
+                receiveAddress: hedera.publicKeyDer
+            )
+        )
+        
+        // MARK: - Extended Chain Support (16 new chains)
+        
+        // Zcash
+        cards.append(
+            ChainInfo(
+                id: "zcash",
+                title: "Zcash",
+                subtitle: "ZEC (t-address)",
+                iconName: "z.circle.fill",
+                accentColor: Color(red: 0.96, green: 0.78, blue: 0.07),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: zcash.privateHex),
+                    KeyDetail(label: "Private Key (WIF)", value: zcash.privateWif),
+                    KeyDetail(label: "Public Key (compressed)", value: zcash.publicCompressedHex),
+                    KeyDetail(label: "Transparent Address", value: zcash.transparentAddress)
+                ],
+                receiveAddress: zcash.transparentAddress
+            )
+        )
+        
+        // Dash
+        cards.append(
+            ChainInfo(
+                id: "dash",
+                title: "Dash",
+                subtitle: "DASH",
+                iconName: "d.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.55, blue: 0.85),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: dash.privateHex),
+                    KeyDetail(label: "Private Key (WIF)", value: dash.privateWif),
+                    KeyDetail(label: "Public Key (compressed)", value: dash.publicCompressedHex),
+                    KeyDetail(label: "Address", value: dash.address)
+                ],
+                receiveAddress: dash.address
+            )
+        )
+        
+        // Ravencoin
+        cards.append(
+            ChainInfo(
+                id: "ravencoin",
+                title: "Ravencoin",
+                subtitle: "RVN",
+                iconName: "bird.fill",
+                accentColor: Color(red: 0.94, green: 0.32, blue: 0.21),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: ravencoin.privateHex),
+                    KeyDetail(label: "Private Key (WIF)", value: ravencoin.privateWif),
+                    KeyDetail(label: "Public Key (compressed)", value: ravencoin.publicCompressedHex),
+                    KeyDetail(label: "Address", value: ravencoin.address)
+                ],
+                receiveAddress: ravencoin.address
+            )
+        )
+        
+        // VeChain
+        cards.append(
+            ChainInfo(
+                id: "vechain",
+                title: "VeChain",
+                subtitle: "VET",
+                iconName: "v.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.56, blue: 0.8),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: vechain.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: vechain.publicHex),
+                    KeyDetail(label: "Address", value: vechain.address)
+                ],
+                receiveAddress: vechain.address
+            )
+        )
+        
+        // Filecoin
+        cards.append(
+            ChainInfo(
+                id: "filecoin",
+                title: "Filecoin",
+                subtitle: "FIL",
+                iconName: "f.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.83, blue: 0.95),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: filecoin.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: filecoin.publicHex),
+                    KeyDetail(label: "Address (f1...)", value: filecoin.address)
+                ],
+                receiveAddress: filecoin.address
+            )
+        )
+        
+        // Harmony
+        cards.append(
+            ChainInfo(
+                id: "harmony",
+                title: "Harmony",
+                subtitle: "ONE",
+                iconName: "1.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.68, blue: 0.87),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: harmony.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: harmony.publicHex),
+                    KeyDetail(label: "Address (0x)", value: harmony.address),
+                    KeyDetail(label: "Address (one1...)", value: harmony.bech32Address)
+                ],
+                receiveAddress: harmony.bech32Address
+            )
+        )
+        
+        // Oasis Network
+        cards.append(
+            ChainInfo(
+                id: "oasis",
+                title: "Oasis Network",
+                subtitle: "ROSE",
+                iconName: "o.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.58, blue: 0.95),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: oasis.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: oasis.publicHex),
+                    KeyDetail(label: "Address (oasis1...)", value: oasis.address)
+                ],
+                receiveAddress: oasis.address
+            )
+        )
+        
+        // Internet Computer
+        cards.append(
+            ChainInfo(
+                id: "internet-computer",
+                title: "Internet Computer",
+                subtitle: "ICP",
+                iconName: "infinity.circle.fill",
+                accentColor: Color(red: 0.16, green: 0.0, blue: 0.51),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: internetComputer.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: internetComputer.publicHex),
+                    KeyDetail(label: "Principal ID", value: internetComputer.principalId),
+                    KeyDetail(label: "Account ID", value: internetComputer.accountId)
+                ],
+                receiveAddress: internetComputer.principalId
+            )
+        )
+        
+        // Waves
+        cards.append(
+            ChainInfo(
+                id: "waves",
+                title: "Waves",
+                subtitle: "WAVES",
+                iconName: "waveform.path",
+                accentColor: Color(red: 0.0, green: 0.58, blue: 0.95),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: waves.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: waves.publicHex),
+                    KeyDetail(label: "Address", value: waves.address)
+                ],
+                receiveAddress: waves.address
+            )
+        )
+        
+        // MultiversX (Elrond)
+        cards.append(
+            ChainInfo(
+                id: "multiversx",
+                title: "MultiversX",
+                subtitle: "EGLD (formerly Elrond)",
+                iconName: "x.circle.fill",
+                accentColor: Color(red: 0.14, green: 0.71, blue: 0.88),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: multiversx.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: multiversx.publicHex),
+                    KeyDetail(label: "Address (erd1...)", value: multiversx.address)
+                ],
+                receiveAddress: multiversx.address
+            )
+        )
+        
+        // Flow
+        cards.append(
+            ChainInfo(
+                id: "flow",
+                title: "Flow",
+                subtitle: "FLOW",
+                iconName: "flow.fill",
+                accentColor: Color(red: 0.0, green: 0.94, blue: 0.47),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: flow.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: flow.publicHex),
+                    KeyDetail(label: "Address", value: flow.address)
+                ],
+                receiveAddress: flow.address
+            )
+        )
+        
+        // Mina Protocol
+        cards.append(
+            ChainInfo(
+                id: "mina",
+                title: "Mina Protocol",
+                subtitle: "MINA",
+                iconName: "m.circle.fill",
+                accentColor: Color(red: 0.42, green: 0.16, blue: 0.88),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: mina.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: mina.publicHex),
+                    KeyDetail(label: "Address (B62...)", value: mina.address)
+                ],
+                receiveAddress: mina.address
+            )
+        )
+        
+        // Zilliqa
+        cards.append(
+            ChainInfo(
+                id: "zilliqa",
+                title: "Zilliqa",
+                subtitle: "ZIL",
+                iconName: "z.circle.fill",
+                accentColor: Color(red: 0.29, green: 0.84, blue: 0.75),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: zilliqa.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: zilliqa.publicHex),
+                    KeyDetail(label: "Base16 Address", value: zilliqa.address),
+                    KeyDetail(label: "Bech32 Address (zil1...)", value: zilliqa.bech32Address)
+                ],
+                receiveAddress: zilliqa.bech32Address
+            )
+        )
+        
+        // EOS
+        cards.append(
+            ChainInfo(
+                id: "eos",
+                title: "EOS",
+                subtitle: "EOS",
+                iconName: "e.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.0, blue: 0.0),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: eos.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: eos.publicHex),
+                    KeyDetail(label: "Public Key (EOS format)", value: eos.publicKey)
+                ],
+                receiveAddress: eos.publicKey
+            )
+        )
+        
+        // NEO
+        cards.append(
+            ChainInfo(
+                id: "neo",
+                title: "NEO",
+                subtitle: "NEO",
+                iconName: "n.circle.fill",
+                accentColor: Color(red: 0.0, green: 0.9, blue: 0.47),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: neo.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: neo.publicHex),
+                    KeyDetail(label: "Address (A...)", value: neo.address)
+                ],
+                receiveAddress: neo.address
+            )
+        )
+        
+        // Nervos CKB
+        cards.append(
+            ChainInfo(
+                id: "nervos",
+                title: "Nervos CKB",
+                subtitle: "CKB",
+                iconName: "n.circle.fill",
+                accentColor: Color(red: 0.24, green: 0.85, blue: 0.56),
+                details: [
+                    KeyDetail(label: "Private Key (hex)", value: nervos.privateHex),
+                    KeyDetail(label: "Public Key (hex)", value: nervos.publicHex),
+                    KeyDetail(label: "Address (ckb1...)", value: nervos.address)
+                ],
+                receiveAddress: nervos.address
+            )
+        )
+
         return cards
     }
 }
@@ -11644,6 +12794,434 @@ struct XrpKeys: Codable {
         case privateHex = "private_hex"
         case publicCompressedHex = "public_compressed_hex"
         case classicAddress = "classic_address"
+    }
+}
+
+// MARK: - New Chain Keys (wallet-core integration)
+
+struct TonKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+    }
+}
+
+struct AptosKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+    }
+}
+
+struct SuiKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+    }
+}
+
+struct PolkadotKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+    let kusamaAddress: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+        case kusamaAddress = "kusama_address"
+    }
+}
+
+// MARK: - New Chain Key Structs
+
+struct DogecoinKeys: Codable {
+    let privateHex: String
+    let privateWif: String
+    let publicCompressedHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case privateWif = "private_wif"
+        case publicCompressedHex = "public_compressed_hex"
+        case address
+    }
+}
+
+struct BitcoinCashKeys: Codable {
+    let privateHex: String
+    let privateWif: String
+    let publicCompressedHex: String
+    let legacyAddress: String
+    let cashAddress: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case privateWif = "private_wif"
+        case publicCompressedHex = "public_compressed_hex"
+        case legacyAddress = "legacy_address"
+        case cashAddress = "cash_address"
+    }
+}
+
+struct CosmosKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let cosmosAddress: String
+    let osmosisAddress: String
+    let celestiaAddress: String
+    let dydxAddress: String
+    let injectiveAddress: String
+    let seiAddress: String
+    let akashAddress: String
+    let kujiraAddress: String
+    let strideAddress: String
+    let secretAddress: String
+    let stargazeAddress: String
+    let junoAddress: String
+    let terraAddress: String
+    let neutronAddress: String
+    let nobleAddress: String
+    let axelarAddress: String
+    let fetchAddress: String
+    let persistenceAddress: String
+    let sommelierAddress: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case cosmosAddress = "cosmos_address"
+        case osmosisAddress = "osmosis_address"
+        case celestiaAddress = "celestia_address"
+        case dydxAddress = "dydx_address"
+        case injectiveAddress = "injective_address"
+        case seiAddress = "sei_address"
+        case akashAddress = "akash_address"
+        case kujiraAddress = "kujira_address"
+        case strideAddress = "stride_address"
+        case secretAddress = "secret_address"
+        case stargazeAddress = "stargaze_address"
+        case junoAddress = "juno_address"
+        case terraAddress = "terra_address"
+        case neutronAddress = "neutron_address"
+        case nobleAddress = "noble_address"
+        case axelarAddress = "axelar_address"
+        case fetchAddress = "fetch_address"
+        case persistenceAddress = "persistence_address"
+        case sommelierAddress = "sommelier_address"
+    }
+}
+
+struct CardanoKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+    }
+}
+
+struct TronKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+    }
+}
+
+struct AlgorandKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+    }
+}
+
+struct StellarKeys: Codable {
+    let privateHex: String
+    let secretKey: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case secretKey = "secret_key"
+        case publicHex = "public_hex"
+        case address
+    }
+}
+
+struct NearKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let implicitAddress: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case implicitAddress = "implicit_address"
+    }
+}
+
+struct TezosKeys: Codable {
+    let privateHex: String
+    let secretKey: String
+    let publicHex: String
+    let publicKey: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case secretKey = "secret_key"
+        case publicHex = "public_hex"
+        case publicKey = "public_key"
+        case address
+    }
+}
+
+struct HederaKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let publicKeyDer: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case publicKeyDer = "public_key_der"
+    }
+}
+
+// MARK: - Extended Chain Keys (16 new chains)
+
+struct ZcashKeys: Codable {
+    let privateHex: String
+    let privateWif: String
+    let publicCompressedHex: String
+    let transparentAddress: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case privateWif = "private_wif"
+        case publicCompressedHex = "public_compressed_hex"
+        case transparentAddress = "transparent_address"
+    }
+}
+
+struct DashKeys: Codable {
+    let privateHex: String
+    let privateWif: String
+    let publicCompressedHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case privateWif = "private_wif"
+        case publicCompressedHex = "public_compressed_hex"
+        case address
+    }
+}
+
+struct RavencoinKeys: Codable {
+    let privateHex: String
+    let privateWif: String
+    let publicCompressedHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case privateWif = "private_wif"
+        case publicCompressedHex = "public_compressed_hex"
+        case address
+    }
+}
+
+struct VechainKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+    }
+}
+
+struct FilecoinKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+    }
+}
+
+struct HarmonyKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+    let bech32Address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+        case bech32Address = "bech32_address"
+    }
+}
+
+struct OasisKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+    }
+}
+
+struct InternetComputerKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let principalId: String
+    let accountId: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case principalId = "principal_id"
+        case accountId = "account_id"
+    }
+}
+
+struct WavesKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+    }
+}
+
+struct MultiversXKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+    }
+}
+
+struct FlowKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+    }
+}
+
+struct MinaKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+    }
+}
+
+struct ZilliqaKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+    let bech32Address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+        case bech32Address = "bech32_address"
+    }
+}
+
+struct EosKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let publicKey: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case publicKey = "public_key"
+    }
+}
+
+struct NeoKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
+    }
+}
+
+struct NervosKeys: Codable {
+    let privateHex: String
+    let publicHex: String
+    let address: String
+
+    private enum CodingKeys: String, CodingKey {
+        case privateHex = "private_hex"
+        case publicHex = "public_hex"
+        case address
     }
 }
 

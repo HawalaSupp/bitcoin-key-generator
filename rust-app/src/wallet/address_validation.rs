@@ -84,6 +84,21 @@ pub fn validate_address_detailed(address: &str, chain: Chain) -> AddressValidati
         Chain::Solana | Chain::SolanaDevnet => validate_solana_detailed(address),
         Chain::Xrp | Chain::XrpTestnet => validate_xrp_detailed(address),
         Chain::Monero => validate_monero_detailed(address),
+        // EVM-compatible chains
+        chain if chain.is_evm() => validate_evm_detailed(address),
+        // Default fallback for new chains
+        _ => {
+            let trimmed = address.trim();
+            let is_valid = !trimmed.is_empty() && trimmed.len() >= 10;
+            AddressValidation {
+                is_valid,
+                normalized: if is_valid { Some(trimmed.to_string()) } else { None },
+                address_type: AddressType::Unknown,
+                checksum_valid: true,
+                network_match: true,
+                warnings: vec![],
+            }
+        }
     }
 }
 

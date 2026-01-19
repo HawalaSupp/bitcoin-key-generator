@@ -106,6 +106,80 @@ const char* hawala_check_key_rotation(const char* json_input);
 const char* hawala_secure_compare(const char* json_input);
 const char* hawala_redact(const char* json_input);
 
+// ----------------------------------------------------------------------------
+// EIP-712 Typed Data Signing (Advanced Signing & Security)
+// ----------------------------------------------------------------------------
+const char* hawala_eip712_hash(const char* json_input);
+const char* hawala_eip712_sign(const char* json_input);
+const char* hawala_eip712_verify(const char* json_input);
+const char* hawala_eip712_recover(const char* json_input);
+
+// ----------------------------------------------------------------------------
+// Message Signing (Personal Sign / EIP-191)
+// ----------------------------------------------------------------------------
+const char* hawala_personal_sign(const char* json_input);
+const char* hawala_personal_verify(const char* json_input);
+const char* hawala_personal_recover(const char* json_input);
+const char* hawala_solana_sign_message(const char* json_input);
+const char* hawala_solana_verify_message(const char* json_input);
+const char* hawala_cosmos_sign_arbitrary(const char* json_input);
+const char* hawala_tezos_sign_message(const char* json_input);
+
+// ----------------------------------------------------------------------------
+// EIP-7702 Account Delegation (Advanced Signing & Security)
+// ----------------------------------------------------------------------------
+const char* hawala_eip7702_sign_authorization(const char* json_input);
+const char* hawala_eip7702_sign_transaction(const char* json_input);
+const char* hawala_eip7702_recover_authorization_signer(const char* json_input);
+
+// ----------------------------------------------------------------------------
+// External Signature Compilation (Hardware Wallet / Air-Gapped Signing)
+// ----------------------------------------------------------------------------
+// Pre-image hash generation
+const char* hawala_get_bitcoin_sighashes(const char* json_input);
+const char* hawala_get_ethereum_signing_hash(const char* json_input);
+const char* hawala_get_cosmos_sign_doc_hash(const char* json_input);
+const char* hawala_get_solana_message_hash(const char* json_input);
+
+// Transaction compilation with external signatures
+const char* hawala_compile_bitcoin_transaction(const char* json_input);
+const char* hawala_compile_ethereum_transaction(const char* json_input);
+const char* hawala_compile_cosmos_transaction(const char* json_input);
+const char* hawala_compile_solana_transaction(const char* json_input);
+
+// ----------------------------------------------------------------------------
+// BIP-340 Schnorr Signatures (Bitcoin Taproot)
+// ----------------------------------------------------------------------------
+const char* hawala_schnorr_sign(const char* json_input);
+const char* hawala_schnorr_verify(const char* json_input);
+const char* hawala_taproot_tweak_pubkey(const char* json_input);
+const char* hawala_taproot_sign_key_path(const char* json_input);
+const char* hawala_taproot_leaf_hash(const char* json_input);
+const char* hawala_taproot_merkle_root(const char* json_input);
+
+// ----------------------------------------------------------------------------
+// Multi-Curve Cryptography (secp256k1, ed25519, sr25519, secp256r1)
+// ----------------------------------------------------------------------------
+const char* hawala_curve_generate_keypair(const char* json_input);
+const char* hawala_curve_public_key(const char* json_input);
+const char* hawala_curve_sign(const char* json_input);
+const char* hawala_curve_verify(const char* json_input);
+const char* hawala_curve_info(const char* json_input);
+
+// ----------------------------------------------------------------------------
+// QR Code Encoding/Decoding (Air-Gapped Signing, UR Format)
+// ----------------------------------------------------------------------------
+const char* hawala_qr_encode_ur(const char* json_input);
+const char* hawala_qr_encode_simple(const char* json_input);
+const char* hawala_qr_decode_ur(const char* json_input);
+const char* hawala_qr_decoder_create(void);
+const char* hawala_qr_supported_types(void);
+
+// ----------------------------------------------------------------------------
+// HD Key Derivation (BIP-32 / SLIP-0010)
+// ----------------------------------------------------------------------------
+const char* hawala_derive_key(const char* json_input);
+
 // ============================================================================
 // LEGACY API - Backward compatibility (deprecated, will be removed)
 // ============================================================================

@@ -520,6 +520,16 @@ pub fn broadcast_transaction(chain: Chain, raw_tx: &str) -> HawalaResult<Broadca
             ErrorCode::NotImplemented,
             "Monero broadcasting requires specialized handling",
         )),
+        // EVM-compatible chains
+        chain if chain.is_evm() => {
+            let chain_id = chain.chain_id().unwrap_or(1);
+            broadcast_evm(raw_tx, chain_id)
+        }
+        // Default for unsupported chains
+        _ => Err(HawalaError::new(
+            ErrorCode::NotImplemented,
+            format!("Broadcasting not yet supported for {:?}", chain),
+        )),
     }
 }
 

@@ -228,6 +228,7 @@ fn get_decimals(chain: Chain) -> u8 {
         Chain::Solana | Chain::SolanaDevnet => 9,
         Chain::Xrp | Chain::XrpTestnet => 6,
         Chain::Monero => 12,
+        _ => chain.decimals(),
     }
 }
 
@@ -243,6 +244,7 @@ fn get_dust_limit(chain: Chain) -> u64 {
         Chain::Solana | Chain::SolanaDevnet => dust_limits::SOLANA_RENT_EXEMPT,
         Chain::Xrp | Chain::XrpTestnet => dust_limits::XRP_RESERVE,
         Chain::Monero => 1, // Monero has no dust limit
+        _ => 1, // Default minimal dust limit
     }
 }
 
@@ -258,6 +260,7 @@ fn get_max_value(chain: Chain) -> u128 {
         Chain::Solana | Chain::SolanaDevnet => max_values::SOLANA_MAX as u128,
         Chain::Xrp | Chain::XrpTestnet => max_values::XRP_MAX as u128,
         Chain::Monero => u128::MAX, // Monero has no fixed max
+        _ => u128::MAX, // Default no max
     }
 }
 
@@ -274,6 +277,7 @@ fn get_large_amount_threshold(chain: Chain) -> u128 {
         Chain::Solana | Chain::SolanaDevnet => 1_000_000_000, // 1 SOL
         Chain::Xrp | Chain::XrpTestnet => 1_000_000_000, // 1000 XRP
         Chain::Monero => 1_000_000_000_000, // 1 XMR
+        _ => 10u128.pow(chain.decimals() as u32), // 1 native token
     }
 }
 

@@ -45,6 +45,10 @@ pub fn fetch_balance(address: &str, chain: Chain) -> HawalaResult<Balance> {
             // Monero balance requires view key
             Err(HawalaError::not_implemented("Monero balance requires view key"))
         }
+        // EVM-compatible chains
+        chain if chain.is_evm() => fetch_evm_balance(address, chain),
+        // Default fallback
+        _ => Err(HawalaError::not_implemented(format!("Balance fetching not yet supported for {:?}", chain))),
     }
 }
 

@@ -9,7 +9,7 @@ struct HawalaMainView: View {
     @Binding var selectedChain: ChainInfo?
     @Binding var balanceStates: [String: ChainBalanceState]
     @Binding var priceStates: [String: ChainPriceState]
-    @StateObject var sparklineCache: SparklineCache
+    @ObservedObject var sparklineCache: SparklineCache
     
     // Privacy
     @ObservedObject private var privacyManager = PrivacyManager.shared
@@ -18,6 +18,14 @@ struct HawalaMainView: View {
     @AppStorage("showBalances") private var showBalances = true
     @AppStorage("showTestnets") private var showTestnets = false
     @AppStorage("selectedBackgroundType") private var selectedBackgroundType = "none"
+    @AppStorage("portfolioTestMode") private var portfolioTestMode = false
+    
+    // Demo mode editable amounts
+    @AppStorage("demo_bitcoin") private var demoBitcoin: Double = 45230.0
+    @AppStorage("demo_ethereum") private var demoEthereum: Double = 28150.0
+    @AppStorage("demo_solana") private var demoSolana: Double = 12890.0
+    @AppStorage("demo_litecoin") private var demoLitecoin: Double = 8420.0
+    @AppStorage("demo_monero") private var demoMonero: Double = 5310.0
     
     // Computed property for hiding balances (respects both settings and privacy mode)
     private var shouldHideBalances: Bool {
@@ -507,46 +515,64 @@ struct HawalaMainView: View {
         .padding(.bottom, HawalaTheme.Spacing.xxl)
     }
     
-    // MARK: - Minimalist Balance Display (No background, centered, modern font)
+    // MARK: - Minimalist Balance Display (Gradient Text Animation)
     private var minimalistBalanceDisplay: some View {
         VStack(alignment: .center, spacing: HawalaTheme.Spacing.sm) {
             if let keys = keys {
                 let isLoading = areAllBalancesLoading(chains: keys.chainInfos)
                 
                 if isLoading {
-                    // Simple loading state - no shimmer animation
-                    Text("$0.00")
-                        .font(.clashGroteskBold(size: 56))
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
-                        .opacity(0.5)
+                    // Loading state
+                    VStack(spacing: 12) {
+                        Text("Portfolio Value")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                            .textCase(.uppercase)
+                            .tracking(1.5)
+                        
+                        Text("$0.00")
+                            .font(.clashGroteskBold(size: 72))
+                            .foregroundColor(HawalaTheme.Colors.textTertiary)
+                            .opacity(0.5)
+                    }
                 } else {
                     let total = calculateTotalBalance()
+                    let segments = calculatePortfolioSegments()
+                    let portfolioChange = calculatePortfolioChange()
                     
-                    // Main balance with magnetic hover effect
-                    if showBalances {
-                        MagneticBalanceText(
-                            text: selectedFiatSymbol + formatLargeNumber(total),
-                            fontSize: 56
-                        )
-                    } else {
-                        Text("••••••")
-                            .font(.clashGroteskBold(size: 56))
-                            .foregroundColor(HawalaTheme.Colors.textTertiary)
-                    }
+                    // Animated gradient text reflecting portfolio allocation
+                    PortfolioGradientText(
+                        segments: segments,
+                        totalValue: formatLargeNumber(total),
+                        currencySymbol: selectedFiatSymbol,
+                        showBalances: showBalances,
+                        portfolioChange: portfolioChange,
+                        onRefresh: {
+                            onRefreshBalances()
+                        }
+                    )
                 }
             } else {
-                // No keys state - minimal
+                // No keys state
                 VStack(spacing: HawalaTheme.Spacing.lg) {
-                    Text("$0.00")
-                        .font(.clashGroteskBold(size: 56))
-                        .foregroundColor(HawalaTheme.Colors.textTertiary.opacity(0.5))
+                    VStack(spacing: 12) {
+                        Text("Portfolio Value")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                            .textCase(.uppercase)
+                            .tracking(1.5)
+                        
+                        Text("$0.00")
+                            .font(.clashGroteskBold(size: 72))
+                            .foregroundColor(HawalaTheme.Colors.textTertiary.opacity(0.5))
+                    }
                     
                     HawalaPrimaryButton("Generate Wallet", icon: "key.fill", action: onGenerateKeys)
                 }
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, HawalaTheme.Spacing.xl)
+        .padding(.vertical, HawalaTheme.Spacing.xxl)
     }
     
     // MARK: - Bento Assets Grid
@@ -561,30 +587,6 @@ struct HawalaMainView: View {
                     .tracking(1.2)
                 
                 Spacer()
-                
-                Button(action: {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        isRefreshing = true
-                    }
-                    onRefreshBalances()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        withAnimation { isRefreshing = false }
-                    }
-                }) {
-                    HStack(spacing: 4) {
-                        if isRefreshing {
-                            ProgressView()
-                                .scaleEffect(0.6)
-                                .frame(width: 12, height: 12)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 11, weight: .semibold))
-                        }
-                    }
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
-                }
-                .buttonStyle(.plain)
-                .disabled(isRefreshing)
             }
             .padding(.horizontal, HawalaTheme.Spacing.xl)
             
@@ -1185,7 +1187,23 @@ struct HawalaMainView: View {
     
     // MARK: - Helpers
     
+    // Test mode fake balances (editable via settings)
+    private var testModeBalances: [(chainId: String, label: String, value: Double)] {
+        [
+            ("bitcoin", "Bitcoin", demoBitcoin),
+            ("ethereum", "Ethereum", demoEthereum),
+            ("solana", "Solana", demoSolana),
+            ("litecoin", "Litecoin", demoLitecoin),
+            ("monero", "Monero", demoMonero)
+        ].filter { $0.value > 0 } // Only show assets with value > 0
+    }
+    
     private func calculateTotalBalance() -> Double {
+        // Test mode: return sum of fake balances
+        if portfolioTestMode {
+            return testModeBalances.reduce(0) { $0 + $1.value }
+        }
+        
         guard let keys = keys else { return 0 }
         var total: Double = 0
         
@@ -1203,18 +1221,108 @@ struct HawalaMainView: View {
         return total
     }
     
+    private func calculatePortfolioSegments() -> [RingSegment] {
+        // Test mode: return fake segments
+        if portfolioTestMode {
+            let total = testModeBalances.reduce(0) { $0 + $1.value }
+            return testModeBalances.map { item in
+                RingSegment(
+                    label: item.label,
+                    percentage: item.value / total,
+                    color: HawalaTheme.Colors.forChain(item.chainId),
+                    value: item.value
+                )
+            }
+        }
+        
+        guard let keys = keys else { return [] }
+        
+        var chainValues: [(chain: ChainInfo, value: Double)] = []
+        var total: Double = 0
+        
+        // Calculate value for each chain
+        for chain in keys.chainInfos {
+            if let state = balanceStates[chain.id], case .loaded(let balanceStr, _) = state {
+                if let balance = Double(balanceStr),
+                   let priceState = priceStates[chain.id], 
+                   case .loaded(let priceStr, _) = priceState,
+                   let price = Double(priceStr) {
+                    let value = balance * price * fxMultiplier
+                    if value > 0 {
+                        chainValues.append((chain: chain, value: value))
+                        total += value
+                    }
+                }
+            }
+        }
+        
+        guard total > 0 else { return [] }
+        
+        // Sort by value descending
+        chainValues.sort { $0.value > $1.value }
+        
+        // Convert to ring segments
+        return chainValues.map { item in
+            RingSegment(
+                label: item.chain.title,
+                percentage: item.value / total,
+                color: HawalaTheme.Colors.forChain(item.chain.id),
+                value: item.value
+            )
+        }
+    }
+    
+    /// Calculate weighted portfolio percentage change based on sparkline data
+    private func calculatePortfolioChange() -> Double {
+        guard let keys = keys else { return 0.0 }
+        
+        var weightedChange: Double = 0.0
+        var totalValue: Double = 0.0
+        
+        for chain in keys.chainInfos {
+            // Get the current fiat value for this chain
+            if let balanceState = balanceStates[chain.id], case .loaded(let balanceStr, _) = balanceState,
+               let balance = Double(balanceStr),
+               let priceState = priceStates[chain.id], case .loaded(let priceStr, _) = priceState,
+               let price = Double(priceStr) {
+                
+                let chainValue = balance * price * fxMultiplier
+                guard chainValue > 0 else { continue }
+                
+                // Get sparkline data for this chain
+                let sparklineData = sparklineCache.sparklines[chain.id] ?? []
+                
+                // Calculate percentage change from sparkline
+                var priceChange: Double = 0.0
+                if sparklineData.count >= 2,
+                   let first = sparklineData.first, first > 0,
+                   let last = sparklineData.last {
+                    priceChange = ((last - first) / first) * 100
+                }
+                
+                // Add to weighted average
+                weightedChange += priceChange * chainValue
+                totalValue += chainValue
+            }
+        }
+        
+        // Return weighted average percentage change
+        guard totalValue > 0 else { return 0.0 }
+        return weightedChange / totalValue
+    }
+    
     private var fxMultiplier: Double {
         fxRates[selectedFiatCurrency] ?? 1.0
     }
     
     private func formatLargeNumber(_ value: Double) -> String {
-        if value >= 1_000_000 {
-            return String(format: "%.2fM", value / 1_000_000)
-        } else if value >= 1_000 {
-            return String(format: "%.2fK", value / 1_000)
-        } else {
-            return String(format: "%.2f", value)
-        }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        formatter.groupingSeparator = ","
+        formatter.usesGroupingSeparator = true
+        return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
     }
     
     private func filterChains(_ chains: [ChainInfo]) -> [ChainInfo] {
@@ -1248,6 +1356,12 @@ struct HawalaMainView: View {
         case "xrp": return "XRP"
         case "bnb": return "BNB"
         case "monero": return "XMR"
+        // New chains from wallet-core integration
+        case "ton": return "TON"
+        case "aptos": return "APT"
+        case "sui": return "SUI"
+        case "polkadot": return "DOT"
+        case "kusama": return "KSM"
         default: return chainId.uppercased()
         }
     }
@@ -1429,6 +1543,23 @@ struct BentoAssetCard: View {
     @State private var isPressed: Bool = false
     @State private var isHovered: Bool = false
     
+    /// Check if this is a testnet chain
+    private var isTestnet: Bool {
+        chain.id.contains("testnet") || chain.id.contains("devnet") || chain.id.contains("sepolia")
+    }
+    
+    /// Check if this is a stablecoin
+    private var isStablecoin: Bool {
+        let stablecoins = ["usdt", "usdc", "dai", "busd", "tusd", "usdp", "frax", "gusd", "lusd", "usdd",
+                           "usdt-erc20", "usdc-erc20", "dai-erc20"]
+        return stablecoins.contains(chain.id.lowercased())
+    }
+    
+    /// Should show flat line instead of skeleton
+    private var shouldShowFlatLine: Bool {
+        sparklineData.isEmpty && (isTestnet || isStablecoin)
+    }
+    
     // Price change percentage from sparkline
     private var priceChange: Double {
         guard sparklineData.count >= 2 else { return 0 }
@@ -1480,8 +1611,20 @@ struct BentoAssetCard: View {
                 BentoSparklineChart(data: sparklineData, color: .white, isPositive: priceChange >= 0)
                     .frame(height: 50)
                     .padding(.vertical, 8)
+            } else if shouldShowFlatLine {
+                // Flat line for testnets and stablecoins
+                GeometryReader { geo in
+                    Path { path in
+                        let y = geo.size.height / 2
+                        path.move(to: CGPoint(x: 0, y: y))
+                        path.addLine(to: CGPoint(x: geo.size.width, y: y))
+                    }
+                    .stroke(Color.white.opacity(0.25), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                }
+                .frame(height: 50)
+                .padding(.vertical, 8)
             } else {
-                // Placeholder for no data
+                // Placeholder skeleton for coins still loading
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Color.white.opacity(0.03))
                     .frame(height: 50)
@@ -2553,6 +2696,7 @@ struct AssetDetailPopup: View {
     private func fetchLivePrice() {
         // Map chain ID to CryptoCompare symbol
         let symbolMap: [String: String] = [
+            // Core chains
             "bitcoin": "BTC",
             "bitcoin-testnet": "BTC",
             "ethereum": "ETH",
@@ -2565,7 +2709,43 @@ struct AssetDetailPopup: View {
             "bnb": "BNB",
             "monero": "XMR",
             "polygon": "MATIC",
-            "arbitrum": "ARB"
+            "arbitrum": "ARB",
+            // Extended chains
+            "ton": "TON",
+            "aptos": "APT",
+            "sui": "SUI",
+            "polkadot": "DOT",
+            "dogecoin": "DOGE",
+            "bitcoin-cash": "BCH",
+            "cosmos": "ATOM",
+            "cardano": "ADA",
+            "tron": "TRX",
+            "algorand": "ALGO",
+            "stellar": "XLM",
+            "near": "NEAR",
+            "tezos": "XTZ",
+            "hedera": "HBAR",
+            // 16 new chains
+            "zcash": "ZEC",
+            "dash": "DASH",
+            "ravencoin": "RVN",
+            "vechain": "VET",
+            "filecoin": "FIL",
+            "harmony": "ONE",
+            "oasis": "ROSE",
+            "internet-computer": "ICP",
+            "waves": "WAVES",
+            "multiversx": "EGLD",
+            "flow": "FLOW",
+            "mina": "MINA",
+            "zilliqa": "ZIL",
+            "eos": "EOS",
+            "neo": "NEO",
+            "nervos": "CKB",
+            // Stablecoins
+            "usdt-erc20": "USDT",
+            "usdc-erc20": "USDC",
+            "dai-erc20": "DAI"
         ]
         
         let chainId = assetInfo.chain.id
@@ -2678,6 +2858,7 @@ struct AssetDetailPopup: View {
         
         // Map chain ID to CryptoCompare symbol
         let symbolMap: [String: String] = [
+            // Core chains
             "bitcoin": "BTC",
             "bitcoin-testnet": "BTC",
             "ethereum": "ETH",
@@ -2690,7 +2871,43 @@ struct AssetDetailPopup: View {
             "bnb": "BNB",
             "monero": "XMR",
             "polygon": "MATIC",
-            "arbitrum": "ARB"
+            "arbitrum": "ARB",
+            // Extended chains
+            "ton": "TON",
+            "aptos": "APT",
+            "sui": "SUI",
+            "polkadot": "DOT",
+            "dogecoin": "DOGE",
+            "bitcoin-cash": "BCH",
+            "cosmos": "ATOM",
+            "cardano": "ADA",
+            "tron": "TRX",
+            "algorand": "ALGO",
+            "stellar": "XLM",
+            "near": "NEAR",
+            "tezos": "XTZ",
+            "hedera": "HBAR",
+            // 16 new chains
+            "zcash": "ZEC",
+            "dash": "DASH",
+            "ravencoin": "RVN",
+            "vechain": "VET",
+            "filecoin": "FIL",
+            "harmony": "ONE",
+            "oasis": "ROSE",
+            "internet-computer": "ICP",
+            "waves": "WAVES",
+            "multiversx": "EGLD",
+            "flow": "FLOW",
+            "mina": "MINA",
+            "zilliqa": "ZIL",
+            "eos": "EOS",
+            "neo": "NEO",
+            "nervos": "CKB",
+            // Stablecoins
+            "usdt-erc20": "USDT",
+            "usdc-erc20": "USDC",
+            "dai-erc20": "DAI"
         ]
         
         let chainId = assetInfo.chain.id

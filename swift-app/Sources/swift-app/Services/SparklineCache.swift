@@ -20,21 +20,69 @@ final class SparklineCache: ObservableObject {
     /// Cache duration - 15 minutes (increased to reduce API calls)
     private let cacheDuration: TimeInterval = 900
     
-    /// Delay between API calls to respect rate limits (5 seconds for free tier)
-    private let requestDelay: UInt64 = 5_000_000_000
+    /// Delay between API calls for priority coins - 500ms (fast loading)
+    private let priorityRequestDelay: UInt64 = 500_000_000
+    
+    /// Delay between API calls for other coins - 2 seconds
+    private let normalRequestDelay: UInt64 = 2_000_000_000
+    
+    /// Priority coins to load first (top 15 by market cap)
+    private let priorityChains: [String] = [
+        "bitcoin", "ethereum", "solana", "xrp", "bnb",
+        "cardano", "dogecoin", "tron", "litecoin", "polkadot",
+        "monero", "ton", "stellar", "near", "sui"
+    ]
     
     /// Current fetch task
     private var fetchTask: Task<Void, Never>?
     
     /// Coin ID mappings for CoinGecko
     private let coinMappings: [String: String] = [
+        // Core chains
         "bitcoin": "bitcoin",
         "ethereum": "ethereum", 
         "litecoin": "litecoin",
         "solana": "solana",
         "xrp": "ripple",
         "bnb": "binancecoin",
-        "monero": "monero"
+        "monero": "monero",
+        // Extended chains from wallet-core
+        "ton": "the-open-network",
+        "aptos": "aptos",
+        "sui": "sui",
+        "polkadot": "polkadot",
+        // Extended chain support
+        "dogecoin": "dogecoin",
+        "bitcoin-cash": "bitcoin-cash",
+        "cosmos": "cosmos",
+        "cardano": "cardano",
+        "tron": "tron",
+        "algorand": "algorand",
+        "stellar": "stellar",
+        "near": "near",
+        "tezos": "tezos",
+        "hedera": "hedera-hashgraph",
+        // 16 new chains
+        "zcash": "zcash",
+        "dash": "dash",
+        "ravencoin": "ravencoin",
+        "vechain": "vechain",
+        "filecoin": "filecoin",
+        "harmony": "harmony",
+        "oasis": "oasis-network",
+        "internet-computer": "internet-computer",
+        "waves": "waves",
+        "multiversx": "elrond-erd-2",
+        "flow": "flow",
+        "mina": "mina-protocol",
+        "zilliqa": "zilliqa",
+        "eos": "eos",
+        "neo": "neo",
+        "nervos": "nervos-network",
+        // Stablecoins
+        "usdt-erc20": "tether",
+        "usdc-erc20": "usd-coin",
+        "dai-erc20": "dai"
     ]
     
     /// CoinGecko API key (optional, for pro tier)
@@ -48,8 +96,16 @@ final class SparklineCache: ObservableObject {
     
     /// Fetch sparklines for all chains, using cache when valid
     func fetchAllSparklines(force: Bool = false) {
-        // Cancel any existing fetch
-        fetchTask?.cancel()
+        // If a fetch is already in progress and not forcing, skip
+        if !force && isFetching {
+            print("📊 Sparkline fetch already in progress, skipping duplicate call")
+            return
+        }
+        
+        // Cancel any existing fetch if forcing
+        if force {
+            fetchTask?.cancel()
+        }
         
         fetchTask = Task { [weak self] in
             guard let self = self else { return }
@@ -60,9 +116,12 @@ final class SparklineCache: ObservableObject {
             var fetchedCount = 0
             var skippedCount = 0
             
-            for (chainId, coinId) in coinMappings {
-                // Check if cancelled
+            // PHASE 1: Fetch priority coins first (fast)
+            print("📊 Phase 1: Loading top 15 coins...")
+            for chainId in priorityChains {
                 if Task.isCancelled { break }
+                
+                guard let coinId = coinMappings[chainId] else { continue }
                 
                 // Skip if cache is still valid (unless forced)
                 if !force, let lastFetch = lastFetchTime[chainId],
@@ -72,13 +131,38 @@ final class SparklineCache: ObservableObject {
                     continue
                 }
                 
-                // Fetch with retry
                 await fetchSparkline(chainId: chainId, coinId: coinId)
                 fetchedCount += 1
                 
-                // Delay between requests
+                // Short delay for priority coins
                 if !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: requestDelay)
+                    try? await Task.sleep(nanoseconds: priorityRequestDelay)
+                }
+            }
+            
+            print("📊 Phase 1 complete: \(fetchedCount) priority coins loaded")
+            
+            // PHASE 2: Fetch remaining coins (slower)
+            let remainingChains = coinMappings.keys.filter { !priorityChains.contains($0) }
+            for chainId in remainingChains {
+                if Task.isCancelled { break }
+                
+                guard let coinId = coinMappings[chainId] else { continue }
+                
+                // Skip if cache is still valid (unless forced)
+                if !force, let lastFetch = lastFetchTime[chainId],
+                   Date().timeIntervalSince(lastFetch) < cacheDuration,
+                   sparklines[chainId] != nil {
+                    skippedCount += 1
+                    continue
+                }
+                
+                await fetchSparkline(chainId: chainId, coinId: coinId)
+                fetchedCount += 1
+                
+                // Normal delay for other coins
+                if !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: normalRequestDelay)
                 }
             }
             

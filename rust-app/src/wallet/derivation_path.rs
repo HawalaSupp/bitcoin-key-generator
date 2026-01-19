@@ -278,6 +278,10 @@ fn get_expected_coin_type(chain: Chain) -> u32 {
         Chain::Solana | Chain::SolanaDevnet => coin_types::SOLANA,
         Chain::Xrp | Chain::XrpTestnet => coin_types::XRP,
         Chain::Monero => coin_types::MONERO,
+        // EVM chains use Ethereum coin type
+        chain if chain.is_evm() => coin_types::ETHEREUM,
+        // Default to a high coin type number
+        _ => 9999,
     }
 }
 
@@ -304,6 +308,10 @@ pub fn get_standard_path(chain: Chain, account: u32, change: u32, index: u32) ->
         Chain::Solana | Chain::SolanaDevnet => (bip_purposes::BIP44, coin_types::SOLANA),
         Chain::Xrp | Chain::XrpTestnet => (bip_purposes::BIP44, coin_types::XRP),
         Chain::Monero => (bip_purposes::BIP44, coin_types::MONERO),
+        // EVM chains use Ethereum derivation
+        chain if chain.is_evm() => (bip_purposes::BIP44, coin_types::ETHEREUM),
+        // Default BIP44 with high coin type
+        _ => (bip_purposes::BIP44, 9999),
     };
     
     format!("m/{}'/{}'/{}'/{}'/{}",

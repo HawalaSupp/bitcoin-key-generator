@@ -349,6 +349,12 @@ struct HawalaAssetDetailView: View {
         case "xrp": return "XRP"
         case "bnb": return "BNB"
         case "monero": return "XMR"
+        // New chains from wallet-core integration
+        case "ton": return "TON"
+        case "aptos": return "APT"
+        case "sui": return "SUI"
+        case "polkadot": return "DOT"
+        case "kusama": return "KSM"
         default: return chain.id.uppercased()
         }
     }

@@ -28,6 +28,13 @@ pub fn get_fee_estimate(chain: Chain) -> HawalaResult<FeeEstimate> {
             ErrorCode::NotImplemented,
             "Monero fee estimation not yet supported",
         )),
+        // EVM-compatible chains
+        chain if chain.is_evm() => get_evm_fees(chain),
+        // Default fallback
+        _ => Err(HawalaError::new(
+            ErrorCode::NotImplemented,
+            format!("Fee estimation not yet supported for {:?}", chain),
+        )),
     }
 }
 

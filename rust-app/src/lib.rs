@@ -44,6 +44,7 @@ pub mod history;
 pub mod api;
 pub mod utils;
 pub mod security;
+pub mod serde_bytes;
 
 // Legacy modules (kept for compatibility during migration)
 pub mod balances;
@@ -55,6 +56,61 @@ pub mod xrp_wallet;
 pub mod litecoin_wallet;
 pub mod taproot_wallet;
 pub mod history_legacy;
+
+// New chain modules (from wallet-core integration)
+pub mod ton_wallet;
+pub mod aptos_wallet;
+pub mod sui_wallet;
+pub mod polkadot_wallet;
+pub mod thorchain_swap;
+
+// Additional chain modules (wallet-core expansion)
+pub mod dogecoin_wallet;
+pub mod bitcoin_cash_wallet;
+pub mod cosmos_wallet;
+pub mod cardano_wallet;
+pub mod tron_wallet;
+pub mod algorand_wallet;
+pub mod stellar_wallet;
+pub mod near_wallet;
+pub mod tezos_wallet;
+pub mod hedera_wallet;
+
+// Bitcoin fork chains
+pub mod zcash_wallet;
+pub mod dash_wallet;
+pub mod ravencoin_wallet;
+
+// Layer 1 chains
+pub mod vechain_wallet;
+pub mod filecoin_wallet;
+pub mod harmony_wallet;
+pub mod oasis_wallet;
+pub mod internet_computer_wallet;
+pub mod waves_wallet;
+pub mod multiversx_wallet;
+pub mod flow_wallet;
+pub mod mina_wallet;
+pub mod zilliqa_wallet;
+pub mod eos_wallet;
+pub mod neo_wallet;
+pub mod nervos_wallet;
+
+// Feature modules (Trust Wallet style)
+pub mod staking;
+
+// Advanced Signing & Security (EIP-712, Message Signing, EIP-7702, etc.)
+pub mod eip712;
+pub mod message_signer;
+pub mod eip7702;
+pub mod signing;
+pub mod swap;
+
+// Cryptographic primitives (BIP-340 Schnorr, Taproot, Multi-Curve)
+pub mod crypto;
+
+// QR code support for air-gapped signing
+pub mod qr;
 
 // Re-export key types for convenience
 pub use error::{HawalaError, HawalaResult, ErrorCode};
