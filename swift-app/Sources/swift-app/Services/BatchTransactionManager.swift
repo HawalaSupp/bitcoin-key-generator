@@ -195,6 +195,264 @@ final class BatchTransactionManager: ObservableObject {
         0xabcdef1234567890abcdef1234567890abcdef12,0.25,Payment 2
         """
     }
+    
+    // MARK: - Batch Execution
+    
+    /// Result of a single transaction in a batch
+    struct BatchTxResult: Identifiable {
+        let id: UUID
+        let recipient: BatchRecipient
+        let success: Bool
+        let txHash: String?
+        let error: String?
+    }
+    
+    @Published var results: [BatchTxResult] = []
+    
+    /// Execute all valid batch transactions
+    /// Note: Full blockchain integration pending - uses SendView's existing send logic
+    func executeBatch(keys: AllKeys, isTestnet: Bool = false) async {
+        isProcessing = true
+        error = nil
+        successCount = 0
+        failedCount = 0
+        results = []
+        
+        let validRecipients = recipients.filter { $0.isValid }
+        
+        for recipient in validRecipients {
+            do {
+                let txHash = try await sendSingleTransaction(
+                    to: recipient,
+                    keys: keys,
+                    isTestnet: isTestnet
+                )
+                
+                results.append(BatchTxResult(
+                    id: recipient.id,
+                    recipient: recipient,
+                    success: true,
+                    txHash: txHash,
+                    error: nil
+                ))
+                successCount += 1
+                
+                // Small delay between transactions to avoid rate limiting
+                try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+                
+            } catch {
+                results.append(BatchTxResult(
+                    id: recipient.id,
+                    recipient: recipient,
+                    success: false,
+                    txHash: nil,
+                    error: error.localizedDescription
+                ))
+                failedCount += 1
+            }
+        }
+        
+        isProcessing = false
+    }
+    
+    /// Send a single transaction within the batch
+    private func sendSingleTransaction(
+        to recipient: BatchRecipient,
+        keys: AllKeys,
+        isTestnet: Bool
+    ) async throws -> String {
+        switch selectedChain {
+        case .bitcoin:
+            return try await sendBitcoinTx(to: recipient, keys: keys, isTestnet: isTestnet)
+        case .ethereum:
+            return try await sendEthereumTx(to: recipient, keys: keys, isTestnet: isTestnet)
+        case .bnb:
+            return try await sendBnbTx(to: recipient, keys: keys)
+        case .solana:
+            return try await sendSolanaTx(to: recipient, keys: keys, isTestnet: isTestnet)
+        }
+    }
+    
+    private func sendBitcoinTx(to recipient: BatchRecipient, keys: AllKeys, isTestnet: Bool) async throws -> String {
+        let amountSats = UInt64(recipient.amountDouble * 100_000_000)
+        let wif = isTestnet ? keys.bitcoinTestnet.privateWif : keys.bitcoin.privateWif
+        let feeRate: UInt64 = 10 // Default 10 sat/vB for batch
+        
+        // Get UTXOs
+        let manager = UTXOCoinControlManager.shared
+        let targetAmount = amountSats + (feeRate * 200) + 1000
+        let selected = manager.selectUTXOs(for: targetAmount)
+        
+        let rustUTXOs = selected.map { u in
+            RustCLIBridge.RustUTXO(
+                txid: u.txid,
+                vout: UInt32(u.vout),
+                value: u.value,
+                status: RustCLIBridge.RustUTXOStatus(
+                    confirmed: u.confirmations > 0,
+                    block_height: nil,
+                    block_hash: nil,
+                    block_time: nil
+                )
+            )
+        }
+        
+        let signedHex = try RustCLIBridge.shared.signBitcoin(
+            recipient: recipient.address,
+            amountSats: amountSats,
+            feeRate: feeRate,
+            senderWIF: wif,
+            utxos: rustUTXOs.isEmpty ? nil : rustUTXOs
+        )
+        
+        let txId = try await TransactionBroadcaster.shared.broadcastBitcoin(rawTxHex: signedHex, isTestnet: isTestnet)
+        return txId
+    }
+    
+    private func sendEthereumTx(to recipient: BatchRecipient, keys: AllKeys, isTestnet: Bool) async throws -> String {
+        let senderKey = isTestnet ? keys.ethereumSepolia.privateHex : keys.ethereum.privateHex
+        let senderAddress = isTestnet ? keys.ethereumSepolia.address : keys.ethereum.address
+        let chainId: UInt64 = isTestnet ? 11155111 : 1
+        
+        // Convert amount to Wei using Decimal for precision
+        let amountWei: String = {
+            guard let decimalAmount = Decimal(string: recipient.amount), decimalAmount > 0 else {
+                return "0"
+            }
+            let weiPerETH = NSDecimalNumber(mantissa: 1_000_000_000_000_000_000, exponent: 0, isNegative: false)
+            let eth = NSDecimalNumber(decimal: decimalAmount)
+            let wei = eth.multiplying(by: weiPerETH)
+                .rounding(accordingToBehavior: NSDecimalNumberHandler(
+                    roundingMode: .down,
+                    scale: 0,
+                    raiseOnExactness: false,
+                    raiseOnOverflow: false,
+                    raiseOnUnderflow: false,
+                    raiseOnDivideByZero: false
+                ))
+            return wei.stringValue
+        }()
+        
+        // Get nonce
+        let chainKey = isTestnet ? "ethereum-sepolia" : "ethereum"
+        let nonce = try await EVMNonceManager.shared.getNextNonce(for: senderAddress, chainId: chainKey)
+        EVMNonceManager.shared.reserveNonce(nonce, chainId: chainKey)
+        
+        // Default gas settings for simple ETH transfer
+        let gasLimit: UInt64 = 21000
+        let gasPriceWei = "20000000000" // 20 Gwei default
+        
+        let signedTx = try RustCLIBridge.shared.signEthereum(
+            recipient: recipient.address,
+            amountWei: amountWei,
+            chainId: chainId,
+            senderKey: senderKey,
+            nonce: nonce,
+            gasLimit: gasLimit,
+            gasPrice: gasPriceWei
+        )
+        
+        let txHash = try await TransactionBroadcaster.shared.broadcastEthereum(
+            rawTxHex: signedTx,
+            isTestnet: isTestnet
+        )
+        
+        return txHash
+    }
+    
+    private func sendBnbTx(to recipient: BatchRecipient, keys: AllKeys) async throws -> String {
+        let senderKey = keys.bnb.privateHex
+        let senderAddress = keys.bnb.address
+        let chainId: UInt64 = 56
+        
+        let amountWei: String = {
+            guard let decimalAmount = Decimal(string: recipient.amount), decimalAmount > 0 else {
+                return "0"
+            }
+            let weiPerBNB = NSDecimalNumber(mantissa: 1_000_000_000_000_000_000, exponent: 0, isNegative: false)
+            let bnb = NSDecimalNumber(decimal: decimalAmount)
+            let wei = bnb.multiplying(by: weiPerBNB)
+                .rounding(accordingToBehavior: NSDecimalNumberHandler(
+                    roundingMode: .down,
+                    scale: 0,
+                    raiseOnExactness: false,
+                    raiseOnOverflow: false,
+                    raiseOnUnderflow: false,
+                    raiseOnDivideByZero: false
+                ))
+            return wei.stringValue
+        }()
+        
+        let nonce = try await EVMNonceManager.shared.getNextNonce(for: senderAddress, chainId: "56")
+        EVMNonceManager.shared.reserveNonce(nonce, chainId: "56")
+        
+        let gasLimit: UInt64 = 21000
+        let gasPriceWei = "5000000000" // 5 Gwei for BNB Chain
+        
+        let signedTx = try RustCLIBridge.shared.signEthereum(
+            recipient: recipient.address,
+            amountWei: amountWei,
+            chainId: chainId,
+            senderKey: senderKey,
+            nonce: nonce,
+            gasLimit: gasLimit,
+            gasPrice: gasPriceWei
+        )
+        
+        let txHash = try await TransactionBroadcaster.shared.broadcastEthereumToChain(
+            rawTxHex: signedTx,
+            chainId: 56
+        )
+        
+        return txHash
+    }
+    
+    private func sendSolanaTx(to recipient: BatchRecipient, keys: AllKeys, isTestnet: Bool) async throws -> String {
+        // Solana requires a recent blockhash - fetch it first
+        let rpcURL = isTestnet ? "https://api.devnet.solana.com" : "https://api.mainnet-beta.solana.com"
+        
+        let requestBody: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getLatestBlockhash",
+            "params": [["commitment": "finalized"]]
+        ]
+        
+        guard let url = URL(string: rpcURL) else {
+            throw NSError(domain: "BatchTx", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid RPC URL"])
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = json["result"] as? [String: Any],
+              let value = result["value"] as? [String: Any],
+              let blockhash = value["blockhash"] as? String else {
+            throw NSError(domain: "BatchTx", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get blockhash"])
+        }
+        
+        let amountSol = recipient.amountDouble
+        let senderBase58 = keys.solana.privateKeyBase58
+        
+        let signedTx = try RustCLIBridge.shared.signSolana(
+            recipient: recipient.address,
+            amountSol: amountSol,
+            recentBlockhash: blockhash,
+            senderBase58: senderBase58
+        )
+        
+        let txHash = try await TransactionBroadcaster.shared.broadcastSolana(
+            rawTxBase64: signedTx,
+            isDevnet: isTestnet
+        )
+        
+        return txHash
+    }
 }
 
 // MARK: - Batch Transaction View
@@ -204,7 +462,16 @@ struct BatchTransactionView: View {
     @ObservedObject private var manager = BatchTransactionManager.shared
     @State private var showImportSheet = false
     @State private var showConfirmation = false
+    @State private var showResults = false
     @State private var csvContent = ""
+    @State private var useTestnet = false
+    
+    // Keys passed from parent
+    let keys: AllKeys?
+    
+    init(keys: AllKeys? = nil) {
+        self.keys = keys
+    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -265,14 +532,38 @@ struct BatchTransactionView: View {
                 showImportSheet = false
             }
         }
+        .sheet(isPresented: $showResults) {
+            BatchResultsSheet(results: manager.results, chain: manager.selectedChain)
+        }
         .alert("Confirm Batch Transaction", isPresented: $showConfirmation) {
+            Toggle("Use Testnet", isOn: $useTestnet)
             Button("Cancel", role: .cancel) { }
             Button("Send") {
-                // Execute batch transaction
-                ToastManager.shared.info("Batch transaction feature coming soon")
+                executeBatch()
             }
         } message: {
             Text("Send \(String(format: "%.6f", manager.totalAmount)) \(manager.selectedChain.symbol) to \(manager.validRecipientsCount) recipients?")
+        }
+    }
+    
+    private func executeBatch() {
+        guard let keys = keys else {
+            ToastManager.shared.error("Wallet not loaded")
+            return
+        }
+        
+        Task {
+            await manager.executeBatch(keys: keys, isTestnet: useTestnet)
+            
+            await MainActor.run {
+                if manager.successCount > 0 {
+                    ToastManager.shared.success("\(manager.successCount) transactions sent successfully")
+                }
+                if manager.failedCount > 0 {
+                    ToastManager.shared.error("\(manager.failedCount) transactions failed")
+                }
+                showResults = true
+            }
         }
     }
     
@@ -630,6 +921,163 @@ struct CSVImportSheet: View {
         }
         .frame(width: 450, height: 500)
         .background(HawalaTheme.Colors.background)
+    }
+}
+
+// MARK: - Batch Results Sheet
+
+struct BatchResultsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let results: [BatchTransactionManager.BatchTxResult]
+    let chain: BatchChain
+    
+    var successCount: Int {
+        results.filter { $0.success }.count
+    }
+    
+    var failedCount: Int {
+        results.filter { !$0.success }.count
+    }
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Batch Results")
+                        .font(HawalaTheme.Typography.h3)
+                        .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    
+                    Text("\(successCount) successful, \(failedCount) failed")
+                        .font(HawalaTheme.Typography.caption)
+                        .foregroundColor(failedCount > 0 ? HawalaTheme.Colors.warning : HawalaTheme.Colors.success)
+                }
+                
+                Spacer()
+                
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                        .frame(width: 28, height: 28)
+                        .background(HawalaTheme.Colors.backgroundTertiary)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(HawalaTheme.Spacing.lg)
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+            
+            // Results list
+            ScrollView {
+                VStack(spacing: HawalaTheme.Spacing.sm) {
+                    ForEach(results) { result in
+                        BatchResultRow(result: result, chain: chain)
+                    }
+                }
+                .padding(HawalaTheme.Spacing.lg)
+            }
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+            
+            // Footer
+            HStack {
+                Spacer()
+                
+                Button("Done") {
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(HawalaTheme.Colors.accent)
+            }
+            .padding(HawalaTheme.Spacing.lg)
+        }
+        .frame(width: 550, height: 500)
+        .background(HawalaTheme.Colors.background)
+    }
+}
+
+struct BatchResultRow: View {
+    let result: BatchTransactionManager.BatchTxResult
+    let chain: BatchChain
+    
+    var body: some View {
+        HStack(spacing: HawalaTheme.Spacing.md) {
+            // Status icon
+            Image(systemName: result.success ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .font(.system(size: 20))
+                .foregroundColor(result.success ? HawalaTheme.Colors.success : HawalaTheme.Colors.error)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                // Address (truncated)
+                Text(truncatedAddress(result.recipient.address))
+                    .font(HawalaTheme.Typography.mono)
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                
+                // Amount and label
+                HStack {
+                    Text("\(result.recipient.amount) \(chain.symbol)")
+                        .font(HawalaTheme.Typography.caption)
+                        .foregroundColor(chain.color)
+                    
+                    if let label = result.recipient.label, !label.isEmpty {
+                        Text("• \(label)")
+                            .font(HawalaTheme.Typography.caption)
+                            .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    }
+                }
+            }
+            
+            Spacer()
+            
+            // Transaction hash or error
+            if result.success, let txHash = result.txHash {
+                Button {
+                    // Copy tx hash to clipboard
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(txHash, forType: .string)
+                    ToastManager.shared.success("Transaction hash copied")
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(truncatedHash(txHash))
+                            .font(HawalaTheme.Typography.mono)
+                            .foregroundColor(HawalaTheme.Colors.accent)
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 10))
+                            .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    }
+                }
+                .buttonStyle(.plain)
+            } else if let error = result.error {
+                Text(error)
+                    .font(HawalaTheme.Typography.caption)
+                    .foregroundColor(HawalaTheme.Colors.error)
+                    .lineLimit(1)
+                    .frame(maxWidth: 150)
+            }
+        }
+        .padding(HawalaTheme.Spacing.md)
+        .background(result.success ? HawalaTheme.Colors.success.opacity(0.05) : HawalaTheme.Colors.error.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
+                .strokeBorder(result.success ? HawalaTheme.Colors.success.opacity(0.2) : HawalaTheme.Colors.error.opacity(0.2), lineWidth: 1)
+        )
+    }
+    
+    private func truncatedAddress(_ address: String) -> String {
+        guard address.count > 16 else { return address }
+        return "\(address.prefix(8))...\(address.suffix(6))"
+    }
+    
+    private func truncatedHash(_ hash: String) -> String {
+        guard hash.count > 12 else { return hash }
+        return "\(hash.prefix(6))...\(hash.suffix(4))"
     }
 }
 

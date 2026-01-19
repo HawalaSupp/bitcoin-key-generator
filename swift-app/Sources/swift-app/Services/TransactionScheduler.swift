@@ -239,6 +239,9 @@ struct ExecutionRecord: Codable, Identifiable {
 class TransactionScheduler: ObservableObject {
     static let shared = TransactionScheduler()
     
+    // Reference to keys for executing transactions
+    var keys: AllKeys?
+    
     // MARK: - Published Properties
     
     @Published var scheduledTransactions: [ScheduledTransaction] = []
@@ -566,18 +569,197 @@ class TransactionScheduler: ObservableObject {
     // MARK: - Private Methods
     
     private func executeTransaction(_ transaction: ScheduledTransaction) async throws -> String {
-        // Simulate transaction execution
-        // In production, this would call the actual blockchain transaction methods
-        
-        try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
-        
-        // Simulate occasional failures for testing
-        if Int.random(in: 1...10) == 1 {
-            throw SchedulerError.executionFailed("Network timeout")
+        guard let keys = keys else {
+            throw SchedulerError.executionFailed("Wallet not loaded - please unlock wallet")
         }
         
-        // Generate mock tx hash
-        let txHash = "0x" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        // Execute based on chain
+        switch transaction.chain {
+        case .bitcoin:
+            return try await executeBitcoinTransaction(transaction, keys: keys)
+        case .ethereum:
+            return try await executeEthereumTransaction(transaction, keys: keys)
+        case .litecoin:
+            return try await executeLitecoinTransaction(transaction, keys: keys)
+        case .solana:
+            return try await executeSolanaTransaction(transaction, keys: keys)
+        case .xrp:
+            // XRP not yet implemented for scheduled transactions
+            throw SchedulerError.executionFailed("XRP scheduled transactions not yet supported")
+        }
+    }
+    
+    private func executeBitcoinTransaction(_ tx: ScheduledTransaction, keys: AllKeys) async throws -> String {
+        let amountSats = UInt64(truncating: tx.amount as NSDecimalNumber) * 100_000_000
+        let wif = keys.bitcoin.privateWif
+        let feeRate: UInt64 = 10 // Default fee rate
+        
+        // Get UTXOs
+        let manager = UTXOCoinControlManager.shared
+        let targetAmount = amountSats + (feeRate * 200) + 1000
+        let selected = manager.selectUTXOs(for: targetAmount)
+        
+        guard !selected.isEmpty else {
+            throw SchedulerError.executionFailed("Insufficient UTXOs available")
+        }
+        
+        let rustUTXOs = selected.map { u in
+            RustCLIBridge.RustUTXO(
+                txid: u.txid,
+                vout: UInt32(u.vout),
+                value: u.value,
+                status: RustCLIBridge.RustUTXOStatus(
+                    confirmed: u.confirmations > 0,
+                    block_height: nil,
+                    block_hash: nil,
+                    block_time: nil
+                )
+            )
+        }
+        
+        let signedHex = try RustCLIBridge.shared.signBitcoin(
+            recipient: tx.recipientAddress,
+            amountSats: amountSats,
+            feeRate: feeRate,
+            senderWIF: wif,
+            utxos: rustUTXOs
+        )
+        
+        let txId = try await TransactionBroadcaster.shared.broadcastBitcoin(rawTxHex: signedHex, isTestnet: false)
+        return txId
+    }
+    
+    private func executeEthereumTransaction(_ tx: ScheduledTransaction, keys: AllKeys) async throws -> String {
+        let senderKey = keys.ethereum.privateHex
+        let senderAddress = keys.ethereum.address
+        let chainId: UInt64 = 1
+        
+        // Convert amount to Wei
+        let amountWei: String = {
+            let weiPerETH = NSDecimalNumber(mantissa: 1_000_000_000_000_000_000, exponent: 0, isNegative: false)
+            let eth = NSDecimalNumber(decimal: tx.amount)
+            let wei = eth.multiplying(by: weiPerETH)
+                .rounding(accordingToBehavior: NSDecimalNumberHandler(
+                    roundingMode: .down,
+                    scale: 0,
+                    raiseOnExactness: false,
+                    raiseOnOverflow: false,
+                    raiseOnUnderflow: false,
+                    raiseOnDivideByZero: false
+                ))
+            return wei.stringValue
+        }()
+        
+        // Get nonce
+        let nonce = try await EVMNonceManager.shared.getNextNonce(for: senderAddress, chainId: "ethereum")
+        EVMNonceManager.shared.reserveNonce(nonce, chainId: "ethereum")
+        
+        let gasLimit: UInt64 = 21000
+        let gasPriceWei = "20000000000" // 20 Gwei
+        
+        let signedTx = try RustCLIBridge.shared.signEthereum(
+            recipient: tx.recipientAddress,
+            amountWei: amountWei,
+            chainId: chainId,
+            senderKey: senderKey,
+            nonce: nonce,
+            gasLimit: gasLimit,
+            gasPrice: gasPriceWei
+        )
+        
+        let txHash = try await TransactionBroadcaster.shared.broadcastEthereum(
+            rawTxHex: signedTx,
+            isTestnet: false
+        )
+        
+        return txHash
+    }
+    
+    private func executeLitecoinTransaction(_ tx: ScheduledTransaction, keys: AllKeys) async throws -> String {
+        let amountLits = UInt64(truncating: tx.amount as NSDecimalNumber) * 100_000_000
+        let wif = keys.litecoin.privateWif
+        let senderAddress = keys.litecoin.address
+        let feeRate: UInt64 = 10
+        
+        let manager = UTXOCoinControlManager.shared
+        let targetAmount = amountLits + (feeRate * 200) + 1000
+        let selected = manager.selectUTXOs(for: targetAmount)
+        
+        guard !selected.isEmpty else {
+            throw SchedulerError.executionFailed("Insufficient UTXOs available")
+        }
+        
+        let rustUTXOs = selected.map { u in
+            RustCLIBridge.RustUTXO(
+                txid: u.txid,
+                vout: UInt32(u.vout),
+                value: u.value,
+                status: RustCLIBridge.RustUTXOStatus(
+                    confirmed: u.confirmations > 0,
+                    block_height: nil,
+                    block_hash: nil,
+                    block_time: nil
+                )
+            )
+        }
+        
+        let signedHex = try RustCLIBridge.shared.signLitecoin(
+            recipient: tx.recipientAddress,
+            amountLits: amountLits,
+            feeRate: feeRate,
+            senderWIF: wif,
+            senderAddress: senderAddress,
+            utxos: rustUTXOs
+        )
+        
+        let txId = try await TransactionBroadcaster.shared.broadcastLitecoin(rawTxHex: signedHex)
+        return txId
+    }
+    
+    private func executeSolanaTransaction(_ tx: ScheduledTransaction, keys: AllKeys) async throws -> String {
+        // Fetch recent blockhash
+        let rpcURL = "https://api.mainnet-beta.solana.com"
+        
+        let requestBody: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getLatestBlockhash",
+            "params": [["commitment": "finalized"]]
+        ]
+        
+        guard let url = URL(string: rpcURL) else {
+            throw SchedulerError.executionFailed("Invalid RPC URL")
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = json["result"] as? [String: Any],
+              let value = result["value"] as? [String: Any],
+              let blockhash = value["blockhash"] as? String else {
+            throw SchedulerError.executionFailed("Failed to get blockhash")
+        }
+        
+        let amountSol = Double(truncating: tx.amount as NSDecimalNumber)
+        let senderBase58 = keys.solana.privateKeyBase58
+        
+        let signedTx = try RustCLIBridge.shared.signSolana(
+            recipient: tx.recipientAddress,
+            amountSol: amountSol,
+            recentBlockhash: blockhash,
+            senderBase58: senderBase58
+        )
+        
+        let txHash = try await TransactionBroadcaster.shared.broadcastSolana(
+            rawTxBase64: signedTx,
+            isDevnet: false
+        )
+        
         return txHash
     }
     
