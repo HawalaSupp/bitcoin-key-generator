@@ -250,12 +250,367 @@ final class CustomTokenManager: ObservableObject {
     }
     
     private func fetchSPLTokenInfo(mintAddress: String) async throws -> CustomToken {
-        // For Solana, we query the token metadata
-        // Using Solana token registry or on-chain metadata
+        // For Solana, we query the token metadata using Helius API or Solscan
+        // First try Helius (has good metadata support)
         
-        // For now, return a basic token with user-provided info
-        // In production, query Metaplex metadata or token registry
-        throw TokenError.notImplemented("SPL token auto-detection coming soon. Please enter details manually.")
+        let heliusURL = "https://api.helius.xyz/v0/token-metadata?api-key=15e18f63-9f81-4c92-9a18-e3bc3e90e28f"
+        
+        guard let url = URL(string: heliusURL) else {
+            throw TokenError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let requestBody: [String: Any] = [
+            "mintAccounts": [mintAddress]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            // Fallback to Solscan if Helius fails
+            return try await fetchSPLTokenInfoViaSolscan(mintAddress: mintAddress)
+        }
+        
+        // Parse Helius response
+        if let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+           let tokenData = jsonArray.first {
+            
+            let onChainMetadata = tokenData["onChainMetadata"] as? [String: Any]
+            let offChainMetadata = tokenData["offChainMetadata"] as? [String: Any]
+            let legacyMetadata = tokenData["legacyMetadata"] as? [String: Any]
+            
+            // Try to get symbol and name from various sources
+            var symbol = ""
+            var name = ""
+            var decimals = 9 // SPL default
+            var logoURL: String?
+            
+            // From on-chain metadata
+            if let metadata = onChainMetadata?["metadata"] as? [String: Any] {
+                if let data = metadata["data"] as? [String: Any] {
+                    symbol = (data["symbol"] as? String)?.trimmingCharacters(in: .whitespaces.union(.controlCharacters)) ?? ""
+                    name = (data["name"] as? String)?.trimmingCharacters(in: .whitespaces.union(.controlCharacters)) ?? ""
+                }
+            }
+            
+            // From off-chain metadata (usually better)
+            if let offChain = offChainMetadata?["metadata"] as? [String: Any] {
+                if symbol.isEmpty {
+                    symbol = (offChain["symbol"] as? String)?.trimmingCharacters(in: .whitespaces.union(.controlCharacters)) ?? ""
+                }
+                if name.isEmpty {
+                    name = (offChain["name"] as? String)?.trimmingCharacters(in: .whitespaces.union(.controlCharacters)) ?? ""
+                }
+                logoURL = offChain["image"] as? String
+            }
+            
+            // From legacy metadata
+            if let legacy = legacyMetadata {
+                if symbol.isEmpty {
+                    symbol = (legacy["symbol"] as? String) ?? ""
+                }
+                if name.isEmpty {
+                    name = (legacy["name"] as? String) ?? ""
+                }
+                if logoURL == nil {
+                    logoURL = legacy["logoURI"] as? String
+                }
+                if let dec = legacy["decimals"] as? Int {
+                    decimals = dec
+                }
+            }
+            
+            // Get decimals from account info
+            if let account = tokenData["account"] as? [String: Any],
+               let accountData = account["data"] as? [String: Any],
+               let parsed = accountData["parsed"] as? [String: Any],
+               let info = parsed["info"] as? [String: Any],
+               let dec = info["decimals"] as? Int {
+                decimals = dec
+            }
+            
+            if !symbol.isEmpty && !name.isEmpty {
+                return CustomToken(
+                    contractAddress: mintAddress,
+                    symbol: symbol,
+                    name: name,
+                    decimals: decimals,
+                    chain: .solana,
+                    logoURL: logoURL
+                )
+            }
+        }
+        
+        // Fallback to Solscan
+        return try await fetchSPLTokenInfoViaSolscan(mintAddress: mintAddress)
+    }
+    
+    private func fetchSPLTokenInfoViaSolscan(mintAddress: String) async throws -> CustomToken {
+        // Use Solscan public API
+        let urlString = "https://public-api.solscan.io/token/meta?tokenAddress=\(mintAddress)"
+        
+        guard let url = URL(string: urlString) else {
+            throw TokenError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw TokenError.invalidContract
+        }
+        
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw TokenError.invalidResponse
+        }
+        
+        let symbol = (json["symbol"] as? String) ?? ""
+        let name = (json["name"] as? String) ?? ""
+        let decimals = (json["decimals"] as? Int) ?? 9
+        let logoURL = json["icon"] as? String
+        
+        guard !symbol.isEmpty else {
+            throw TokenError.invalidContract
+        }
+        
+        return CustomToken(
+            contractAddress: mintAddress,
+            symbol: symbol,
+            name: name.isEmpty ? symbol : name,
+            decimals: decimals,
+            chain: .solana,
+            logoURL: logoURL
+        )
+    }
+    
+    // MARK: - Token Balance Fetching
+    
+    /// Fetch balance for a custom token
+    func fetchTokenBalance(token: CustomToken, walletAddress: String) async throws -> Decimal {
+        switch token.chain {
+        case .ethereum, .bsc:
+            return try await fetchERC20Balance(token: token, walletAddress: walletAddress)
+        case .solana:
+            return try await fetchSPLBalance(token: token, walletAddress: walletAddress)
+        }
+    }
+    
+    private func fetchERC20Balance(token: CustomToken, walletAddress: String) async throws -> Decimal {
+        let rpcURL = token.chain == .ethereum
+            ? "https://eth-mainnet.g.alchemy.com/v2/"
+            : "https://bsc-dataseed.binance.org/"
+        
+        // balanceOf(address): 0x70a08231 + address padded to 32 bytes
+        let addressPadded = String(repeating: "0", count: 24) + walletAddress.dropFirst(2)
+        let data = "0x70a08231" + addressPadded
+        
+        let result = try await callContract(contractAddress: token.contractAddress, data: data, rpcURL: rpcURL)
+        
+        // Parse the hex balance
+        let cleanHex = result.hasPrefix("0x") ? String(result.dropFirst(2)) : result
+        guard let balanceInt = UInt64(cleanHex, radix: 16) else {
+            return 0
+        }
+        
+        let divisor = pow(Decimal(10), token.decimals)
+        return Decimal(balanceInt) / divisor
+    }
+    
+    private func fetchSPLBalance(token: CustomToken, walletAddress: String) async throws -> Decimal {
+        // Use Solana RPC to get token account balance
+        let rpcURL = "https://api.mainnet-beta.solana.com"
+        
+        let requestBody: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenAccountsByOwner",
+            "params": [
+                walletAddress,
+                ["mint": token.contractAddress],
+                ["encoding": "jsonParsed"]
+            ]
+        ]
+        
+        guard let url = URL(string: rpcURL) else {
+            throw TokenError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw TokenError.networkError
+        }
+        
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = json["result"] as? [String: Any],
+              let value = result["value"] as? [[String: Any]] else {
+            return 0 // No token account = 0 balance
+        }
+        
+        // Sum up all token accounts for this mint
+        var totalBalance: Decimal = 0
+        for account in value {
+            if let accountData = account["account"] as? [String: Any],
+               let data = accountData["data"] as? [String: Any],
+               let parsed = data["parsed"] as? [String: Any],
+               let info = parsed["info"] as? [String: Any],
+               let tokenAmount = info["tokenAmount"] as? [String: Any],
+               let uiAmount = tokenAmount["uiAmount"] as? Double {
+                totalBalance += Decimal(uiAmount)
+            }
+        }
+        
+        return totalBalance
+    }
+    
+    // MARK: - Token Auto-Detection
+    
+    /// Scan wallet for ERC-20 tokens with balance
+    func detectERC20Tokens(walletAddress: String) async throws -> [CustomToken] {
+        // Use Alchemy's getTokenBalances API
+        let alchemyURL = "https://eth-mainnet.g.alchemy.com/v2/demo"
+        
+        let requestBody: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "alchemy_getTokenBalances",
+            "params": [walletAddress]
+        ]
+        
+        guard let url = URL(string: alchemyURL) else {
+            throw TokenError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw TokenError.networkError
+        }
+        
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = json["result"] as? [String: Any],
+              let tokenBalances = result["tokenBalances"] as? [[String: Any]] else {
+            return []
+        }
+        
+        var detectedTokens: [CustomToken] = []
+        
+        for tokenBalance in tokenBalances {
+            guard let contractAddress = tokenBalance["contractAddress"] as? String,
+                  let balanceHex = tokenBalance["tokenBalance"] as? String,
+                  balanceHex != "0x0" && balanceHex != "0x" else {
+                continue
+            }
+            
+            // Skip if already in our list
+            if tokens.contains(where: { $0.contractAddress.lowercased() == contractAddress.lowercased() }) {
+                continue
+            }
+            
+            // Fetch token info
+            do {
+                let token = try await fetchTokenInfo(contractAddress: contractAddress, chain: .ethereum)
+                detectedTokens.append(token)
+            } catch {
+                // Skip tokens we can't fetch metadata for
+                continue
+            }
+        }
+        
+        return detectedTokens
+    }
+    
+    /// Scan wallet for SPL tokens with balance
+    func detectSPLTokens(walletAddress: String) async throws -> [CustomToken] {
+        let rpcURL = "https://api.mainnet-beta.solana.com"
+        
+        let requestBody: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenAccountsByOwner",
+            "params": [
+                walletAddress,
+                ["programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"],
+                ["encoding": "jsonParsed"]
+            ]
+        ]
+        
+        guard let url = URL(string: rpcURL) else {
+            throw TokenError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw TokenError.networkError
+        }
+        
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let result = json["result"] as? [String: Any],
+              let value = result["value"] as? [[String: Any]] else {
+            return []
+        }
+        
+        var detectedTokens: [CustomToken] = []
+        var seenMints: Set<String> = Set(tokens.filter { $0.chain == .solana }.map { $0.contractAddress })
+        
+        for account in value {
+            guard let accountData = account["account"] as? [String: Any],
+                  let data = accountData["data"] as? [String: Any],
+                  let parsed = data["parsed"] as? [String: Any],
+                  let info = parsed["info"] as? [String: Any],
+                  let mint = info["mint"] as? String,
+                  let tokenAmount = info["tokenAmount"] as? [String: Any],
+                  let uiAmount = tokenAmount["uiAmount"] as? Double,
+                  uiAmount > 0 else {
+                continue
+            }
+            
+            // Skip if already seen
+            if seenMints.contains(mint) {
+                continue
+            }
+            seenMints.insert(mint)
+            
+            // Fetch token info
+            do {
+                let token = try await fetchTokenInfo(contractAddress: mint, chain: .solana)
+                detectedTokens.append(token)
+            } catch {
+                // Skip tokens we can't fetch metadata for
+                continue
+            }
+        }
+        
+        return detectedTokens
+    }
+    
+    /// Add multiple detected tokens
+    func addDetectedTokens(_ tokens: [CustomToken]) {
+        for token in tokens {
+            try? addToken(token)
+        }
     }
     
     // MARK: - Validation
@@ -804,6 +1159,7 @@ struct CustomTokensSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var tokenManager = CustomTokenManager.shared
     @State private var showAddSheet = false
+    @State private var showAutoDetectSheet = false
     
     var body: some View {
         VStack(spacing: 0) {
@@ -820,6 +1176,22 @@ struct CustomTokensSheet: View {
                 }
                 
                 Spacer()
+                
+                Button {
+                    showAutoDetectSheet = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "sparkle.magnifyingglass")
+                        Text("Auto-Detect")
+                    }
+                    .font(HawalaTheme.Typography.caption)
+                    .padding(.horizontal, HawalaTheme.Spacing.md)
+                    .padding(.vertical, HawalaTheme.Spacing.sm)
+                    .background(HawalaTheme.Colors.success.opacity(0.15))
+                    .foregroundColor(HawalaTheme.Colors.success)
+                    .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm))
+                }
+                .buttonStyle(.plain)
                 
                 Button {
                     showAddSheet = true
@@ -908,6 +1280,371 @@ struct CustomTokensSheet: View {
         .sheet(isPresented: $showAddSheet) {
             AddCustomTokenSheet()
         }
+        .sheet(isPresented: $showAutoDetectSheet) {
+            AutoDetectTokensSheet()
+        }
+    }
+}
+
+// MARK: - Auto-Detect Tokens Sheet
+
+struct AutoDetectTokensSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var tokenManager = CustomTokenManager.shared
+    
+    @State private var isScanning = false
+    @State private var detectedTokens: [CustomToken] = []
+    @State private var selectedTokens: Set<UUID> = []
+    @State private var error: String?
+    @State private var scanComplete = false
+    
+    // You would get these from the wallet manager
+    @State private var ethAddress: String = ""
+    @State private var solAddress: String = ""
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Auto-Detect Tokens")
+                        .font(HawalaTheme.Typography.h3)
+                        .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    
+                    Text("Scan your wallets for tokens")
+                        .font(HawalaTheme.Typography.caption)
+                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                }
+                
+                Spacer()
+                
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                        .frame(width: 28, height: 28)
+                        .background(HawalaTheme.Colors.backgroundTertiary)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(HawalaTheme.Spacing.lg)
+            
+            Divider()
+                .background(HawalaTheme.Colors.border)
+            
+            // Content
+            if isScanning {
+                scanningView
+            } else if scanComplete && detectedTokens.isEmpty {
+                noTokensFoundView
+            } else if !detectedTokens.isEmpty {
+                detectedTokensView
+            } else {
+                startScanView
+            }
+            
+            // Footer
+            Divider()
+                .background(HawalaTheme.Colors.border)
+            
+            HStack {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(HawalaTheme.Colors.textSecondary)
+                
+                Spacer()
+                
+                if !detectedTokens.isEmpty {
+                    Button {
+                        addSelectedTokens()
+                    } label: {
+                        Text("Add \(selectedTokens.count) Tokens")
+                            .font(HawalaTheme.Typography.body)
+                            .padding(.horizontal, HawalaTheme.Spacing.xl)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(HawalaTheme.Colors.accent)
+                    .disabled(selectedTokens.isEmpty)
+                }
+            }
+            .padding(HawalaTheme.Spacing.lg)
+        }
+        .frame(width: 500, height: 500)
+        .background(HawalaTheme.Colors.background)
+    }
+    
+    private var startScanView: some View {
+        VStack(spacing: HawalaTheme.Spacing.xl) {
+            Spacer()
+            
+            Image(systemName: "sparkle.magnifyingglass")
+                .font(.system(size: 48))
+                .foregroundColor(HawalaTheme.Colors.accent)
+            
+            VStack(spacing: HawalaTheme.Spacing.sm) {
+                Text("Scan for Tokens")
+                    .font(HawalaTheme.Typography.h4)
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                
+                Text("Automatically detect ERC-20 and SPL tokens\nin your wallets with non-zero balances")
+                    .font(HawalaTheme.Typography.caption)
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+            
+            // Address inputs
+            VStack(spacing: HawalaTheme.Spacing.md) {
+                HStack {
+                    Image(systemName: "diamond")
+                        .foregroundColor(.blue)
+                        .frame(width: 24)
+                    
+                    TextField("Ethereum Address (0x...)", text: $ethAddress)
+                        .textFieldStyle(.plain)
+                        .font(HawalaTheme.Typography.mono)
+                        .padding(HawalaTheme.Spacing.sm)
+                        .background(HawalaTheme.Colors.backgroundTertiary)
+                        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm))
+                }
+                
+                HStack {
+                    Image(systemName: "sparkles")
+                        .foregroundColor(.purple)
+                        .frame(width: 24)
+                    
+                    TextField("Solana Address", text: $solAddress)
+                        .textFieldStyle(.plain)
+                        .font(HawalaTheme.Typography.mono)
+                        .padding(HawalaTheme.Spacing.sm)
+                        .background(HawalaTheme.Colors.backgroundTertiary)
+                        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm))
+                }
+            }
+            .padding(.horizontal, HawalaTheme.Spacing.xl)
+            
+            Button {
+                Task { await startScan() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                    Text("Start Scan")
+                }
+                .font(HawalaTheme.Typography.body)
+                .padding(.horizontal, HawalaTheme.Spacing.xl)
+                .padding(.vertical, HawalaTheme.Spacing.md)
+                .background(HawalaTheme.Colors.accent)
+                .foregroundColor(.white)
+                .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
+            }
+            .buttonStyle(.plain)
+            .disabled(ethAddress.isEmpty && solAddress.isEmpty)
+            
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+    
+    private var scanningView: some View {
+        VStack(spacing: HawalaTheme.Spacing.xl) {
+            Spacer()
+            
+            ProgressView()
+                .scaleEffect(1.5)
+            
+            VStack(spacing: HawalaTheme.Spacing.sm) {
+                Text("Scanning Wallets...")
+                    .font(HawalaTheme.Typography.h4)
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                
+                Text("Looking for tokens with non-zero balances")
+                    .font(HawalaTheme.Typography.caption)
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+            }
+            
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+    
+    private var noTokensFoundView: some View {
+        VStack(spacing: HawalaTheme.Spacing.xl) {
+            Spacer()
+            
+            Image(systemName: "checkmark.circle")
+                .font(.system(size: 48))
+                .foregroundColor(HawalaTheme.Colors.success)
+            
+            VStack(spacing: HawalaTheme.Spacing.sm) {
+                Text("Scan Complete")
+                    .font(HawalaTheme.Typography.h4)
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                
+                Text("No new tokens found in your wallets.\nAll detected tokens are already added.")
+                    .font(HawalaTheme.Typography.caption)
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+            
+            Button {
+                dismiss()
+            } label: {
+                Text("Done")
+                    .font(HawalaTheme.Typography.body)
+                    .padding(.horizontal, HawalaTheme.Spacing.xxl)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(HawalaTheme.Colors.accent)
+            
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+    
+    private var detectedTokensView: some View {
+        VStack(spacing: HawalaTheme.Spacing.md) {
+            HStack {
+                Text("Found \(detectedTokens.count) tokens")
+                    .font(HawalaTheme.Typography.captionBold)
+                    .foregroundColor(HawalaTheme.Colors.success)
+                
+                Spacer()
+                
+                Button {
+                    if selectedTokens.count == detectedTokens.count {
+                        selectedTokens.removeAll()
+                    } else {
+                        selectedTokens = Set(detectedTokens.map { $0.id })
+                    }
+                } label: {
+                    Text(selectedTokens.count == detectedTokens.count ? "Deselect All" : "Select All")
+                        .font(HawalaTheme.Typography.caption)
+                        .foregroundColor(HawalaTheme.Colors.accent)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, HawalaTheme.Spacing.lg)
+            .padding(.top, HawalaTheme.Spacing.md)
+            
+            ScrollView {
+                VStack(spacing: HawalaTheme.Spacing.sm) {
+                    ForEach(detectedTokens) { token in
+                        DetectedTokenRow(
+                            token: token,
+                            isSelected: selectedTokens.contains(token.id),
+                            onToggle: {
+                                if selectedTokens.contains(token.id) {
+                                    selectedTokens.remove(token.id)
+                                } else {
+                                    selectedTokens.insert(token.id)
+                                }
+                            }
+                        )
+                    }
+                }
+                .padding(.horizontal, HawalaTheme.Spacing.lg)
+            }
+        }
+    }
+    
+    private func startScan() async {
+        isScanning = true
+        error = nil
+        detectedTokens = []
+        
+        do {
+            var allTokens: [CustomToken] = []
+            
+            // Scan Ethereum if address provided
+            if !ethAddress.isEmpty {
+                let ethTokens = try await tokenManager.detectERC20Tokens(walletAddress: ethAddress)
+                allTokens.append(contentsOf: ethTokens)
+            }
+            
+            // Scan Solana if address provided
+            if !solAddress.isEmpty {
+                let solTokens = try await tokenManager.detectSPLTokens(walletAddress: solAddress)
+                allTokens.append(contentsOf: solTokens)
+            }
+            
+            detectedTokens = allTokens
+            selectedTokens = Set(allTokens.map { $0.id }) // Select all by default
+            scanComplete = true
+        } catch {
+            self.error = error.localizedDescription
+        }
+        
+        isScanning = false
+    }
+    
+    private func addSelectedTokens() {
+        let tokensToAdd = detectedTokens.filter { selectedTokens.contains($0.id) }
+        tokenManager.addDetectedTokens(tokensToAdd)
+        dismiss()
+    }
+}
+
+struct DetectedTokenRow: View {
+    let token: CustomToken
+    let isSelected: Bool
+    let onToggle: () -> Void
+    
+    var body: some View {
+        Button {
+            onToggle()
+        } label: {
+            HStack(spacing: HawalaTheme.Spacing.md) {
+                // Checkbox
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20))
+                    .foregroundColor(isSelected ? HawalaTheme.Colors.accent : HawalaTheme.Colors.textTertiary)
+                
+                // Token icon
+                ZStack {
+                    Circle()
+                        .fill(token.chain.color.opacity(0.2))
+                        .frame(width: 36, height: 36)
+                    
+                    Text(String(token.symbol.prefix(2)))
+                        .font(HawalaTheme.Typography.captionBold)
+                        .foregroundColor(token.chain.color)
+                }
+                
+                // Token info
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(token.symbol)
+                        .font(HawalaTheme.Typography.body)
+                        .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    
+                    Text(token.name)
+                        .font(HawalaTheme.Typography.caption)
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                }
+                
+                Spacer()
+                
+                // Chain badge
+                Text(token.chain == .ethereum ? "ERC-20" : token.chain == .bsc ? "BEP-20" : "SPL")
+                    .font(HawalaTheme.Typography.label)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(token.chain.color.opacity(0.15))
+                    .foregroundColor(token.chain.color)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            }
+            .padding(HawalaTheme.Spacing.md)
+            .background(isSelected ? HawalaTheme.Colors.accent.opacity(0.1) : HawalaTheme.Colors.backgroundSecondary)
+            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
+                    .strokeBorder(isSelected ? HawalaTheme.Colors.accent : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 

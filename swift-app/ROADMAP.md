@@ -69,14 +69,14 @@
 - [x] **Dark/Light theme toggle** - Theme picker with System/Light/Dark modes, adaptive colors
 - [x] **Address labels/tags** - Full address labeling system with tags, favorites, and search
 
+### Phase 13: Token Management (Priority: MEDIUM) ✅
+- [x] **Custom ERC-20 token support** - Add any ERC-20/BEP-20 token by contract address with auto-fetch metadata
+- [x] **Custom SPL token support** - Add any Solana token by mint address with Helius/Solscan metadata lookup
+- [x] **Token balance auto-detection** - Scan wallets for tokens with non-zero balances (ERC-20 via Alchemy, SPL via RPC)
+
 ---
 
 ## 🔄 IN PROGRESS / REMAINING
-
-### Phase 13: Token Management (Priority: MEDIUM)
-- [ ] **Custom ERC-20 token support** - Add any ERC-20 token by contract address
-- [ ] **Custom SPL token support** - Add any Solana token by mint address
-- [ ] **Token balance auto-detection** - Scan for token holdings
 
 ### Phase 14: Advanced Wallet Features (Priority: MEDIUM)
 - [ ] **Batch transactions** - Send to multiple recipients in one transaction
