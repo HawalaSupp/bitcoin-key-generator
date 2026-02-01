@@ -119,7 +119,9 @@ fn fetch_litecoin_balance(
     _client: &reqwest::blocking::Client,
     address: &str,
 ) -> HawalaResult<Balance> {
-    // TODO: Phase 6 - integrate Litecoin API
+    // Note: Litecoin API integration planned for Phase 6
+    // For now, returns zero balance - Litecoin balance requires
+    // integration with blockcypher or similar API
     Ok(Balance {
         chain: Chain::Litecoin,
         address: address.to_string(),

@@ -13,7 +13,7 @@
 | **Security** | ✅ Strong | 1 dependency CVE (medium) |
 | **Core Functionality** | ✅ Ready | DEX/Bridge/IBC FFI complete |
 | **Build & Signing** | 🔴 Incomplete | No code signing configured |
-| **Testing** | ✅ Improved | 773 Rust tests + UI test suite |
+| **Testing** | ✅ Improved | 902 Rust tests + UI test suite |
 | **Documentation** | ✅ Good | Comprehensive |
 
 ---
@@ -142,7 +142,7 @@ Mark completed features:
 - [x] Spending policies
 
 ### Code Quality ✅
-- [x] 773 Rust tests passing
+- [x] 902 Rust tests passing
 - [x] Custom error handling (`HawalaResult`)
 - [x] Release profile with LTO, stripped symbols
 - [x] CI/CD workflows configured
