@@ -333,16 +333,102 @@ pub extern "C" fn hawala_broadcast_transaction(input: *const c_char) -> *mut c_c
     }
 }
 
-/// Cancel a pending transaction (RBF/nonce replacement)
+/// Cancel or speed up a pending transaction (RBF/nonce replacement)
+/// 
+/// # Input (Bitcoin/Litecoin Cancel)
+/// ```json
+/// {
+///   "action": "cancel",
+///   "chain": "bitcoin",
+///   "original_txid": "abc123...",
+///   "utxos": [{ "txid": "...", "vout": 0, "value": 50000, "script_pubkey": "..." }],
+///   "return_address": "bc1q...",
+///   "private_key_wif": "...",
+///   "new_fee_rate": 50,
+///   "is_testnet": false
+/// }
+/// ```
+/// 
+/// # Input (Ethereum Cancel)
+/// ```json
+/// {
+///   "action": "cancel",
+///   "chain": "ethereum",
+///   "original_txid": "0x...",
+///   "nonce": 42,
+///   "from_address": "0x...",
+///   "private_key_hex": "...",
+///   "new_gas_price": "50000000000",
+///   "chain_id": 1
+/// }
+/// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn hawala_cancel_transaction(input: *const c_char) -> *mut c_char {
-    let _json_str = match parse_input(input) {
+    let json_str = match parse_input(input) {
         Ok(s) => s,
         Err(ptr) => return ptr,
     };
 
-    // TODO: Phase 4 implementation
-    error_response(HawalaError::new(ErrorCode::NotImplemented, "Cancel transaction coming in Phase 4"))
+    #[derive(serde::Deserialize)]
+    struct CancelRequest {
+        action: String,
+        chain: Chain,
+        #[serde(flatten)]
+        data: serde_json::Value,
+    }
+
+    let request: CancelRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let result = match (request.action.as_str(), &request.chain) {
+        ("cancel", Chain::Bitcoin | Chain::BitcoinTestnet | Chain::Litecoin) => {
+            // Parse Bitcoin cancel request
+            let btc_request: crate::tx::BitcoinCancelRequest = match serde_json::from_value(request.data) {
+                Ok(r) => r,
+                Err(e) => return error_response(HawalaError::parse_error(format!("Invalid Bitcoin cancel request: {}", e))),
+            };
+            crate::tx::cancel_bitcoin_rbf(&btc_request)
+        }
+        ("speedup", Chain::Bitcoin | Chain::BitcoinTestnet | Chain::Litecoin) => {
+            // Parse Bitcoin speed up request
+            let btc_request: crate::tx::BitcoinSpeedUpRequest = match serde_json::from_value(request.data) {
+                Ok(r) => r,
+                Err(e) => return error_response(HawalaError::parse_error(format!("Invalid Bitcoin speedup request: {}", e))),
+            };
+            crate::tx::speed_up_bitcoin_rbf(&btc_request)
+        }
+        ("cancel", Chain::Ethereum | Chain::EthereumSepolia | Chain::Bnb | 
+                   Chain::Polygon | Chain::Arbitrum | Chain::Optimism | Chain::Base | Chain::Avalanche) => {
+            // Parse EVM cancel request
+            let evm_request: crate::tx::EvmCancelRequest = match serde_json::from_value(request.data) {
+                Ok(r) => r,
+                Err(e) => return error_response(HawalaError::parse_error(format!("Invalid EVM cancel request: {}", e))),
+            };
+            crate::tx::cancel_evm_nonce(&evm_request)
+        }
+        ("speedup", Chain::Ethereum | Chain::EthereumSepolia | Chain::Bnb | 
+                    Chain::Polygon | Chain::Arbitrum | Chain::Optimism | Chain::Base | Chain::Avalanche) => {
+            // Parse EVM speed up request
+            let evm_request: crate::tx::EvmSpeedUpRequest = match serde_json::from_value(request.data) {
+                Ok(r) => r,
+                Err(e) => return error_response(HawalaError::parse_error(format!("Invalid EVM speedup request: {}", e))),
+            };
+            crate::tx::speed_up_evm(&evm_request)
+        }
+        (action, chain) => {
+            return error_response(HawalaError::invalid_input(format!(
+                "Unsupported action '{}' for chain {:?}. Use 'cancel' or 'speedup'.", 
+                action, chain
+            )));
+        }
+    };
+
+    match result {
+        Ok(cancellation) => success_response(cancellation),
+        Err(e) => error_response(e),
+    }
 }
 
 // =============================================================================
