@@ -9,6 +9,10 @@ struct SettingsView: View {
     @ObservedObject var passcodeManager = PasscodeManager.shared
     @ObservedObject var themeManager = ThemeManager.shared
     @ObservedObject var privacyManager = PrivacyManager.shared
+    @ObservedObject var walletManager = WalletManager.shared
+    
+    // Onboarding state for reset
+    @AppStorage("hawala.onboardingCompleted") private var onboardingCompleted = false
     
     // Settings State
     @AppStorage("showBalances") private var showBalances = true
@@ -189,8 +193,26 @@ struct SettingsView: View {
         .alert("Reset Wallet", isPresented: $showResetConfirm) {
             Button("Cancel", role: .cancel) { }
             Button("Reset", role: .destructive) {
-                // Handle reset
-                ToastManager.shared.info("This would reset the wallet")
+                Task {
+                    do {
+                        // Delete all wallets from secure storage
+                        try await walletManager.deleteAllWallets()
+                        
+                        // Reset onboarding state
+                        await MainActor.run {
+                            onboardingCompleted = false
+                            // Clear cached data
+                            UserDefaults.standard.removeObject(forKey: "cached_balances")
+                            UserDefaults.standard.removeObject(forKey: "cached_prices")
+                            UserDefaults.standard.synchronize()
+                            dismiss()
+                        }
+                        
+                        ToastManager.shared.success("Wallet reset complete")
+                    } catch {
+                        ToastManager.shared.error("Failed to reset: \(error.localizedDescription)")
+                    }
+                }
             }
         } message: {
             Text("Are you sure you want to reset your wallet? This action cannot be undone. Make sure you have backed up your seed phrase.")
