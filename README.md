@@ -39,7 +39,7 @@ Hawala combines Rust cryptographic primitives with a native SwiftUI front-end to
 
 ### Key Capabilities
 
-- **867+ Unit Tests**: Comprehensive test coverage
+- **1,100+ Tests**: 902 Rust + 213 Swift tests with comprehensive coverage
 - **120fps Performance**: Optimized for ProMotion displays
 - **Security Hardened**: Constant-time comparisons, memory zeroing
 - **Transaction Simulation**: Pre-sign preview of balance changes
