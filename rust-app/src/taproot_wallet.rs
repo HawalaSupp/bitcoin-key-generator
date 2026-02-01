@@ -291,7 +291,12 @@ pub fn prepare_taproot_transaction(
         let mut witness = Witness::new();
         witness.push(signature.serialize());
         
-        *sighasher.witness_mut(i).unwrap() = witness;
+        // Update witness for this input - witness_mut should always succeed for valid index
+        if let Some(w) = sighasher.witness_mut(i) {
+            *w = witness;
+        } else {
+            return Err(format!("Invalid input index {} for witness", i).into());
+        }
     }
 
     // Serialize transaction

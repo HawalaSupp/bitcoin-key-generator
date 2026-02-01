@@ -367,16 +367,21 @@ final class DuressWalletManager: ObservableObject {
         switch contact.alertMethod {
         case .sms:
             // In a real app, this would use a secure backend to send SMS
-            // For now, log the intent
-            print("[DURESS] Silent SMS alert triggered to \(contact.phoneNumber ?? "unknown")")
+            #if DEBUG
+            print("[DURESS] Silent SMS alert triggered")
+            #endif
             
         case .email:
             // In a real app, this would send via secure backend
-            print("[DURESS] Silent email alert triggered to \(contact.email ?? "unknown")")
+            #if DEBUG
+            print("[DURESS] Silent email alert triggered")
+            #endif
             
         case .signal:
             // Signal integration would go here
+            #if DEBUG
             print("[DURESS] Silent Signal alert triggered")
+            #endif
             
         case .none:
             break

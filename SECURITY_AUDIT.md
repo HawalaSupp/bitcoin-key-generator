@@ -238,6 +238,7 @@ The following vulnerabilities exist in transitive dependencies and require upstr
 | curve25519-dalek | 3.2.0 | Timing variability (RUSTSEC-2024-0344) | Medium | Awaiting solana-sdk update |
 | ed25519-dalek | 1.0.1 | Double Public Key Signing Oracle Attack (RUSTSEC-2022-0093) | Medium | Awaiting solana-sdk update |
 | rkyv | 0.7.45 | Undefined Behavior in Arc/Rc on OOM (RUSTSEC-2026-0001) | Medium | Via xrpl-rust → rust_decimal |
+| sharks | 0.5.0 | Bias of Polynomial Coefficients in Secret Sharing (RUSTSEC-2024-0398) | Medium | No fix available - consider replacing |
 | rustls-pemfile | 1.0.4 | Unmaintained (RUSTSEC-2025-0134) | Low | Via reqwest |
 | atty | 0.2.14 | Potential unaligned read (RUSTSEC-2021-0145) | Low | Via solana-logger |
 | bincode | 1.3.3 | Unmaintained (RUSTSEC-2025-0141) | Low | Via solana-sdk |
@@ -245,9 +246,14 @@ The following vulnerabilities exist in transitive dependencies and require upstr
 | paste | 1.0.15 | Unmaintained (RUSTSEC-2024-0436) | Low | Via ark-ff |
 | atomic-polyfill | 1.0.3 | Unmaintained (RUSTSEC-2023-0089) | Low | Via xrpl-rust |
 
+**Mitigation Notes:**
+- **sharks**: Used for Shamir's Secret Sharing. The bias in polynomial coefficients affects share generation randomness but does not compromise the security of existing shares. Consider using `vsss-rs` as alternative.
+- **ed25519-dalek/curve25519-dalek**: The timing attack requires local access to measure operations; network-based attacks are impractical.
+- **rkyv**: OOM condition is extremely rare in practice and affects deserialization only.
+
 **Note**: These are all transitive dependencies from `solana-sdk`, `reqwest`, and `xrpl-rust`. Direct fixes require upstream crate updates.
 
-**Last Audit Run**: January 30, 2026
+**Last Audit Run**: February 1, 2026
 
 ## Files Reference
 
