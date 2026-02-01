@@ -46,8 +46,15 @@ enum ChainIdentifier: String, Codable, Sendable, CaseIterable, Identifiable {
     case bitcoin = "bitcoin"
     case bitcoinTestnet = "bitcoin-testnet"
     case ethereum = "ethereum"
+    case ethereumSepolia = "ethereum-sepolia"
+    case polygon = "polygon"
+    case arbitrum = "arbitrum"
+    case optimism = "optimism"
+    case base = "base"
+    case avalanche = "avalanche"
     case litecoin = "litecoin"
     case solana = "solana"
+    case solanaDevnet = "solana-devnet"
     case xrp = "xrp"
     case monero = "monero"
     case bnb = "bnb"
@@ -59,9 +66,9 @@ enum ChainIdentifier: String, Codable, Sendable, CaseIterable, Identifiable {
         switch self {
         case .bitcoin: return 0
         case .bitcoinTestnet: return 1
-        case .ethereum: return 60
+        case .ethereum, .ethereumSepolia, .polygon, .arbitrum, .optimism, .base, .avalanche: return 60
         case .litecoin: return 2
-        case .solana: return 501
+        case .solana, .solanaDevnet: return 501
         case .xrp: return 144
         case .monero: return 128
         case .bnb: return 714
@@ -73,8 +80,15 @@ enum ChainIdentifier: String, Codable, Sendable, CaseIterable, Identifiable {
         case .bitcoin: return "Bitcoin"
         case .bitcoinTestnet: return "Bitcoin Testnet"
         case .ethereum: return "Ethereum"
+        case .ethereumSepolia: return "Sepolia Testnet"
+        case .polygon: return "Polygon"
+        case .arbitrum: return "Arbitrum"
+        case .optimism: return "Optimism"
+        case .base: return "Base"
+        case .avalanche: return "Avalanche"
         case .litecoin: return "Litecoin"
         case .solana: return "Solana"
+        case .solanaDevnet: return "Solana Devnet"
         case .xrp: return "XRP"
         case .monero: return "Monero"
         case .bnb: return "BNB"
@@ -85,9 +99,11 @@ enum ChainIdentifier: String, Codable, Sendable, CaseIterable, Identifiable {
         switch self {
         case .bitcoin: return "BTC"
         case .bitcoinTestnet: return "tBTC"
-        case .ethereum: return "ETH"
+        case .ethereum, .ethereumSepolia, .arbitrum, .optimism, .base: return "ETH"
+        case .polygon: return "MATIC"
+        case .avalanche: return "AVAX"
         case .litecoin: return "LTC"
-        case .solana: return "SOL"
+        case .solana, .solanaDevnet: return "SOL"
         case .xrp: return "XRP"
         case .monero: return "XMR"
         case .bnb: return "BNB"
@@ -97,9 +113,9 @@ enum ChainIdentifier: String, Codable, Sendable, CaseIterable, Identifiable {
     var iconName: String {
         switch self {
         case .bitcoin, .bitcoinTestnet: return "bitcoinsign.circle.fill"
-        case .ethereum: return "e.circle.fill"
+        case .ethereum, .ethereumSepolia, .polygon, .arbitrum, .optimism, .base, .avalanche: return "e.circle.fill"
         case .litecoin: return "l.circle.fill"
-        case .solana: return "s.circle.fill"
+        case .solana, .solanaDevnet: return "s.circle.fill"
         case .xrp: return "x.circle.fill"
         case .monero: return "m.circle.fill"
         case .bnb: return "b.circle.fill"

@@ -580,6 +580,85 @@ public final class HawalaBridge: @unchecked Sendable {
         return (result.valid, result.normalized)
     }
     
+    // MARK: - Address Derivation from Private Key
+    
+    /// Derive Ethereum address from private key hex
+    public func deriveEthereumAddressFromKey(_ jsonInput: String) -> String {
+        // Parse input and derive address using secp256k1
+        guard let inputData = jsonInput.data(using: .utf8),
+              let input = try? JSONSerialization.jsonObject(with: inputData) as? [String: String],
+              let privateKeyHex = input["private_key"] else {
+            return "{}"
+        }
+        
+        // Use Rust FFI to derive public key and compute address
+        // For now, return a simple derivation (in production, use full secp256k1 + keccak256)
+        do {
+            struct DeriveRequest: Encodable { let private_key: String; let chain: String }
+            struct DeriveResponse: Codable { let address: String }
+            let request = try encodeJSON(DeriveRequest(private_key: privateKeyHex, chain: "ethereum"))
+            if let cStr = request.cString(using: .utf8),
+               let resultPtr = hawala_derive_address_from_key(cStr) {
+                let result = String(cString: resultPtr)
+                free_string(UnsafeMutablePointer(mutating: resultPtr))
+                return result
+            }
+        } catch {
+            // Fallback
+        }
+        return "{}"
+    }
+    
+    /// Derive Bitcoin address from WIF private key
+    public func deriveBitcoinAddressFromKey(_ jsonInput: String) -> String {
+        // Parse input and derive address
+        guard let inputData = jsonInput.data(using: .utf8),
+              let input = try? JSONSerialization.jsonObject(with: inputData) as? [String: Any],
+              let wif = input["wif"] as? String else {
+            return "{}"
+        }
+        
+        let testnet = input["testnet"] as? Bool ?? false
+        
+        do {
+            struct DeriveRequest: Encodable { let wif: String; let testnet: Bool }
+            struct DeriveResponse: Codable { let address: String }
+            let request = try encodeJSON(DeriveRequest(wif: wif, testnet: testnet))
+            if let cStr = request.cString(using: .utf8),
+               let resultPtr = hawala_derive_address_from_key(cStr) {
+                let result = String(cString: resultPtr)
+                free_string(UnsafeMutablePointer(mutating: resultPtr))
+                return result
+            }
+        } catch {
+            // Fallback
+        }
+        return "{}"
+    }
+    
+    /// Derive Solana address from base58 private key
+    public func deriveSolanaAddressFromKey(_ jsonInput: String) -> String {
+        guard let inputData = jsonInput.data(using: .utf8),
+              let input = try? JSONSerialization.jsonObject(with: inputData) as? [String: String],
+              let privateKey = input["private_key"] else {
+            return "{}"
+        }
+        
+        do {
+            struct DeriveRequest: Encodable { let private_key: String; let chain: String }
+            let request = try encodeJSON(DeriveRequest(private_key: privateKey, chain: "solana"))
+            if let cStr = request.cString(using: .utf8),
+               let resultPtr = hawala_derive_address_from_key(cStr) {
+                let result = String(cString: resultPtr)
+                free_string(UnsafeMutablePointer(mutating: resultPtr))
+                return result
+            }
+        } catch {
+            // Fallback
+        }
+        return "{}"
+    }
+    
     // MARK: - Fee Operations (Phase 3)
     
     /// Estimate fees for a UTXO chain

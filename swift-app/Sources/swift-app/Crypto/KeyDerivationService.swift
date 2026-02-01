@@ -169,12 +169,13 @@ struct DerivedKeys: Codable, Sendable {
         switch chain {
         case .bitcoin: return bitcoin
         case .bitcoinTestnet: return bitcoinTestnet
-        case .ethereum: return ethereum
+        case .ethereum, .ethereumSepolia, .polygon, .arbitrum, .optimism, .base, .avalanche, .bnb:
+            // All EVM chains use the same Ethereum keys
+            return ethereum
         case .litecoin: return litecoin
-        case .solana: return solana
+        case .solana, .solanaDevnet: return solana
         case .xrp: return xrp
         case .monero: return monero
-        case .bnb: return bnb
         }
     }
 }

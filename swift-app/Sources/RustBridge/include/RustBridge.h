@@ -22,6 +22,7 @@ const char* hawala_generate_wallet(void);
 const char* hawala_restore_wallet(const char* json_input);
 const char* hawala_validate_mnemonic(const char* json_input);
 const char* hawala_validate_address(const char* json_input);
+const char* hawala_derive_address_from_key(const char* json_input);
 
 // ----------------------------------------------------------------------------
 // Transaction Pipeline (Phase 2)

@@ -170,6 +170,7 @@ pub use ffi::{
     hawala_generate_wallet,
     hawala_restore_wallet,
     hawala_validate_mnemonic,
+    hawala_derive_address_from_key,
     hawala_prepare_transaction,
     hawala_sign_transaction,
     hawala_broadcast_transaction,

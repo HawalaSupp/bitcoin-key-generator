@@ -179,6 +179,143 @@ pub extern "C" fn hawala_validate_mnemonic(input: *const c_char) -> *mut c_char 
     success_response(ValidateResponse { valid })
 }
 
+/// Derive address from private key
+/// 
+/// # Input
+/// ```json
+/// { "private_key": "...", "chain": "ethereum" }
+/// ```
+/// or for Bitcoin WIF:
+/// ```json
+/// { "wif": "...", "testnet": false }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_derive_address_from_key(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct DeriveRequest {
+        private_key: Option<String>,
+        wif: Option<String>,
+        chain: Option<String>,
+        testnet: Option<bool>,
+    }
+
+    #[derive(serde::Serialize)]
+    struct DeriveResponse {
+        address: String,
+    }
+
+    let request: DeriveRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    // Handle Bitcoin WIF
+    if let Some(wif) = request.wif {
+        let testnet = request.testnet.unwrap_or(false);
+        match derive_bitcoin_address_from_wif(&wif, testnet) {
+            Ok(address) => return success_response(DeriveResponse { address }),
+            Err(e) => return error_response(e),
+        }
+    }
+
+    // Handle hex private key
+    if let Some(key_hex) = request.private_key {
+        let chain = request.chain.as_deref().unwrap_or("ethereum");
+        match chain {
+            "ethereum" | "bnb" | "polygon" | "arbitrum" | "optimism" | "base" | "avalanche" => {
+                match derive_ethereum_address_from_key(&key_hex) {
+                    Ok(address) => return success_response(DeriveResponse { address }),
+                    Err(e) => return error_response(e),
+                }
+            }
+            "solana" => {
+                match derive_solana_address_from_key(&key_hex) {
+                    Ok(address) => return success_response(DeriveResponse { address }),
+                    Err(e) => return error_response(e),
+                }
+            }
+            _ => {
+                return error_response(HawalaError::invalid_input(format!("Unsupported chain: {}", chain)));
+            }
+        }
+    }
+
+    error_response(HawalaError::invalid_input("Must provide either 'private_key' or 'wif'"))
+}
+
+/// Derive Ethereum address from hex private key
+fn derive_ethereum_address_from_key(key_hex: &str) -> Result<String, HawalaError> {
+    use secp256k1::{Secp256k1, SecretKey, PublicKey};
+    use sha3::{Digest, Keccak256};
+    
+    let key_bytes = hex::decode(key_hex.trim_start_matches("0x"))
+        .map_err(|_| HawalaError::invalid_input("Invalid hex private key"))?;
+    
+    let secp = Secp256k1::new();
+    let secret_key = SecretKey::from_slice(&key_bytes)
+        .map_err(|_| HawalaError::invalid_input("Invalid private key"))?;
+    let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+    
+    // Serialize uncompressed public key (65 bytes, starts with 04)
+    let public_key_bytes = public_key.serialize_uncompressed();
+    
+    // Take last 64 bytes (skip 04 prefix) and hash
+    let public_key_data = &public_key_bytes[1..];
+    let hash = Keccak256::digest(public_key_data);
+    
+    // Address is last 20 bytes
+    let address = format!("0x{}", hex::encode(&hash[12..]));
+    Ok(address)
+}
+
+/// Derive Bitcoin address from WIF private key
+fn derive_bitcoin_address_from_wif(wif: &str, testnet: bool) -> Result<String, HawalaError> {
+    use bitcoin::{PrivateKey, Network, Address, CompressedPublicKey};
+    use bitcoin::secp256k1::Secp256k1;
+    
+    let network = if testnet { Network::Testnet } else { Network::Bitcoin };
+    
+    let private_key = PrivateKey::from_wif(wif)
+        .map_err(|e| HawalaError::invalid_input(format!("Invalid WIF: {}", e)))?;
+    
+    let secp = Secp256k1::new();
+    let public_key = bitcoin::PublicKey::from_private_key(&secp, &private_key);
+    
+    // Convert to compressed public key
+    let compressed = CompressedPublicKey::try_from(public_key)
+        .map_err(|_| HawalaError::invalid_input("Failed to compress public key"))?;
+    
+    // Generate SegWit (P2WPKH) address
+    let address = Address::p2wpkh(&compressed, network);
+    
+    Ok(address.to_string())
+}
+
+/// Derive Solana address from base58 private key
+fn derive_solana_address_from_key(key_input: &str) -> Result<String, HawalaError> {
+    use solana_sdk::signer::Signer;
+    use solana_sdk::signature::Keypair;
+    
+    // Try base58 decode first
+    let keypair = if let Ok(bytes) = bs58::decode(key_input).into_vec() {
+        Keypair::from_bytes(&bytes)
+            .map_err(|_| HawalaError::invalid_input("Invalid Solana keypair bytes"))?
+    } else {
+        // Try hex decode
+        let bytes = hex::decode(key_input)
+            .map_err(|_| HawalaError::invalid_input("Invalid key format (expected base58 or hex)"))?;
+        Keypair::from_bytes(&bytes)
+            .map_err(|_| HawalaError::invalid_input("Invalid Solana keypair bytes"))?
+    };
+    
+    Ok(keypair.pubkey().to_string())
+}
+
 // =============================================================================
 // Transaction Operations (Stubs - Phase 2)
 // =============================================================================
