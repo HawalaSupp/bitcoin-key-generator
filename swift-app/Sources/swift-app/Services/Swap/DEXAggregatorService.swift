@@ -436,10 +436,10 @@ final class DEXAggregatorService: ObservableObject {
         // Parse gas values
         let gasLimitInt = UInt64(swapTx.gasLimit) ?? 300000
         
-        // Sign the transaction using RustCLIBridge
+        // Sign the transaction using RustService FFI
         let signedTxHex: String
         do {
-            signedTxHex = try RustCLIBridge.shared.signEthereum(
+            signedTxHex = try RustService.shared.signEthereumThrowing(
                 recipient: swapTx.to,
                 amountWei: swapTx.value,
                 chainId: UInt64(chainId),
@@ -491,8 +491,8 @@ final class DEXAggregatorService: ObservableObject {
         let nonceResult = try HawalaBridge.shared.getNonce(address: fromAddress, chainId: UInt64(chainId))
         let nonce = nonceResult.nonce
         
-        // Sign approval transaction
-        let signedTxHex = try RustCLIBridge.shared.signEthereum(
+        // Sign approval transaction via RustService FFI
+        let signedTxHex = try RustService.shared.signEthereumThrowing(
             recipient: approval.token,
             amountWei: "0",
             chainId: UInt64(chainId),

@@ -484,11 +484,11 @@ final class BridgeService: ObservableObject {
         // Parse gas parameters
         let gasLimit = UInt64(transaction.gasLimit) ?? 300000
         
-        // Sign the transaction
+        // Sign the transaction via RustService FFI
         let signedTx: String
         do {
             signedTx = try await Task.detached { [transaction, privateKey, nonce, gasLimit, chainId] in
-                try RustCLIBridge.shared.signEthereum(
+                try RustService.shared.signEthereumThrowing(
                     recipient: transaction.to,
                     amountWei: transaction.value,
                     chainId: chainId,

@@ -284,11 +284,11 @@ final class BatchTransactionManager: ObservableObject {
         let selected = manager.selectUTXOs(for: targetAmount)
         
         let rustUTXOs = selected.map { u in
-            RustCLIBridge.RustUTXO(
+            RustUTXO(
                 txid: u.txid,
                 vout: UInt32(u.vout),
                 value: u.value,
-                status: RustCLIBridge.RustUTXOStatus(
+                status: RustUTXOStatus(
                     confirmed: u.confirmations > 0,
                     block_height: nil,
                     block_hash: nil,
@@ -297,7 +297,7 @@ final class BatchTransactionManager: ObservableObject {
             )
         }
         
-        let signedHex = try RustCLIBridge.shared.signBitcoin(
+        let signedHex = try RustService.shared.signBitcoinThrowing(
             recipient: recipient.address,
             amountSats: amountSats,
             feeRate: feeRate,
@@ -342,7 +342,7 @@ final class BatchTransactionManager: ObservableObject {
         let gasLimit: UInt64 = 21000
         let gasPriceWei = "20000000000" // 20 Gwei default
         
-        let signedTx = try RustCLIBridge.shared.signEthereum(
+        let signedTx = try RustService.shared.signEthereumThrowing(
             recipient: recipient.address,
             amountWei: amountWei,
             chainId: chainId,
@@ -389,7 +389,7 @@ final class BatchTransactionManager: ObservableObject {
         let gasLimit: UInt64 = 21000
         let gasPriceWei = "5000000000" // 5 Gwei for BNB Chain
         
-        let signedTx = try RustCLIBridge.shared.signEthereum(
+        let signedTx = try RustService.shared.signEthereumThrowing(
             recipient: recipient.address,
             amountWei: amountWei,
             chainId: chainId,
@@ -439,7 +439,7 @@ final class BatchTransactionManager: ObservableObject {
         let amountSol = recipient.amountDouble
         let senderBase58 = keys.solana.privateKeyBase58
         
-        let signedTx = try RustCLIBridge.shared.signSolana(
+        let signedTx = try RustService.shared.signSolanaThrowing(
             recipient: recipient.address,
             amountSol: amountSol,
             recentBlockhash: blockhash,

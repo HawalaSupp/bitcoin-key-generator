@@ -3871,141 +3871,45 @@ struct ContentView: View {
         return prettyString
     }
 
-    private nonisolated static func resolveCargoExecutable() throws -> String {
-        let fileManager = FileManager.default
-        let environment = ProcessInfo.processInfo.environment
-
-        if let override = environment["CARGO_BIN"], fileManager.isExecutableFile(atPath: override) {
-            return override
-        }
-
-        for path in candidateCargoPaths() {
-            if fileManager.isExecutableFile(atPath: path) {
-                return path
-            }
-        }
-
-        if let whichPath = try locateCargoWithWhich(), fileManager.isExecutableFile(atPath: whichPath) {
-            return whichPath
-        }
-
-        throw KeyGeneratorError.cargoNotFound
-    }
-
-    private nonisolated static func candidateCargoPaths() -> [String] {
-        var paths: [String] = []
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        paths.append("\(home)/.cargo/bin/cargo")
-        paths.append(contentsOf: [
-            "/opt/homebrew/bin/cargo",
-            "/usr/local/bin/cargo",
-            "/usr/bin/cargo"
-        ])
-        return paths
-    }
-
-    private nonisolated static func locateCargoWithWhich() throws -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["which", "cargo"]
-
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else { return nil }
-
-        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return path.isEmpty ? nil : path
-    }
-
-    private nonisolated static func mergedEnvironment(forCargoExecutableAt path: String) -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
-        let cargoDirectory = (path as NSString).deletingLastPathComponent
-        var segments = environment["PATH"]?.split(separator: ":").map(String.init) ?? []
-        if !segments.contains(cargoDirectory) {
-            segments.insert(cargoDirectory, at: 0)
-        }
-        environment["PATH"] = segments.joined(separator: ":")
-        environment["CARGO_BIN"] = path
-        return environment
-    }
+    // Note: Cargo-related helper functions (resolveCargoExecutable, candidateCargoPaths, 
+    // locateCargoWithWhich, mergedEnvironment) have been removed as key generation now
+    // uses FFI instead of spawning cargo processes.
 
     private func runRustKeyGenerator() async throws -> (AllKeys, String) {
-        // Run cargo resolution in a detached task to avoid blocking the main thread
-        let cargoPath = try await Task.detached {
-            try ContentView.resolveCargoExecutable()
-        }.value
-
-        return try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = [
-                "cargo",
-                "run",
-                "--manifest-path",
-                manifestPath,
-                "--quiet",
-                "--",
-                "gen-keys",
-                "--json"
-            ]
-            process.currentDirectoryURL = workspaceRoot
-            process.environment = ContentView.mergedEnvironment(forCargoExecutableAt: cargoPath)
-
-            let outputPipe = Pipe()
-            let errorPipe = Pipe()
-            process.standardOutput = outputPipe
-            process.standardError = errorPipe
-
-            process.terminationHandler = { proc in
-                let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-
-                let outputString = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let errorString = String(data: errorData, encoding: .utf8) ?? ""
-
-                guard proc.terminationStatus == 0 else {
-                    let message = errorString.isEmpty ? "Rust generator failed with exit code \(proc.terminationStatus)" : errorString
-                    continuation.resume(throwing: KeyGeneratorError.executionFailed(message))
-                    return
+        // Use FFI-based key generation instead of spawning cargo process
+        // This is more reliable, faster, and doesn't require cargo to be installed
+        return try await Task.detached {
+            let jsonString = RustService.shared.generateKeys()
+            
+            guard let jsonData = jsonString.data(using: .utf8) else {
+                throw KeyGeneratorError.executionFailed("Invalid UTF-8 output from generator")
+            }
+            
+            // Check for API response format
+            if let apiResponse = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+               let success = apiResponse["success"] as? Bool {
+                if !success {
+                    if let error = apiResponse["error"] as? [String: Any],
+                       let message = error["message"] as? String {
+                        throw KeyGeneratorError.executionFailed(message)
+                    }
+                    throw KeyGeneratorError.executionFailed("Key generation failed")
                 }
-
-                guard let jsonData = outputString.data(using: .utf8) else {
-                    continuation.resume(throwing: KeyGeneratorError.executionFailed("Invalid UTF-8 output from generator"))
-                    return
-                }
-
-                do {
+                // Extract data from API response
+                if let dataObj = apiResponse["data"],
+                   let dataJson = try? JSONSerialization.data(withJSONObject: dataObj) {
                     let decoder = JSONDecoder()
-                    // The Rust CLI returns { "mnemonic": "...", "keys": {...} }
-                    let response = try decoder.decode(WalletResponse.self, from: jsonData)
-                    continuation.resume(returning: (response.keys, outputString))
-                } catch {
-                    #if DEBUG
-                    print("Key decode failed: \(error)")
-                    print("Raw output: \(outputString)")
-                    #endif
-                    continuation.resume(throwing: error)
+                    let response = try decoder.decode(WalletResponse.self, from: dataJson)
+                    let formattedJson = String(data: dataJson, encoding: .utf8) ?? jsonString
+                    return (response.keys, formattedJson)
                 }
             }
-
-            do {
-                try process.run()
-            } catch {
-                let wrapped = KeyGeneratorError.executionFailed("Failed to launch cargo using \(cargoPath): \(error.localizedDescription)")
-                continuation.resume(throwing: wrapped)
-            }
-        }
+            
+            // Try direct WalletResponse format (legacy)
+            let decoder = JSONDecoder()
+            let response = try decoder.decode(WalletResponse.self, from: jsonData)
+            return (response.keys, jsonString)
+        }.value
     }
 
     @MainActor

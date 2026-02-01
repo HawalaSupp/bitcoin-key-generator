@@ -33,7 +33,7 @@ struct SolanaTransaction {
         // Convert Lamports to SOL
         let amountSol = Double(amount) / 1_000_000_000.0
         
-        return try RustCLIBridge.shared.signSolana(
+        return try RustService.shared.signSolanaThrowing(
             recipient: recipient,
             amountSol: amountSol,
             recentBlockhash: recentBlockhash,

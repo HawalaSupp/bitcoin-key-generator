@@ -3,6 +3,11 @@
 
 import PackageDescription
 
+// Library search path for the Rust FFI library.
+// Uses relative path from swift-app directory for portability.
+// For production builds, the library should be bundled in the app package.
+let rustLibSearchPath = "../rust-app/target/release"
+
 let package = Package(
     name: "swift-app",
     platforms: [
@@ -22,7 +27,7 @@ let package = Package(
             dependencies: [],
             path: "Sources/RustBridge",
             linkerSettings: [
-                .unsafeFlags(["-L/Users/x/Desktop/888/rust-app/target/release"]),
+                .unsafeFlags(["-L\(rustLibSearchPath)"]),
                 .linkedLibrary("rust_app")
             ]
         ),

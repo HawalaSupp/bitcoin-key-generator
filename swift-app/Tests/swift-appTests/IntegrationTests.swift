@@ -1,6 +1,10 @@
 import Testing
 import Foundation
 
+// NOTE: These integration tests test the Rust CLI binary directly using Process().
+// The production app uses FFI via RustService instead of CLI Process() calls.
+// These tests are for development/CI verification of the Rust binary only.
+
 @Suite
 struct IntegrationTests {
     
@@ -36,8 +40,9 @@ struct IntegrationTests {
         
         let possiblePaths = [
             "../rust-app/target/debug/rust-app",
+            "../rust-app/target/release/rust-app",
             "rust-app/target/debug/rust-app",
-            "/Users/x/Desktop/888/rust-app/target/debug/rust-app" // Absolute path for certainty in this env
+            "rust-app/target/release/rust-app"
         ]
         
         var binaryURL: URL?
@@ -127,12 +132,13 @@ struct IntegrationTests {
             return
         }
 
-        // 1. Locate the binary
+        // 1. Locate the binary using relative paths only
         let fileManager = FileManager.default
         let possiblePaths = [
             "../rust-app/target/debug/rust-app",
+            "../rust-app/target/release/rust-app",
             "rust-app/target/debug/rust-app",
-            "/Users/x/Desktop/888/rust-app/target/debug/rust-app"
+            "rust-app/target/release/rust-app"
         ]
         
         var binaryURL: URL?

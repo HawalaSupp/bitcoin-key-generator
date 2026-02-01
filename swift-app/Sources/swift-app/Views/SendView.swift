@@ -1653,11 +1653,11 @@ struct SendView: View {
                         let targetAmount = amountSats + (fee * 200) + 1000
                         let selected = manager.selectUTXOs(for: targetAmount)
                         return selected.map { u in
-                            RustCLIBridge.RustUTXO(
+                            RustUTXO(
                                 txid: u.txid,
                                 vout: UInt32(u.vout),
                                 value: u.value,
-                                status: RustCLIBridge.RustUTXOStatus(
+                                status: RustUTXOStatus(
                                     confirmed: u.confirmations > 0,
                                     block_height: nil,
                                     block_hash: nil,
@@ -1668,7 +1668,7 @@ struct SendView: View {
                     }
                     
                     // Always use SegWit signing (UTXOs are from SegWit address)
-                    signedHex = try RustCLIBridge.shared.signBitcoin(
+                    signedHex = try RustService.shared.signBitcoinThrowing(
                         recipient: recipient,
                         amountSats: amountSats,
                         feeRate: fee,
@@ -1688,11 +1688,11 @@ struct SendView: View {
                         let targetAmount = amountSats + (fee * 200) + 1000
                         let selected = manager.selectUTXOs(for: targetAmount)
                         return selected.map { u in
-                            RustCLIBridge.RustUTXO(
+                            RustUTXO(
                                 txid: u.txid,
                                 vout: UInt32(u.vout),
                                 value: u.value,
-                                status: RustCLIBridge.RustUTXOStatus(
+                                status: RustUTXOStatus(
                                     confirmed: u.confirmations > 0,
                                     block_height: nil,
                                     block_hash: nil,
@@ -1703,7 +1703,7 @@ struct SendView: View {
                     }
                     
                     // Always use SegWit signing (UTXOs are from SegWit address)
-                    signedHex = try RustCLIBridge.shared.signBitcoin(
+                    signedHex = try RustService.shared.signBitcoinThrowing(
                         recipient: recipient,
                         amountSats: amountSats,
                         feeRate: fee,
@@ -1874,18 +1874,16 @@ struct SendView: View {
             // Start tracking confirmations for this transaction
             TransactionConfirmationTracker.shared.track(txid: txId, chainId: selectedChain.chainId)
             
-        } catch let error as RustCLIError {
+        } catch let error as RustServiceError {
             #if DEBUG
-            print("[SendView] RUST CLI ERROR: \(error)")
+            print("[SendView] RUST SERVICE ERROR: \(error)")
             #endif
             let errorDesc: String
             switch error {
-            case .binaryNotFound:
-                errorDesc = "Transaction signing unavailable. Please ensure the Rust wallet backend is built (run 'cargo build' in rust-app)."
-            case .executionFailed(let code, let output):
+            case .ffiError(let code, let message):
                 // Parse common error patterns for more user-friendly messages
-                errorDesc = parseTransactionError(code: code, output: output)
-            case .outputParsingFailed:
+                errorDesc = parseTransactionError(code: -1, output: "[\(code)] \(message)")
+            case .invalidResponse:
                 errorDesc = "Unable to process the signed transaction. Please try again."
             case .invalidInput:
                 errorDesc = "Invalid transaction details. Please check the recipient address and amount."
@@ -2102,11 +2100,11 @@ struct SendView: View {
         let selected = manager.selectUTXOs(for: targetAmount)
         
         let rustUTXOs = selected.map { u in
-            RustCLIBridge.RustUTXO(
+            RustUTXO(
                 txid: u.txid,
                 vout: UInt32(u.vout),
                 value: u.value,
-                status: RustCLIBridge.RustUTXOStatus(
+                status: RustUTXOStatus(
                     confirmed: u.confirmations > 0,
                     block_height: nil,
                     block_hash: nil,
@@ -2122,7 +2120,7 @@ struct SendView: View {
         #if DEBUG
         print("[SendView] Using standard SegWit (P2WPKH) signing")
         #endif
-        let signedHex = try RustCLIBridge.shared.signBitcoin(
+        let signedHex = try RustService.shared.signBitcoinThrowing(
             recipient: recipient,
             amountSats: amountSats,
             feeRate: fee,
@@ -2147,11 +2145,11 @@ struct SendView: View {
         let selected = manager.selectUTXOs(for: targetAmount)
         
         let rustUTXOs = selected.map { u in
-            RustCLIBridge.RustUTXO(
+            RustUTXO(
                 txid: u.txid,
                 vout: UInt32(u.vout),
                 value: u.value,
-                status: RustCLIBridge.RustUTXOStatus(
+                status: RustUTXOStatus(
                     confirmed: u.confirmations > 0,
                     block_height: nil,
                     block_hash: nil,
@@ -2160,7 +2158,7 @@ struct SendView: View {
             )
         }
         
-        let signedHex = try RustCLIBridge.shared.signLitecoin(
+        let signedHex = try RustService.shared.signLitecoinThrowing(
             recipient: recipient,
             amountLits: amountLits,
             feeRate: fee,
@@ -2340,9 +2338,9 @@ struct SendView: View {
         let chainKeyForNonce = (chainId == 11155111) ? "ethereum-sepolia" : (chainId == 1 ? "ethereum" : String(chainId))
         do {
             #if DEBUG
-            print("[ETH TX] Calling Rust to sign transaction...")
+            print("[ETH TX] Calling Rust FFI to sign transaction...")
             #endif
-            let signedHex = try RustCLIBridge.shared.signEthereum(
+            let signedHex = try RustService.shared.signEthereumThrowing(
                 recipient: recipient,
                 amountWei: amountWei,
                 chainId: chainId,
@@ -2460,7 +2458,7 @@ struct SendView: View {
         // Fetch recent blockhash from Solana network
         let recentBlockhash = try await TransactionBroadcaster.shared.getSolanaBlockhash(isDevnet: isDevnet)
         
-        let signedBase64 = try RustCLIBridge.shared.signSolana(
+        let signedBase64 = try RustService.shared.signSolanaThrowing(
             recipient: recipient,
             amountSol: amountSol,
             recentBlockhash: recentBlockhash,
@@ -2480,7 +2478,7 @@ struct SendView: View {
         // Fetch sequence number from XRP Ledger
         let sequenceVal = try await TransactionBroadcaster.shared.getXRPSequence(address: senderAddress, isTestnet: isTestnet)
         
-        let signedHex = try RustCLIBridge.shared.signXRP(
+        let signedHex = try RustService.shared.signXRPThrowing(
             recipient: recipient,
             amountDrops: amountDrops,
             senderSeedHex: senderSeed,

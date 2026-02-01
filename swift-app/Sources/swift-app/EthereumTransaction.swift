@@ -4,7 +4,7 @@ import P256K
 
 // MARK: - Ethereum Transaction Builder
 //
-// NOTE: All Ethereum signing is done through RustCLIBridge.signEthereum() which
+// NOTE: All Ethereum signing is done through RustService.signEthereumThrowing() which
 // uses the ethers-core library for proper EIP-1559 and legacy transaction encoding.
 // The private helper functions below are NOT used and are kept for reference only.
 // DO NOT use nativeSign() - it has incomplete RLP encoding.
@@ -40,8 +40,8 @@ struct EthereumTransaction {
             throw EthereumError.encodingFailed
         }
         
-        // Call Rust CLI
-        let signedHex = try RustCLIBridge.shared.signEthereum(
+        // Call Rust FFI
+        let signedHex = try RustService.shared.signEthereumThrowing(
             recipient: recipient,
             amountWei: value,
             chainId: UInt64(chainId),
@@ -143,13 +143,13 @@ struct EthereumTransaction {
     }
     
     /// DEPRECATED: This function has incomplete RLP encoding and should NOT be used.
-    /// All Ethereum signing must go through RustCLIBridge.signEthereum() which uses
+    /// All Ethereum signing must go through RustService.signEthereumThrowing() which uses
     /// ethers-core for proper EIP-155/EIP-1559 transaction encoding.
-    @available(*, deprecated, message: "Use RustCLIBridge.signEthereum instead")
+    @available(*, deprecated, message: "Use RustService.signEthereumThrowing instead")
     private static func signTransaction(txData: Data, privateKeyHex: String, chainId: Int) throws -> String {
         // SECURITY WARNING: This implementation is incomplete and will produce invalid transactions.
-        // The Rust bridge handles all signing - this code is never called.
-        fatalError("signTransaction is deprecated - use RustCLIBridge.signEthereum")
+        // The Rust FFI bridge handles all signing - this code is never called.
+        fatalError("signTransaction is deprecated - use RustService.signEthereumThrowing")
     }
     
     private static func hexToData(_ hex: String) throws -> Data {

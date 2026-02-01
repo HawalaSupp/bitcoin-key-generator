@@ -301,8 +301,8 @@ extension EthereumTransaction {
         privateKeyHex: String,
         data: String = "0x"
     ) throws -> String {
-        // Use EIP-1559 transaction format - pass maxFeePerGas and maxPriorityFeePerGas to Rust
-        return try RustCLIBridge.shared.signEthereum(
+        // Use EIP-1559 transaction format - pass maxFeePerGas and maxPriorityFeePerGas to Rust FFI
+        return try RustService.shared.signEthereumThrowing(
             recipient: recipient,
             amountWei: value,
             chainId: UInt64(chainId),

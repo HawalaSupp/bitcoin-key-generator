@@ -637,11 +637,11 @@ class TransactionScheduler: ObservableObject {
         }
         
         let rustUTXOs = selected.map { u in
-            RustCLIBridge.RustUTXO(
+            RustUTXO(
                 txid: u.txid,
                 vout: UInt32(u.vout),
                 value: u.value,
-                status: RustCLIBridge.RustUTXOStatus(
+                status: RustUTXOStatus(
                     confirmed: u.confirmations > 0,
                     block_height: nil,
                     block_hash: nil,
@@ -650,7 +650,7 @@ class TransactionScheduler: ObservableObject {
             )
         }
         
-        let signedHex = try RustCLIBridge.shared.signBitcoin(
+        let signedHex = try RustService.shared.signBitcoinThrowing(
             recipient: tx.recipientAddress,
             amountSats: amountSats,
             feeRate: feeRate,
@@ -690,7 +690,7 @@ class TransactionScheduler: ObservableObject {
         let gasLimit: UInt64 = 21000
         let gasPriceWei = "20000000000" // 20 Gwei
         
-        let signedTx = try RustCLIBridge.shared.signEthereum(
+        let signedTx = try RustService.shared.signEthereumThrowing(
             recipient: tx.recipientAddress,
             amountWei: amountWei,
             chainId: chainId,
@@ -723,11 +723,11 @@ class TransactionScheduler: ObservableObject {
         }
         
         let rustUTXOs = selected.map { u in
-            RustCLIBridge.RustUTXO(
+            RustUTXO(
                 txid: u.txid,
                 vout: UInt32(u.vout),
                 value: u.value,
-                status: RustCLIBridge.RustUTXOStatus(
+                status: RustUTXOStatus(
                     confirmed: u.confirmations > 0,
                     block_height: nil,
                     block_hash: nil,
@@ -736,7 +736,7 @@ class TransactionScheduler: ObservableObject {
             )
         }
         
-        let signedHex = try RustCLIBridge.shared.signLitecoin(
+        let signedHex = try RustService.shared.signLitecoinThrowing(
             recipient: tx.recipientAddress,
             amountLits: amountLits,
             feeRate: feeRate,
@@ -781,7 +781,7 @@ class TransactionScheduler: ObservableObject {
         let amountSol = Double(truncating: tx.amount as NSDecimalNumber)
         let senderBase58 = keys.solana.privateKeyBase58
         
-        let signedTx = try RustCLIBridge.shared.signSolana(
+        let signedTx = try RustService.shared.signSolanaThrowing(
             recipient: tx.recipientAddress,
             amountSol: amountSol,
             recentBlockhash: blockhash,

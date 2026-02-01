@@ -519,7 +519,7 @@ struct BitcoinTransactionBuilder {
         return (witnessVersion, Data(programBytes))
     }
     
-    // MARK: - Rust CLI Integration
+    // MARK: - Rust FFI Integration
     
     static func buildAndSignViaRust(
         recipient: String,
@@ -528,7 +528,7 @@ struct BitcoinTransactionBuilder {
         privateKeyWIF: String,
         isTestnet: Bool
     ) throws -> SignedTransaction {
-        let rawHex = try RustCLIBridge.shared.signBitcoin(
+        let rawHex = try RustService.shared.signBitcoinThrowing(
             recipient: recipient,
             amountSats: amountSats,
             feeRate: feeRate,
