@@ -59,9 +59,9 @@ fn validate_bitcoin_address(address: &str, testnet: bool) -> (bool, Option<Strin
     // Try parsing as Bitcoin address to validate format
     match Address::from_str(trimmed) {
         Ok(_addr) => {
-            if testnet && is_testnet_addr {
-                (true, Some(trimmed.to_string()))
-            } else if !testnet && is_mainnet {
+            // Check if address network matches expected network
+            let matches_network = (testnet && is_testnet_addr) || (!testnet && is_mainnet);
+            if matches_network {
                 (true, Some(trimmed.to_string()))
             } else {
                 (false, None)

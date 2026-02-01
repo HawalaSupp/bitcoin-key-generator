@@ -300,16 +300,17 @@ fn derive_bitcoin_address_from_wif(wif: &str, testnet: bool) -> Result<String, H
 fn derive_solana_address_from_key(key_input: &str) -> Result<String, HawalaError> {
     use solana_sdk::signer::Signer;
     use solana_sdk::signature::Keypair;
+    use std::convert::TryFrom;
     
     // Try base58 decode first
     let keypair = if let Ok(bytes) = bs58::decode(key_input).into_vec() {
-        Keypair::from_bytes(&bytes)
+        Keypair::try_from(bytes.as_slice())
             .map_err(|_| HawalaError::invalid_input("Invalid Solana keypair bytes"))?
     } else {
         // Try hex decode
         let bytes = hex::decode(key_input)
             .map_err(|_| HawalaError::invalid_input("Invalid key format (expected base58 or hex)"))?;
-        Keypair::from_bytes(&bytes)
+        Keypair::try_from(bytes.as_slice())
             .map_err(|_| HawalaError::invalid_input("Invalid Solana keypair bytes"))?
     };
     
@@ -5424,7 +5425,7 @@ pub extern "C" fn hawala_ibc_sign_transfer(input: *const c_char) -> *mut c_char 
         Ok(signature) => {
             // Get public key
             let pubkey = match Secp256k1Curve::public_key_from_private(&private_key) {
-                Ok(p) => hex::encode(&p),
+                Ok(p) => hex::encode(p),
                 Err(e) => return error_response(HawalaError::crypto_error(format!("Failed to get pubkey: {}", e))),
             };
             
@@ -5432,9 +5433,9 @@ pub extern "C" fn hawala_ibc_sign_transfer(input: *const c_char) -> *mut c_char 
                 "signedTx": {
                     "bodyBytes": hex::encode(&sign_bytes),
                     "authInfoBytes": "",
-                    "signatures": [hex::encode(&signature)]
+                    "signatures": [hex::encode(signature)]
                 },
-                "signature": hex::encode(&signature),
+                "signature": hex::encode(signature),
                 "publicKey": pubkey,
                 "signDoc": sign_doc
             }))
@@ -6688,6 +6689,11 @@ pub extern "C" fn hawala_alert_stats() -> *mut c_char {
 ///   "chain": "ethereum"
 /// }
 /// ```
+///
+/// # Safety
+///
+/// - `input` must be a valid pointer to a null-terminated C string.
+/// - The caller is responsible for freeing the returned string using `hawala_free_string`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hawala_compute_smart_account(input: *const c_char) -> *mut c_char {
     let json_str = match parse_input(input) {
@@ -6756,6 +6762,11 @@ pub unsafe extern "C" fn hawala_compute_smart_account(input: *const c_char) -> *
 ///   "max_priority_fee_per_gas": "0x3b9aca00"
 /// }
 /// ```
+///
+/// # Safety
+///
+/// - `input` must be a valid pointer to a null-terminated C string.
+/// - The caller is responsible for freeing the returned string using `hawala_free_string`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hawala_build_user_operation(input: *const c_char) -> *mut c_char {
     let json_str = match parse_input(input) {
@@ -6814,6 +6825,11 @@ pub unsafe extern "C" fn hawala_build_user_operation(input: *const c_char) -> *m
 ///   "chain": "ethereum"
 /// }
 /// ```
+///
+/// # Safety
+///
+/// - `input` must be a valid pointer to a null-terminated C string.
+/// - The caller is responsible for freeing the returned string using `hawala_free_string`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hawala_get_user_op_hash(input: *const c_char) -> *mut c_char {
     let json_str = match parse_input(input) {
@@ -6858,6 +6874,11 @@ pub unsafe extern "C" fn hawala_get_user_op_hash(input: *const c_char) -> *mut c
 ///   "api_key": "your_key"
 /// }
 /// ```
+///
+/// # Safety
+///
+/// - `input` must be a valid pointer to a null-terminated C string.
+/// - The caller is responsible for freeing the returned string using `hawala_free_string`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hawala_check_sponsorship(input: *const c_char) -> *mut c_char {
     let json_str = match parse_input(input) {
@@ -6908,6 +6929,11 @@ pub unsafe extern "C" fn hawala_check_sponsorship(input: *const c_char) -> *mut 
 ///   "owner": "0x123..."
 /// }
 /// ```
+///
+/// # Safety
+///
+/// - `input` must be a valid pointer to a null-terminated C string.
+/// - The caller is responsible for freeing the returned string using `hawala_free_string`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hawala_gas_account_info(input: *const c_char) -> *mut c_char {
     let json_str = match parse_input(input) {
@@ -6941,6 +6967,11 @@ pub unsafe extern "C" fn hawala_gas_account_info(input: *const c_char) -> *mut c
 ///   "gas_price_gwei": 30.0
 /// }
 /// ```
+///
+/// # Safety
+///
+/// - `input` must be a valid pointer to a null-terminated C string.
+/// - The caller is responsible for freeing the returned string using `hawala_free_string`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hawala_estimate_gas_cost_usd(input: *const c_char) -> *mut c_char {
     let json_str = match parse_input(input) {
