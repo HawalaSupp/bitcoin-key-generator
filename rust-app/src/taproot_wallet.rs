@@ -10,6 +10,16 @@ use serde::Deserialize;
 use std::error::Error;
 use std::str::FromStr;
 
+/// Debug logging macro that only prints in debug builds
+#[cfg(debug_assertions)]
+macro_rules! debug_log {
+    ($($arg:tt)*) => { eprintln!($($arg)*) }
+}
+#[cfg(not(debug_assertions))]
+macro_rules! debug_log {
+    ($($arg:tt)*) => {}
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Utxo {
     pub txid: String,
@@ -54,9 +64,10 @@ pub fn fetch_taproot_utxos(address: &str, network: Network) -> Result<Vec<Utxo>,
     
     let mut last_error: Option<Box<dyn Error>> = None;
     
+    #[allow(unused_variables)]
     for (base_url, api_name) in apis {
         let url = format!("{}/address/{}/utxo", base_url, address);
-        eprintln!("[Taproot] Fetching UTXOs from {}...", api_name);
+        debug_log!("[Taproot] Fetching UTXOs from {}...", api_name);
         
         match client.get(&url).send() {
             Ok(resp) => {
@@ -65,27 +76,27 @@ pub fn fetch_taproot_utxos(address: &str, network: Network) -> Result<Vec<Utxo>,
                         Ok(text) => {
                             match serde_json::from_str::<Vec<Utxo>>(&text) {
                                 Ok(utxos) => {
-                                    eprintln!("[Taproot] Found {} UTXOs from {}", utxos.len(), api_name);
+                                    debug_log!("[Taproot] Found {} UTXOs from {}", utxos.len(), api_name);
                                     return Ok(utxos);
                                 }
                                 Err(e) => {
-                                    eprintln!("[Taproot] Failed to parse response from {}: {}", api_name, e);
+                                    debug_log!("[Taproot] Failed to parse response from {}: {}", api_name, e);
                                     last_error = Some(Box::new(e));
                                 }
                             }
                         }
                         Err(e) => {
-                            eprintln!("[Taproot] Failed to read response from {}: {}", api_name, e);
+                            debug_log!("[Taproot] Failed to read response from {}: {}", api_name, e);
                             last_error = Some(Box::new(e));
                         }
                     }
                 } else {
-                    eprintln!("[Taproot] {} returned status {}", api_name, resp.status());
+                    debug_log!("[Taproot] {} returned status {}", api_name, resp.status());
                     last_error = Some(format!("HTTP {}", resp.status()).into());
                 }
             }
             Err(e) => {
-                eprintln!("[Taproot] {} request failed: {}", api_name, e);
+                debug_log!("[Taproot] {} request failed: {}", api_name, e);
                 last_error = Some(Box::new(e));
             }
         }
@@ -110,8 +121,8 @@ pub fn derive_taproot_address(private_key_hex: &str, network: Network) -> Result
     // The Address::p2tr function handles the internal key tweaking
     let address = Address::p2tr(&secp, x_only_pubkey, None, network);
     
-    eprintln!("[Taproot] Derived P2TR address: {}", address);
-    eprintln!("[Taproot] X-only pubkey: {}", hex::encode(x_only_pubkey.serialize()));
+    debug_log!("[Taproot] Derived P2TR address: {}", address);
+    debug_log!("[Taproot] X-only pubkey: {}", hex::encode(x_only_pubkey.serialize()));
     
     Ok((address.to_string(), hex::encode(x_only_pubkey.serialize())))
 }
@@ -140,17 +151,17 @@ pub fn prepare_taproot_transaction(
     
     // Derive sender's Taproot address
     let sender_address = Address::p2tr(&secp, x_only_pubkey, None, network);
-    eprintln!("[Taproot] Sender address: {}", sender_address);
+    debug_log!("[Taproot] Sender address: {}", sender_address);
 
     // Fetch UTXOs
     let (utxos, is_manual) = if let Some(u) = manual_utxos {
-        eprintln!("[Taproot] Using {} manual UTXOs", u.len());
+        debug_log!("[Taproot] Using {} manual UTXOs", u.len());
         (u, true)
     } else {
         (fetch_taproot_utxos(&sender_address.to_string(), network)?, false)
     };
     
-    eprintln!("[Taproot] Available UTXOs: {}", utxos.len());
+    debug_log!("[Taproot] Available UTXOs: {}", utxos.len());
     
     if utxos.is_empty() {
         return Err("No Taproot UTXOs available. Send funds to your Taproot address first.".into());
@@ -162,13 +173,13 @@ pub fn prepare_taproot_transaction(
 
     if is_manual {
         for utxo in utxos {
-            eprintln!("[Taproot] Using Manual UTXO: txid={}, vout={}, value={} sats", utxo.txid, utxo.vout, utxo.value);
+            debug_log!("[Taproot] Using Manual UTXO: txid={}, vout={}, value={} sats", utxo.txid, utxo.vout, utxo.value);
             total_input_value += utxo.value;
             inputs.push(utxo);
         }
     } else {
         for utxo in utxos {
-            eprintln!("[Taproot] UTXO: txid={}, vout={}, value={} sats", utxo.txid, utxo.vout, utxo.value);
+            debug_log!("[Taproot] UTXO: txid={}, vout={}, value={} sats", utxo.txid, utxo.vout, utxo.value);
             total_input_value += utxo.value;
             inputs.push(utxo);
             if total_input_value >= amount_sats {
@@ -177,7 +188,7 @@ pub fn prepare_taproot_transaction(
         }
     }
     
-    eprintln!("[Taproot] Selected {} inputs with total {} sats", inputs.len(), total_input_value);
+    debug_log!("[Taproot] Selected {} inputs with total {} sats", inputs.len(), total_input_value);
 
     if inputs.is_empty() {
         return Err("No inputs selected".into());
@@ -197,7 +208,7 @@ pub fn prepare_taproot_transaction(
         + (num_outputs as f64 * 43.0); // Taproot outputs
     let fee = (estimated_vsize.ceil() as u64) * fee_rate_sats_per_vbyte;
 
-    eprintln!("[Taproot] Estimated vsize: {:.1} vbytes, fee: {} sats", estimated_vsize, fee);
+    debug_log!("[Taproot] Estimated vsize: {:.1} vbytes, fee: {} sats", estimated_vsize, fee);
 
     if total_input_value < amount_sats + fee {
         return Err(format!(
@@ -246,7 +257,7 @@ pub fn prepare_taproot_transaction(
         output: tx_outputs,
     };
     
-    eprintln!("[Taproot] Transaction built: {} inputs, {} outputs", tx.input.len(), tx.output.len());
+    debug_log!("[Taproot] Transaction built: {} inputs, {} outputs", tx.input.len(), tx.output.len());
 
     // Collect prevouts for signing
     let prevouts: Vec<TxOut> = inputs.iter().map(|utxo| {
@@ -287,9 +298,10 @@ pub fn prepare_taproot_transaction(
     let raw_hex = hex::encode(encode::serialize(&tx));
     
     // Calculate actual vsize
+    #[allow(unused_variables)]
     let actual_vsize = tx.vsize();
-    eprintln!("[Taproot] Actual vsize: {} vbytes", actual_vsize);
-    eprintln!("[Taproot] Signed transaction hex ({} chars): {}...", raw_hex.len(), &raw_hex[..std::cmp::min(80, raw_hex.len())]);
+    debug_log!("[Taproot] Actual vsize: {} vbytes", actual_vsize);
+    debug_log!("[Taproot] Signed transaction hex ({} chars)", raw_hex.len());
     
     Ok(raw_hex)
 }

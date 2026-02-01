@@ -180,6 +180,100 @@ const char* hawala_qr_supported_types(void);
 // ----------------------------------------------------------------------------
 const char* hawala_derive_key(const char* json_input);
 
+// ----------------------------------------------------------------------------
+// DEX Aggregator (1inch, 0x, THORChain)
+// ----------------------------------------------------------------------------
+const char* hawala_dex_get_quotes(const char* json_input);
+const char* hawala_dex_get_best_quote(const char* json_input);
+const char* hawala_dex_get_providers(const char* json_input);
+
+// ----------------------------------------------------------------------------
+// Cross-Chain Bridge (Wormhole, LayerZero, Stargate)
+// ----------------------------------------------------------------------------
+const char* hawala_bridge_get_quotes(const char* json_input);
+const char* hawala_bridge_get_best_quote(const char* json_input);
+const char* hawala_bridge_get_providers(const char* json_input);
+const char* hawala_bridge_track_transfer(const char* json_input);
+
+// ----------------------------------------------------------------------------
+// IBC (Inter-Blockchain Communication) for Cosmos SDK Chains
+// ----------------------------------------------------------------------------
+const char* hawala_ibc_build_transfer(const char* json_input);
+const char* hawala_ibc_get_channel(const char* json_input);
+const char* hawala_ibc_get_supported_chains(const char* json_input);
+const char* hawala_ibc_sign_transfer(const char* json_input);
+
+// ----------------------------------------------------------------------------
+// Shamir's Secret Sharing (Social Recovery)
+// ----------------------------------------------------------------------------
+const char* hawala_shamir_create_shares(const char* json_input);
+const char* hawala_shamir_recover(const char* json_input);
+const char* hawala_shamir_validate_share(const char* json_input);
+
+// ----------------------------------------------------------------------------
+// Staking Operations (Solana, Cosmos, Polkadot)
+// ----------------------------------------------------------------------------
+const char* hawala_staking_get_info(const char* json_input);
+const char* hawala_staking_get_validators(const char* json_input);
+const char* hawala_staking_prepare_tx(const char* json_input);
+
+// ----------------------------------------------------------------------------
+// Phase 2: Security & Trust Features
+// ----------------------------------------------------------------------------
+
+// Transaction Simulation
+const char* hawala_simulate_transaction(const char* json_input);
+const char* hawala_analyze_risk(const char* json_input);
+
+// Token Approval Management
+const char* hawala_get_approvals(const char* json_input);
+const char* hawala_revoke_approval(const char* json_input);
+const char* hawala_batch_revoke(const char* json_input);
+
+// Phishing & Scam Detection
+const char* hawala_check_phishing_address(const char* json_input);
+const char* hawala_check_phishing_domain(const char* json_input);
+
+// Address Whitelisting
+const char* hawala_whitelist_add(const char* json_input);
+const char* hawala_whitelist_remove(const char* json_input);
+const char* hawala_whitelist_check(const char* json_input);
+const char* hawala_whitelist_get_all(const char* json_input);
+const char* hawala_whitelist_configure(const char* json_input);
+
+// Combined Security Check
+const char* hawala_security_check(const char* json_input);
+
+// ----------------------------------------------------------------------------
+// Phase 3: User Experience Features
+// ----------------------------------------------------------------------------
+
+// L2 Balance Aggregation
+const char* hawala_aggregate_balances(const char* json_input);
+const char* hawala_suggest_chain(const char* json_input);
+
+// Payment Request Links
+const char* hawala_create_payment_link(const char* json_input);
+const char* hawala_parse_payment_link(const char* json_input);
+const char* hawala_create_bip21_link(const char* json_input);
+const char* hawala_create_eip681_link(const char* json_input);
+
+// Transaction Notes
+const char* hawala_add_note(const char* json_input);
+const char* hawala_search_notes(const char* json_input);
+const char* hawala_export_notes(const char* json_input);
+
+// Fiat Off-Ramp
+const char* hawala_offramp_quote(const char* json_input);
+const char* hawala_offramp_compare(const char* json_input);
+const char* hawala_offramp_currencies(const char* json_input);
+const char* hawala_offramp_cryptos(const char* json_input);
+
+// Price Alerts
+const char* hawala_create_alert(const char* json_input);
+const char* hawala_get_price(const char* json_input);
+const char* hawala_alert_stats(void);
+
 // ============================================================================
 // LEGACY API - Backward compatibility (deprecated, will be removed)
 // ============================================================================

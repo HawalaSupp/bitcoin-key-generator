@@ -9,6 +9,16 @@ use serde::Deserialize;
 use std::error::Error;
 use std::str::FromStr;
 
+/// Debug logging macro that only prints in debug builds
+#[cfg(debug_assertions)]
+macro_rules! debug_log {
+    ($($arg:tt)*) => { eprintln!($($arg)*) }
+}
+#[cfg(not(debug_assertions))]
+macro_rules! debug_log {
+    ($($arg:tt)*) => {}
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Utxo {
     pub txid: String,
@@ -53,9 +63,10 @@ pub fn fetch_utxos(address: &str, network: Network) -> Result<Vec<Utxo>, Box<dyn
     
     let mut last_error: Option<Box<dyn Error>> = None;
     
+    #[allow(unused_variables)]
     for (base_url, api_name) in apis {
         let url = format!("{}/address/{}/utxo", base_url, address);
-        eprintln!("Fetching UTXOs from {}...", api_name);
+        debug_log!("Fetching UTXOs from {}...", api_name);
         
         match client.get(&url).send() {
             Ok(resp) => {
@@ -64,27 +75,27 @@ pub fn fetch_utxos(address: &str, network: Network) -> Result<Vec<Utxo>, Box<dyn
                         Ok(text) => {
                             match serde_json::from_str::<Vec<Utxo>>(&text) {
                                 Ok(utxos) => {
-                                    eprintln!("Found {} UTXOs from {}", utxos.len(), api_name);
+                                    debug_log!("Found {} UTXOs from {}", utxos.len(), api_name);
                                     return Ok(utxos);
                                 }
                                 Err(e) => {
-                                    eprintln!("Failed to parse response from {}: {}", api_name, e);
+                                    debug_log!("Failed to parse response from {}: {}", api_name, e);
                                     last_error = Some(Box::new(e));
                                 }
                             }
                         }
                         Err(e) => {
-                            eprintln!("Failed to read response from {}: {}", api_name, e);
+                            debug_log!("Failed to read response from {}: {}", api_name, e);
                             last_error = Some(Box::new(e));
                         }
                     }
                 } else {
-                    eprintln!("{} returned status {}", api_name, resp.status());
+                    debug_log!("{} returned status {}", api_name, resp.status());
                     last_error = Some(format!("HTTP {}", resp.status()).into());
                 }
             }
             Err(e) => {
-                eprintln!("{} request failed: {}", api_name, e);
+                debug_log!("{} request failed: {}", api_name, e);
                 last_error = Some(Box::new(e));
             }
         }
@@ -112,16 +123,16 @@ pub fn prepare_transaction(
         .map_err(|_| "Failed to compress public key")?;
 
     let sender_address = Address::p2wpkh(&compressed_public_key, network);
-    eprintln!("Sender address: {}", sender_address);
+    debug_log!("Sender address: {}", sender_address);
 
     // 1. Fetch UTXOs (or use manual)
     let (utxos, is_manual) = if let Some(u) = manual_utxos {
-        eprintln!("Using {} manual UTXOs", u.len());
+        debug_log!("Using {} manual UTXOs", u.len());
         (u, true)
     } else {
         (fetch_utxos(&sender_address.to_string(), network)?, false)
     };
-    eprintln!("Available UTXOs: {}", utxos.len());
+    debug_log!("Available UTXOs: {}", utxos.len());
     
     if utxos.is_empty() {
         return Err("No UTXOs available".into());
@@ -135,14 +146,14 @@ pub fn prepare_transaction(
     if is_manual {
         // If manual UTXOs provided, use ALL of them (Coin Control)
         for utxo in utxos {
-            eprintln!("Using Manual UTXO: txid={}, vout={}, value={} sats", utxo.txid, utxo.vout, utxo.value);
+            debug_log!("Using Manual UTXO: txid={}, vout={}, value={} sats", utxo.txid, utxo.vout, utxo.value);
             total_input_value += utxo.value;
             inputs.push(utxo);
         }
     } else {
         // Auto-selection (FIFO)
         for utxo in utxos {
-            eprintln!("UTXO: txid={}, vout={}, value={} sats", utxo.txid, utxo.vout, utxo.value);
+            debug_log!("UTXO: txid={}, vout={}, value={} sats", utxo.txid, utxo.vout, utxo.value);
             total_input_value += utxo.value;
             inputs.push(utxo);
             if total_input_value >= target_value {
@@ -151,7 +162,7 @@ pub fn prepare_transaction(
         }
     }
     
-    eprintln!("Selected {} inputs with total {} sats", inputs.len(), total_input_value);
+    debug_log!("Selected {} inputs with total {} sats", inputs.len(), total_input_value);
 
     if inputs.is_empty() {
         return Err("No inputs selected - no UTXOs available".into());
@@ -213,7 +224,7 @@ pub fn prepare_transaction(
         output: tx_outputs,
     };
     
-    eprintln!("Transaction built: {} inputs, {} outputs", tx.input.len(), tx.output.len());
+    debug_log!("Transaction built: {} inputs, {} outputs", tx.input.len(), tx.output.len());
     
     if tx.input.is_empty() {
         return Err("Transaction has no inputs - this should not happen".into());
@@ -249,6 +260,6 @@ pub fn prepare_transaction(
 
     // 6. Serialize
     let raw_hex = hex::encode(encode::serialize(&tx));
-    eprintln!("Signed transaction hex ({} chars): {}...", raw_hex.len(), &raw_hex[..std::cmp::min(80, raw_hex.len())]);
+    debug_log!("Signed transaction hex ({} chars): {}...", raw_hex.len(), &raw_hex[..std::cmp::min(80, raw_hex.len())]);
     Ok(raw_hex)
 }

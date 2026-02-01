@@ -96,7 +96,9 @@ public final class PrivacyManager: ObservableObject {
     /// Toggle privacy mode on/off
     public func togglePrivacyMode() {
         isPrivacyModeEnabled.toggle()
+        #if DEBUG
         print("[Privacy] Privacy mode \(isPrivacyModeEnabled ? "enabled" : "disabled")")
+        #endif
     }
     
     /// Temporarily reveal hidden content
@@ -105,7 +107,9 @@ public final class PrivacyManager: ObservableObject {
         guard isPrivacyModeEnabled else { return }
         
         temporaryRevealActive = true
+        #if DEBUG
         print("[Privacy] Temporary reveal activated for \(revealDuration)s")
+        #endif
         
         // Cancel existing timer
         revealTimer?.invalidate()
@@ -114,7 +118,9 @@ public final class PrivacyManager: ObservableObject {
         revealTimer = Timer.scheduledTimer(withTimeInterval: revealDuration, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 self?.temporaryRevealActive = false
+                #if DEBUG
                 print("[Privacy] Temporary reveal expired")
+                #endif
             }
         }
     }

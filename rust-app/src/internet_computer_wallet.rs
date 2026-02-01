@@ -117,7 +117,7 @@ fn derive_account_id(principal_id: &str) -> HawalaResult<String> {
     let hash = hasher.finalize();
     
     // CRC32 checksum prepended
-    let checksum = crc32fast::hash(&hash);
+    let _checksum = crc32fast::hash(&hash);
     
     Ok(hex::encode(&hash))
 }

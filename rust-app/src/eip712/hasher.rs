@@ -21,7 +21,7 @@ pub fn domain_separator(domain: &Eip712Domain, types: &HashMap<String, Vec<Typed
     types_with_domain.insert("EIP712Domain".to_string(), domain_fields.clone());
     
     // Build the domain data as JSON Value
-    let domain_value = domain_to_json(domain)?;
+    let _domain_value = domain_to_json(domain)?;
     
     // Hash the domain struct
     let encoded = encode_domain_struct(domain, &domain_fields, &types_with_domain)?;

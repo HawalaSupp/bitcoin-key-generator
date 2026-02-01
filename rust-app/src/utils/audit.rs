@@ -183,8 +183,9 @@ impl AuditLog {
             return;
         }
 
-        let mut entries = self.entries.write().unwrap();
-        let mut last_hash = self.last_hash.write().unwrap();
+        // Acquire locks - if poisoned, silently skip logging (non-critical path)
+        let Ok(mut entries) = self.entries.write() else { return };
+        let Ok(mut last_hash) = self.last_hash.write() else { return };
 
         // Generate entry ID
         let id = entries.back().map(|e| e.id + 1).unwrap_or(1);
@@ -276,7 +277,14 @@ impl AuditLog {
 
     /// Verify hash chain integrity
     pub fn verify_integrity(&self) -> IntegrityResult {
-        let entries = self.entries.read().unwrap();
+        let Ok(entries) = self.entries.read() else {
+            return IntegrityResult {
+                is_valid: false,
+                entries_checked: 0,
+                first_invalid_id: None,
+                message: "Failed to acquire lock".to_string(),
+            };
+        };
         
         if entries.is_empty() {
             return IntegrityResult {
@@ -319,7 +327,7 @@ impl AuditLog {
 
     /// Query entries by event type
     pub fn query_by_type(&self, event_type: AuditEventType) -> Vec<AuditEntry> {
-        let entries = self.entries.read().unwrap();
+        let Ok(entries) = self.entries.read() else { return Vec::new() };
         entries.iter()
             .filter(|e| e.event_type == event_type)
             .cloned()
@@ -328,7 +336,7 @@ impl AuditLog {
 
     /// Query entries by severity (and above)
     pub fn query_by_severity(&self, min_severity: AuditSeverity) -> Vec<AuditEntry> {
-        let entries = self.entries.read().unwrap();
+        let Ok(entries) = self.entries.read() else { return Vec::new() };
         entries.iter()
             .filter(|e| e.severity >= min_severity)
             .cloned()
@@ -337,7 +345,7 @@ impl AuditLog {
 
     /// Query entries by wallet
     pub fn query_by_wallet(&self, wallet_id: &str) -> Vec<AuditEntry> {
-        let entries = self.entries.read().unwrap();
+        let Ok(entries) = self.entries.read() else { return Vec::new() };
         entries.iter()
             .filter(|e| e.wallet_id.as_deref() == Some(wallet_id))
             .cloned()
@@ -346,7 +354,7 @@ impl AuditLog {
 
     /// Query entries by time range
     pub fn query_by_time(&self, start: u64, end: u64) -> Vec<AuditEntry> {
-        let entries = self.entries.read().unwrap();
+        let Ok(entries) = self.entries.read() else { return Vec::new() };
         entries.iter()
             .filter(|e| e.timestamp >= start && e.timestamp <= end)
             .cloned()
@@ -355,7 +363,7 @@ impl AuditLog {
 
     /// Get recent entries
     pub fn recent(&self, count: usize) -> Vec<AuditEntry> {
-        let entries = self.entries.read().unwrap();
+        let Ok(entries) = self.entries.read() else { return Vec::new() };
         entries.iter()
             .rev()
             .take(count)
@@ -365,7 +373,8 @@ impl AuditLog {
 
     /// Export all entries as JSON
     pub fn export_json(&self) -> HawalaResult<String> {
-        let entries = self.entries.read().unwrap();
+        let entries = self.entries.read()
+            .map_err(|_| HawalaError::internal("Failed to acquire audit log lock"))?;
         let vec: Vec<_> = entries.iter().collect();
         serde_json::to_string_pretty(&vec)
             .map_err(|e| HawalaError::internal(format!("Failed to export audit log: {}", e)))
@@ -373,15 +382,15 @@ impl AuditLog {
 
     /// Get entry count
     pub fn count(&self) -> usize {
-        self.entries.read().unwrap().len()
+        self.entries.read().map(|e| e.len()).unwrap_or(0)
     }
 
     /// Clear all entries
     pub fn clear(&self) {
-        let mut entries = self.entries.write().unwrap();
+        let Ok(mut entries) = self.entries.write() else { return };
         entries.clear();
         
-        let mut last_hash = self.last_hash.write().unwrap();
+        let Ok(mut last_hash) = self.last_hash.write() else { return };
         *last_hash = [0u8; 32];
     }
 }

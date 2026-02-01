@@ -617,10 +617,22 @@ struct BackupImportView: View {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview("Export") {
     BackupExportView(walletManager: WalletManager.shared)
 }
+#endif
+#endif
+#endif
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview("Import") {
     BackupImportView(walletManager: WalletManager.shared)
 }
+#endif
+#endif
+#endif

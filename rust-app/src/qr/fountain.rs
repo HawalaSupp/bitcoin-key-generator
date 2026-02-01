@@ -143,6 +143,7 @@ impl FountainEncoder {
 }
 
 /// Fountain code decoder using Gaussian elimination
+#[allow(dead_code)]
 pub struct FountainDecoder {
     /// Number of fragments
     fragment_count: usize,
@@ -383,7 +384,7 @@ mod tests {
     #[test]
     fn test_decoder_stats() {
         let encoder = FountainEncoder::new(b"Test", 2);
-        let mut decoder = FountainDecoder::new(
+        let decoder = FountainDecoder::new(
             encoder.fragment_count(),
             4,
         );

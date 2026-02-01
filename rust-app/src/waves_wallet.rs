@@ -5,9 +5,9 @@
 
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use sha2::{Sha256, Digest};
-use blake2::{Blake2b512, Digest as Blake2Digest};
+use blake2::Blake2b512;
 
-use crate::error::{HawalaError, HawalaResult};
+use crate::error::HawalaResult;
 use crate::types::WavesKeys;
 
 /// Waves mainnet chain ID

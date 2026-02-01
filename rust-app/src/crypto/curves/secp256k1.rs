@@ -10,7 +10,7 @@
 //! - BIP-32 key derivation
 
 use super::{CurveError, EllipticCurve, RecoverableSignature, KeyExchange, KeyDerivation};
-use bitcoin::secp256k1::{Secp256k1, SecretKey, PublicKey, Message, All};
+use bitcoin::secp256k1::{Secp256k1, SecretKey, PublicKey, Message};
 use bitcoin::secp256k1::ecdsa::{Signature, RecoverableSignature as RecovSig, RecoveryId};
 use sha2::{Sha256, Digest};
 use hmac::{Hmac, Mac};

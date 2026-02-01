@@ -56,6 +56,19 @@ struct HawalaMainView: View {
     @Binding var showContactsSheet: Bool
     @Binding var showWalletConnectSheet: Bool
     
+    // Phase 3 Feature Sheets
+    @Binding var showL2AggregatorSheet: Bool
+    @Binding var showPaymentLinksSheet: Bool
+    @Binding var showTransactionNotesSheet: Bool
+    @Binding var showSellCryptoSheet: Bool
+    @Binding var showPriceAlertsSheet: Bool
+    
+    // Phase 4 Feature Sheets (ERC-4337 Account Abstraction)
+    @Binding var showSmartAccountSheet: Bool
+    @Binding var showGasAccountSheet: Bool
+    @Binding var showPasskeyAuthSheet: Bool
+    @Binding var showGaslessTxSheet: Bool
+    
     // Actions
     var onGenerateKeys: () -> Void
     var onRefreshBalances: () -> Void
@@ -615,7 +628,9 @@ struct HawalaMainView: View {
                                                 .replacingOccurrences(of: "$", with: "")
                                                 .replacingOccurrences(of: ",", with: "")
                                                 .trimmingCharacters(in: .whitespaces)
+                                            #if DEBUG
                                             print("💰 [Card Tap] Chain: \(chain.id), raw: \(priceStr), cleaned: \(cleanedPrice)")
+                                            #endif
                                             return Double(cleanedPrice) ?? 0
                                         case .refreshing(let previous, _), .stale(let previous, _, _):
                                             let cleanedPrice = previous
@@ -627,7 +642,9 @@ struct HawalaMainView: View {
                                             return 0
                                         }
                                     }
+                                    #if DEBUG
                                     print("💰 [Card Tap] Chain: \(chain.id), NO priceState found!")
+                                    #endif
                                     return 0
                                 }()
                                 
@@ -1140,8 +1157,109 @@ struct HawalaMainView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, HawalaTheme.Spacing.xl)
             
-            // Feature cards
+            // Phase 3 Feature cards
             VStack(spacing: HawalaTheme.Spacing.md) {
+                // Section: User Experience
+                Text("USER EXPERIENCE")
+                    .font(HawalaTheme.Typography.label)
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                
+                DiscoverCard(
+                    icon: "square.stack.3d.up.fill",
+                    title: "L2 Balance Aggregator",
+                    description: "View balances across L1 and L2 chains",
+                    color: HawalaTheme.Colors.ethereum
+                ) {
+                    showL2AggregatorSheet = true
+                }
+                
+                DiscoverCard(
+                    icon: "link.badge.plus",
+                    title: "Payment Links",
+                    description: "Create and share payment requests",
+                    color: HawalaTheme.Colors.accent
+                ) {
+                    showPaymentLinksSheet = true
+                }
+                
+                DiscoverCard(
+                    icon: "note.text",
+                    title: "Transaction Notes",
+                    description: "Add notes and tags to transactions",
+                    color: HawalaTheme.Colors.info
+                ) {
+                    showTransactionNotesSheet = true
+                }
+                
+                DiscoverCard(
+                    icon: "banknote.fill",
+                    title: "Sell Crypto",
+                    description: "Convert crypto to fiat currency",
+                    color: HawalaTheme.Colors.success
+                ) {
+                    showSellCryptoSheet = true
+                }
+                
+                DiscoverCard(
+                    icon: "bell.badge.fill",
+                    title: "Price Alerts",
+                    description: "Get notified on price movements",
+                    color: HawalaTheme.Colors.warning
+                ) {
+                    showPriceAlertsSheet = true
+                }
+                
+                // Section: Account Abstraction (Phase 4)
+                Text("ACCOUNT ABSTRACTION")
+                    .font(HawalaTheme.Typography.label)
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, HawalaTheme.Spacing.md)
+                
+                DiscoverCard(
+                    icon: "person.crop.circle.badge.checkmark",
+                    title: "Smart Accounts",
+                    description: "ERC-4337 account abstraction",
+                    color: HawalaTheme.Colors.accent
+                ) {
+                    showSmartAccountSheet = true
+                }
+                
+                DiscoverCard(
+                    icon: "fuelpump.circle.fill",
+                    title: "Gas Account",
+                    description: "Unified gas balance for all chains",
+                    color: .orange
+                ) {
+                    showGasAccountSheet = true
+                }
+                
+                DiscoverCard(
+                    icon: "faceid",
+                    title: "Passkey Auth",
+                    description: "Sign with Face ID, no passwords",
+                    color: HawalaTheme.Colors.accent
+                ) {
+                    showPasskeyAuthSheet = true
+                }
+                
+                DiscoverCard(
+                    icon: "checkmark.seal.fill",
+                    title: "Gasless Transactions",
+                    description: "Sponsored transactions via paymaster",
+                    color: HawalaTheme.Colors.success
+                ) {
+                    showGaslessTxSheet = true
+                }
+                
+                // Section: Advanced Features
+                Text("ADVANCED FEATURES")
+                    .font(HawalaTheme.Typography.label)
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, HawalaTheme.Spacing.md)
+                
                 DiscoverCard(
                     icon: "chart.line.uptrend.xyaxis",
                     title: "Staking",
@@ -2749,19 +2867,25 @@ struct AssetDetailPopup: View {
         ]
         
         let chainId = assetInfo.chain.id
+        #if DEBUG
         print("💰 [Popup] Fetching price for chain: \(chainId)")
         print("💰 [Popup] Passed-in currentPrice: \(assetInfo.currentPrice)")
+        #endif
         
         // If we already have a price from priceStates, use it immediately for display
         if assetInfo.currentPrice > 0 {
+            #if DEBUG
             print("✅ [Popup] Using passed-in price: $\(assetInfo.currentPrice)")
+            #endif
             self.livePrice = assetInfo.currentPrice
             self.isLoadingPrice = false
             // Don't return! Continue to fetch 24h change
         }
         
         guard let symbol = symbolMap[chainId] else {
+            #if DEBUG
             print("⚠️ [Popup] No symbol mapping for chain: \(chainId)")
+            #endif
             if assetInfo.currentPrice == 0 {
                 isLoadingPrice = false
             }
@@ -2770,10 +2894,14 @@ struct AssetDetailPopup: View {
         
         // Use CryptoCompare API to get the 24h change percentage
         let urlString = "https://min-api.cryptocompare.com/data/pricemultifull?fsyms=\(symbol)&tsyms=USD"
+        #if DEBUG
         print("💰 [Popup] CryptoCompare URL: \(urlString)")
+        #endif
         
         guard let url = URL(string: urlString) else {
+            #if DEBUG
             print("⚠️ [Popup] Invalid URL")
+            #endif
             if assetInfo.currentPrice == 0 {
                 isLoadingPrice = false
             }
@@ -2790,7 +2918,9 @@ struct AssetDetailPopup: View {
                 let (data, response) = try await URLSession.shared.data(for: request)
                 
                 if let httpResponse = response as? HTTPURLResponse {
+                    #if DEBUG
                     print("💰 [Popup] CryptoCompare response status: \(httpResponse.statusCode)")
+                    #endif
                 }
                 
                 // Parse CryptoCompare response: {"RAW":{"BTC":{"USD":{"PRICE":95000,"CHANGEPCT24HOUR":-0.5}}}}
@@ -2802,7 +2932,9 @@ struct AssetDetailPopup: View {
                     let apiPrice = usdData["PRICE"] as? Double ?? 0
                     let change = usdData["CHANGEPCT24HOUR"] as? Double ?? 0
                     
+                    #if DEBUG
                     print("✅ [Popup] CryptoCompare price: $\(apiPrice), 24h change: \(change)%")
+                    #endif
                     
                     await MainActor.run {
                         withAnimation(.easeInOut(duration: 0.3)) {
@@ -2823,9 +2955,11 @@ struct AssetDetailPopup: View {
                         self.fetchChartData(for: .day)
                     }
                 } else {
+                    #if DEBUG
                     print("⚠️ [Popup] Failed to parse CryptoCompare JSON")
                     let responseString = String(data: data, encoding: .utf8) ?? "nil"
                     print("💰 [Popup] Raw response: \(responseString.prefix(200))")
+                    #endif
                     await MainActor.run {
                         self.fetchError = "Parse error"
                         if self.livePrice == 0 {
@@ -2834,7 +2968,9 @@ struct AssetDetailPopup: View {
                     }
                 }
             } catch {
+                #if DEBUG
                 print("❌ [Popup] CryptoCompare fetch error: \(error.localizedDescription)")
+                #endif
                 await MainActor.run {
                     self.fetchError = error.localizedDescription
                     self.isLoadingPrice = false
@@ -2912,7 +3048,9 @@ struct AssetDetailPopup: View {
         
         let chainId = assetInfo.chain.id
         guard let symbol = symbolMap[chainId] else {
+            #if DEBUG
             print("⚠️ [Chart] No symbol mapping for chain: \(chainId)")
+            #endif
             return
         }
         
@@ -2935,7 +3073,9 @@ struct AssetDetailPopup: View {
         }
         
         let urlString = "https://min-api.cryptocompare.com/data/v2/\(endpoint)?fsym=\(symbol)&tsym=USD&limit=\(limit)"
+        #if DEBUG
         print("📊 [Chart] Fetching \(timeframe.rawValue) data: \(urlString)")
+        #endif
         
         guard let url = URL(string: urlString) else {
             isLoadingChart = false
@@ -2958,7 +3098,9 @@ struct AssetDetailPopup: View {
                     let prices = dataArray.compactMap { $0["close"] as? Double }
                     
                     guard prices.count >= 2 else {
+                        #if DEBUG
                         print("⚠️ [Chart] Not enough price points: \(prices.count)")
+                        #endif
                         await MainActor.run { self.isLoadingChart = false }
                         return
                     }
@@ -2968,7 +3110,9 @@ struct AssetDetailPopup: View {
                     let lastPrice = prices.last ?? 1
                     let changePercent = firstPrice != 0 ? ((lastPrice - firstPrice) / firstPrice) * 100 : 0
                     
+                    #if DEBUG
                     print("✅ [Chart] Got \(prices.count) points for \(timeframe.rawValue), change: \(String(format: "%.2f", changePercent))%")
+                    #endif
                     
                     await MainActor.run {
                         withAnimation(.easeInOut(duration: 0.3)) {
@@ -2980,11 +3124,15 @@ struct AssetDetailPopup: View {
                         }
                     }
                 } else {
+                    #if DEBUG
                     print("⚠️ [Chart] Failed to parse CryptoCompare chart JSON")
+                    #endif
                     await MainActor.run { self.isLoadingChart = false }
                 }
             } catch {
+                #if DEBUG
                 print("❌ [Chart] Fetch error: \(error.localizedDescription)")
+                #endif
                 await MainActor.run { self.isLoadingChart = false }
             }
         }

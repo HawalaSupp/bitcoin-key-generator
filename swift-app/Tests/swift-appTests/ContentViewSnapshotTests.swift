@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 import SwiftUI
 import CryptoKit
 #if canImport(AppKit)
@@ -10,11 +10,15 @@ import UIKit
 @testable import swift_app
 
 @MainActor
-final class ContentViewSnapshotTests: XCTestCase {
-    func testOnboardingSnapshotStable() throws {
-        try XCTSkipIf(!SnapshotRenderer.isSupported, "Snapshot rendering not supported on this platform")
+@Suite
+struct ContentViewSnapshotTests {
+    @Test func testOnboardingSnapshotStable() throws {
+        guard SnapshotRenderer.isSupported else {
+            print("Skipping: Snapshot rendering not supported on this platform")
+            return
+        }
         let hash = try SnapshotRenderer.hash(for: ContentView(), size: CGSize(width: 800, height: 600), colorScheme: .light)
-    XCTAssertEqual(hash, "cb964598e1def27634fdf3b99a67890f2acda131238ac5b4150dc38c0b507326", "Update expected hash when intentional UI changes occur.")
+    #expect(hash == "cfe9cccf2677d1469e7e21c1c027d9cf7194012f6ae64aa93b649b4693ffc9d0", "Update expected hash when intentional UI changes occur.")
     }
 }
 

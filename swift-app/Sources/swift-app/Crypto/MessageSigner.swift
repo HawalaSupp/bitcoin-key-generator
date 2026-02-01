@@ -49,7 +49,7 @@ public struct VerificationResult: Codable {
 }
 
 /// Message encoding type
-public enum MessageEncoding: String, Codable {
+public enum MessageEncoding: String, Codable, Sendable {
     case utf8 = "utf8"
     case hex = "hex"
 }

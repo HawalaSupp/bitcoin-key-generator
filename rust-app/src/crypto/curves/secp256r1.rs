@@ -415,7 +415,7 @@ mod tests {
     #[test]
     fn test_secp256r1_uncompressed() {
         let seed = [42u8; 32];
-        let (sk, pk_compressed) = Secp256r1Curve::generate_keypair(&seed).unwrap();
+        let (sk, _pk_compressed) = Secp256r1Curve::generate_keypair(&seed).unwrap();
         
         let pk_uncompressed = Secp256r1Curve::public_key_uncompressed(&sk).unwrap();
         assert_eq!(pk_uncompressed.len(), 65);

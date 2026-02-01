@@ -25,13 +25,11 @@ use crate::wallet;
 /// # Safety
 /// The pointer must have been returned by a hawala_* function
 #[unsafe(no_mangle)]
-pub extern "C" fn hawala_free_string(s: *mut c_char) {
+pub unsafe extern "C" fn hawala_free_string(s: *mut c_char) {
     if s.is_null() {
         return;
     }
-    unsafe {
-        let _ = CString::from_raw(s);
-    }
+    let _ = CString::from_raw(s);
 }
 
 // =============================================================================
@@ -244,7 +242,7 @@ pub extern "C" fn hawala_sign_transaction(input: *const c_char) -> *mut c_char {
 
     // Parse signing request and dispatch to appropriate signer
     let result: Result<SignedTransaction, HawalaError> = (|| {
-        let v: serde_json::Value = serde_json::from_str(&json_str)
+        let v: serde_json::Value = serde_json::from_str(json_str)
             .map_err(|e| HawalaError::parse_error(e.to_string()))?;
         
         let chain_str = v["chain"].as_str()
@@ -315,7 +313,7 @@ pub extern "C" fn hawala_broadcast_transaction(input: *const c_char) -> *mut c_c
     };
 
     let result: Result<BroadcastResult, HawalaError> = (|| {
-        let v: serde_json::Value = serde_json::from_str(&json_str)
+        let v: serde_json::Value = serde_json::from_str(json_str)
             .map_err(|e| HawalaError::parse_error(e.to_string()))?;
         
         let chain_str = v["chain"].as_str()
@@ -1161,12 +1159,13 @@ pub extern "C" fn generate_keys_ffi() -> *mut c_char {
 }
 
 /// Legacy: Restore wallet (returns old format)
+/// 
+/// # Safety
+/// The pointer must be a valid C string or null
 #[unsafe(no_mangle)]
-pub extern "C" fn restore_wallet_ffi(mnemonic_str: *const c_char) -> *mut c_char {
-    let c_str = unsafe {
-        if mnemonic_str.is_null() { return std::ptr::null_mut(); }
-        CStr::from_ptr(mnemonic_str)
-    };
+pub unsafe extern "C" fn restore_wallet_ffi(mnemonic_str: *const c_char) -> *mut c_char {
+    if mnemonic_str.is_null() { return std::ptr::null_mut(); }
+    let c_str = CStr::from_ptr(mnemonic_str);
     
     let phrase = match c_str.to_str() {
         Ok(s) => s,
@@ -1185,12 +1184,13 @@ pub extern "C" fn restore_wallet_ffi(mnemonic_str: *const c_char) -> *mut c_char
 }
 
 /// Legacy: Validate mnemonic
+/// 
+/// # Safety
+/// The pointer must be a valid C string or null
 #[unsafe(no_mangle)]
-pub extern "C" fn validate_mnemonic_ffi(mnemonic_str: *const c_char) -> bool {
-    let c_str = unsafe {
-        if mnemonic_str.is_null() { return false; }
-        CStr::from_ptr(mnemonic_str)
-    };
+pub unsafe extern "C" fn validate_mnemonic_ffi(mnemonic_str: *const c_char) -> bool {
+    if mnemonic_str.is_null() { return false; }
+    let c_str = CStr::from_ptr(mnemonic_str);
     
     match c_str.to_str() {
         Ok(s) => wallet::validate_mnemonic(s),
@@ -1199,8 +1199,11 @@ pub extern "C" fn validate_mnemonic_ffi(mnemonic_str: *const c_char) -> bool {
 }
 
 /// Legacy: Free string
+/// 
+/// # Safety
+/// The pointer must have been returned by a hawala_* function
 #[unsafe(no_mangle)]
-pub extern "C" fn free_string(s: *mut c_char) {
+pub unsafe extern "C" fn free_string(s: *mut c_char) {
     hawala_free_string(s);
 }
 
@@ -1313,6 +1316,7 @@ pub extern "C" fn hawala_blacklist_address(input: *const c_char) -> *mut c_char 
     };
 
     #[derive(serde::Deserialize)]
+    #[allow(dead_code)]
     struct BlacklistRequest {
         address: String,
         reason: String,
@@ -2837,7 +2841,7 @@ pub extern "C" fn hawala_eip7702_sign_transaction(input: *const c_char) -> *mut 
 
     success_response(serde_json::json!({
         "rawTransaction": format!("0x{}", hex::encode(&serialized)),
-        "transactionHash": format!("0x{}", hex::encode(&tx_hash)),
+        "transactionHash": format!("0x{}", hex::encode(tx_hash)),
         "yParity": signed.y_parity,
         "r": format!("0x{}", hex::encode(signed.r)),
         "s": format!("0x{}", hex::encode(signed.s))
@@ -4392,8 +4396,11 @@ pub extern "C" fn hawala_derive_key(input: *const c_char) -> *mut c_char {
     }
 }
 
+/// Result type for key derivation: (private_key, public_key, chain_code)
+type DerivedKeyResult = Result<(Vec<u8>, Vec<u8>, Vec<u8>), String>;
+
 // Helper for BIP-32 secp256k1 derivation
-fn derive_secp256k1_key(seed: &[u8], path: &str) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), String> {
+fn derive_secp256k1_key(seed: &[u8], path: &str) -> DerivedKeyResult {
     use hmac::{Hmac, Mac};
     use sha2::Sha512;
     
@@ -4413,7 +4420,7 @@ fn derive_secp256k1_key(seed: &[u8], path: &str) -> Result<(Vec<u8>, Vec<u8>, Ve
     if !path.is_empty() {
         for component in path.split('/') {
             let (index, hardened) = if component.ends_with('\'') || component.ends_with('h') {
-                let idx: u32 = component.trim_end_matches(|c| c == '\'' || c == 'h')
+                let idx: u32 = component.trim_end_matches(['\'', 'h'])
                     .parse()
                     .map_err(|_| format!("Invalid path component: {}", component))?;
                 (idx | 0x80000000, true)
@@ -4462,7 +4469,7 @@ fn derive_secp256k1_key(seed: &[u8], path: &str) -> Result<(Vec<u8>, Vec<u8>, Ve
 }
 
 // Helper for SLIP-0010 ed25519 derivation
-fn derive_ed25519_key(seed: &[u8], path: &str) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), String> {
+fn derive_ed25519_key(seed: &[u8], path: &str) -> DerivedKeyResult {
     use hmac::{Hmac, Mac};
     use sha2::Sha512;
     
@@ -4482,7 +4489,7 @@ fn derive_ed25519_key(seed: &[u8], path: &str) -> Result<(Vec<u8>, Vec<u8>, Vec<
     if !path.is_empty() {
         for component in path.split('/') {
             let index: u32 = if component.ends_with('\'') || component.ends_with('h') {
-                let idx: u32 = component.trim_end_matches(|c| c == '\'' || c == 'h')
+                let idx: u32 = component.trim_end_matches(['\'', 'h'])
                     .parse()
                     .map_err(|_| format!("Invalid path component: {}", component))?;
                 idx | 0x80000000
@@ -4511,4 +4518,2285 @@ fn derive_ed25519_key(seed: &[u8], path: &str) -> Result<(Vec<u8>, Vec<u8>, Vec<
     let verifying_key: VerifyingKey = (&signing_key).into();
     
     Ok((key, verifying_key.to_bytes().to_vec(), chain_code))
+}
+
+// =============================================================================
+// DEX Aggregator Operations
+// =============================================================================
+
+/// Get swap quotes from all available DEX providers
+/// 
+/// # Input
+/// ```json
+/// {
+///   "chain": "ethereum",
+///   "from_token": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+///   "to_token": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+///   "amount": "1000000000000000000",
+///   "slippage": 0.5,
+///   "from_address": "0x..."
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "quotes": [...],
+///     "best_quote": {...}
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_dex_get_quotes(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+    
+    use crate::dex::{DEXAggregator, SwapQuoteRequest};
+    
+    let request: SwapQuoteRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+    
+    // Create aggregator with optional API keys from environment
+    let oneinch_key = std::env::var("ONEINCH_API_KEY").ok();
+    let zerox_key = std::env::var("ZEROX_API_KEY").ok();
+    let mut aggregator = DEXAggregator::new(oneinch_key, zerox_key);
+    
+    match aggregator.get_all_quotes(&request) {
+        Ok(quotes) => success_response(quotes),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Get the best swap quote across all providers
+/// 
+/// # Input
+/// Same as hawala_dex_get_quotes
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "provider": "oneinch",
+///     "from_amount": "...",
+///     "to_amount": "...",
+///     "transaction": {...}
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_dex_get_best_quote(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+    
+    use crate::dex::{DEXAggregator, SwapQuoteRequest};
+    
+    let request: SwapQuoteRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+    
+    let oneinch_key = std::env::var("ONEINCH_API_KEY").ok();
+    let zerox_key = std::env::var("ZEROX_API_KEY").ok();
+    let mut aggregator = DEXAggregator::new(oneinch_key, zerox_key);
+    
+    match aggregator.get_best_quote(&request) {
+        Ok(quote) => success_response(quote),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Get supported DEX providers for a chain
+/// 
+/// # Input
+/// ```json
+/// { "chain": "ethereum" }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "providers": ["oneinch", "zerox", "uniswap"]
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_dex_get_providers(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+    
+    use crate::dex::DEXAggregator;
+    
+    #[derive(serde::Deserialize)]
+    struct ProviderRequest {
+        chain: Chain,
+    }
+    
+    #[derive(serde::Serialize)]
+    struct ProviderResponse {
+        providers: Vec<String>,
+    }
+    
+    let request: ProviderRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+    
+    let providers = DEXAggregator::get_providers_for_chain(request.chain);
+    let provider_names: Vec<String> = providers.iter().map(|p| format!("{:?}", p).to_lowercase()).collect();
+    
+    success_response(ProviderResponse { providers: provider_names })
+}
+
+// =============================================================================
+// Bridge Aggregator Operations
+// =============================================================================
+
+/// Get bridge quotes from all available providers
+/// 
+/// # Input
+/// ```json
+/// {
+///   "source_chain": "ethereum",
+///   "destination_chain": "arbitrum",
+///   "token": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+///   "amount": "1000000000",
+///   "sender": "0x...",
+///   "recipient": "0x...",
+///   "slippage": 0.5
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "quotes": [...],
+///     "best_quote": {...},
+///     "cheapest_quote": {...},
+///     "fastest_quote": {...}
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_bridge_get_quotes(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+    
+    use crate::bridge::{BridgeAggregator, BridgeQuoteRequest};
+    
+    let request: BridgeQuoteRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+    
+    // Create aggregator with optional API keys from environment
+    let wormhole_key = std::env::var("WORMHOLE_API_KEY").ok();
+    let layerzero_key = std::env::var("LAYERZERO_API_KEY").ok();
+    let mut aggregator = BridgeAggregator::new(wormhole_key, layerzero_key);
+    
+    match aggregator.get_all_quotes(&request) {
+        Ok(quotes) => success_response(quotes),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Get the best bridge quote across all providers
+/// 
+/// # Input
+/// Same as hawala_bridge_get_quotes
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "provider": "stargate",
+///     "amount_in": "...",
+///     "amount_out": "...",
+///     "fee": {...}
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_bridge_get_best_quote(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+    
+    use crate::bridge::{BridgeAggregator, BridgeQuoteRequest};
+    
+    let request: BridgeQuoteRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+    
+    let wormhole_key = std::env::var("WORMHOLE_API_KEY").ok();
+    let layerzero_key = std::env::var("LAYERZERO_API_KEY").ok();
+    let mut aggregator = BridgeAggregator::new(wormhole_key, layerzero_key);
+    
+    match aggregator.get_best_quote(&request) {
+        Ok(quote) => success_response(quote),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Get supported bridge providers for a route
+/// 
+/// # Input
+/// ```json
+/// { "source_chain": "ethereum", "destination_chain": "arbitrum" }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "providers": ["wormhole", "layerzero", "stargate"]
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_bridge_get_providers(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+    
+    use crate::bridge::BridgeAggregator;
+    
+    #[derive(serde::Deserialize)]
+    struct RouteRequest {
+        source_chain: Chain,
+        destination_chain: Chain,
+    }
+    
+    #[derive(serde::Serialize)]
+    struct ProviderResponse {
+        providers: Vec<String>,
+    }
+    
+    let request: RouteRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+    
+    let providers = BridgeAggregator::get_providers_for_route(request.source_chain, request.destination_chain);
+    let provider_names: Vec<String> = providers.iter().map(|p| format!("{:?}", p).to_lowercase()).collect();
+    
+    success_response(ProviderResponse { providers: provider_names })
+}
+
+/// Track a bridge transfer status
+/// 
+/// # Input
+/// ```json
+/// {
+///   "provider": "wormhole",
+///   "source_chain": "ethereum",
+///   "source_tx_hash": "0x..."
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "status": "in_transit",
+///     "source_confirmations": 12,
+///     "destination_tx_hash": null
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_bridge_track_transfer(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+    
+    use crate::bridge::{BridgeAggregator, BridgeProvider};
+    
+    #[derive(serde::Deserialize)]
+    struct TrackRequest {
+        provider: BridgeProvider,
+        source_chain: Chain,
+        source_tx_hash: String,
+    }
+    
+    let request: TrackRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+    
+    let wormhole_key = std::env::var("WORMHOLE_API_KEY").ok();
+    let layerzero_key = std::env::var("LAYERZERO_API_KEY").ok();
+    let aggregator = BridgeAggregator::new(wormhole_key, layerzero_key);
+    
+    match aggregator.track_transfer(&request.source_tx_hash, request.source_chain, request.provider) {
+        Ok(status) => success_response(status),
+        Err(e) => error_response(e),
+    }
+}
+
+// =============================================================================
+// IBC (Inter-Blockchain Communication) Functions
+// =============================================================================
+
+/// Build an IBC transfer message (MsgTransfer)
+/// 
+/// # Input
+/// ```json
+/// {
+///   "sourceChain": "cosmoshub",
+///   "destinationChain": "osmosis",
+///   "sender": "cosmos1...",
+///   "receiver": "osmo1...",
+///   "denom": "uatom",
+///   "amount": "1000000",
+///   "memo": "optional memo",
+///   "timeoutMinutes": 10
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "sourcePort": "transfer",
+///     "sourceChannel": "channel-0",
+///     "token": { "denom": "uatom", "amount": "1000000" },
+///     "sender": "cosmos1...",
+///     "receiver": "osmo1...",
+///     "timeoutTimestamp": "1706745600000000000",
+///     "memo": ""
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_ibc_build_transfer(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+    
+    use crate::ibc::types::IBCTransferRequest;
+    use crate::ibc::transfer::IBCTransferService;
+    
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct BuildRequest {
+        source_chain: String,
+        destination_chain: String,
+        sender: String,
+        receiver: String,
+        denom: String,
+        amount: String,
+        memo: Option<String>,
+        timeout_minutes: Option<u64>,
+    }
+    
+    let request: BuildRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+    
+    // Parse chain names to IBCChain enum
+    let source_chain = match parse_ibc_chain(&request.source_chain) {
+        Ok(c) => c,
+        Err(e) => return error_response(e),
+    };
+    
+    let destination_chain = match parse_ibc_chain(&request.destination_chain) {
+        Ok(c) => c,
+        Err(e) => return error_response(e),
+    };
+    
+    let ibc_request = IBCTransferRequest {
+        source_chain,
+        destination_chain,
+        sender: request.sender,
+        receiver: request.receiver,
+        denom: request.denom,
+        amount: request.amount,
+        memo: request.memo,
+        timeout_minutes: request.timeout_minutes,
+    };
+    
+    let service = IBCTransferService::new();
+    
+    match service.build_transfer(&ibc_request) {
+        Ok(msg) => success_response(msg),
+        Err(e) => error_response(HawalaError::new(
+            ErrorCode::InvalidInput,
+            format!("IBC build failed: {:?}", e),
+        )),
+    }
+}
+
+/// Get available IBC channels for a chain pair
+/// 
+/// # Input
+/// ```json
+/// {
+///   "sourceChain": "cosmoshub",
+///   "destinationChain": "osmosis"
+/// }
+/// ```
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "channel": "channel-0",
+///     "port": "transfer",
+///     "state": "open"
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_ibc_get_channel(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+    
+    use crate::ibc::channels::ChannelRegistry;
+    
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ChannelRequest {
+        source_chain: String,
+        destination_chain: String,
+    }
+    
+    let request: ChannelRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+    
+    let source_chain = match parse_ibc_chain(&request.source_chain) {
+        Ok(c) => c,
+        Err(e) => return error_response(e),
+    };
+    
+    let destination_chain = match parse_ibc_chain(&request.destination_chain) {
+        Ok(c) => c,
+        Err(e) => return error_response(e),
+    };
+    
+    match ChannelRegistry::get_channel(source_chain, destination_chain) {
+        Some(channel) => success_response(serde_json::json!({
+            "channel": channel.channel_id,
+            "port": channel.port_id,
+            "state": "open"
+        })),
+        None => error_response(HawalaError::new(
+            ErrorCode::TransactionNotFound,
+            format!("No IBC channel found from {:?} to {:?}", source_chain, destination_chain),
+        )),
+    }
+}
+
+/// Get supported IBC chains
+/// 
+/// # Output
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "chains": [
+///       { "id": "cosmoshub", "chainId": "cosmoshub-4", "bech32Prefix": "cosmos", "nativeDenom": "uatom" },
+///       ...
+///     ]
+///   }
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_ibc_get_supported_chains(_input: *const c_char) -> *mut c_char {
+    use crate::ibc::types::IBCChain;
+    
+    let chains: Vec<serde_json::Value> = [
+        IBCChain::CosmosHub,
+        IBCChain::Osmosis,
+        IBCChain::Juno,
+        IBCChain::Stargaze,
+        IBCChain::Akash,
+        IBCChain::Stride,
+        IBCChain::Celestia,
+        IBCChain::Dymension,
+        IBCChain::Neutron,
+        IBCChain::Injective,
+        IBCChain::Sei,
+        IBCChain::Noble,
+        IBCChain::Kujira,
+        IBCChain::Terra,
+        IBCChain::Secret,
+        IBCChain::Axelar,
+    ]
+    .iter()
+    .map(|chain| {
+        serde_json::json!({
+            "id": format!("{:?}", chain).to_lowercase(),
+            "chainId": chain.chain_id(),
+            "bech32Prefix": chain.bech32_prefix(),
+            "nativeDenom": chain.native_denom()
+        })
+    })
+    .collect();
+    
+    success_response(serde_json::json!({ "chains": chains }))
+}
+
+/// Sign and broadcast an IBC transfer
+/// 
+/// # Input
+/// ```json
+/// {
+///   "sourceChain": "cosmoshub",
+///   "destinationChain": "osmosis",
+///   "sender": "cosmos1...",
+///   "receiver": "osmo1...",
+///   "denom": "uatom",
+///   "amount": "1000000",
+///   "privateKey": "0x...",
+///   "memo": "optional",
+///   "accountNumber": 12345,
+///   "sequence": 0
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_ibc_sign_transfer(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+    
+    use crate::ibc::types::IBCTransferRequest;
+    use crate::ibc::transfer::IBCTransferService;
+    
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SignRequest {
+        source_chain: String,
+        destination_chain: String,
+        sender: String,
+        receiver: String,
+        denom: String,
+        amount: String,
+        private_key: String,
+        memo: Option<String>,
+        account_number: u64,
+        sequence: u64,
+    }
+    
+    let request: SignRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+    
+    let source_chain = match parse_ibc_chain(&request.source_chain) {
+        Ok(c) => c,
+        Err(e) => return error_response(e),
+    };
+    
+    let destination_chain = match parse_ibc_chain(&request.destination_chain) {
+        Ok(c) => c,
+        Err(e) => return error_response(e),
+    };
+    
+    // Parse private key
+    let key_hex = request.private_key.strip_prefix("0x").unwrap_or(&request.private_key);
+    let private_key = match hex::decode(key_hex) {
+        Ok(k) if k.len() == 32 => k,
+        Ok(_) => return error_response(HawalaError::invalid_input("Private key must be 32 bytes")),
+        Err(e) => return error_response(HawalaError::invalid_input(format!("Invalid hex: {}", e))),
+    };
+    
+    // Build the transfer message
+    let ibc_request = IBCTransferRequest {
+        source_chain,
+        destination_chain,
+        sender: request.sender.clone(),
+        receiver: request.receiver,
+        denom: request.denom,
+        amount: request.amount,
+        memo: request.memo,
+        timeout_minutes: Some(10),
+    };
+    
+    let service = IBCTransferService::new();
+    let msg = match service.build_transfer(&ibc_request) {
+        Ok(m) => m,
+        Err(e) => return error_response(HawalaError::new(
+            ErrorCode::InvalidInput,
+            format!("Failed to build transfer: {:?}", e),
+        )),
+    };
+    
+    // Sign the message using Cosmos signing
+    let sign_doc = serde_json::json!({
+        "chain_id": source_chain.chain_id(),
+        "account_number": request.account_number.to_string(),
+        "sequence": request.sequence.to_string(),
+        "fee": {
+            "amount": [{"denom": source_chain.native_denom(), "amount": "5000"}],
+            "gas": "200000"
+        },
+        "msgs": [{
+            "@type": "/ibc.applications.transfer.v1.MsgTransfer",
+            "source_port": msg.source_port,
+            "source_channel": msg.source_channel,
+            "token": {
+                "denom": msg.token.denom,
+                "amount": msg.token.amount
+            },
+            "sender": msg.sender,
+            "receiver": msg.receiver,
+            "timeout_height": {
+                "revision_number": "0",
+                "revision_height": "0"
+            },
+            "timeout_timestamp": msg.timeout_timestamp.to_string(),
+            "memo": msg.memo
+        }],
+        "memo": ""
+    });
+    
+    // Hash and sign the document
+    let sign_bytes = serde_json::to_vec(&sign_doc).unwrap_or_default();
+    
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(&sign_bytes);
+    let hash = hasher.finalize();
+    
+    // Sign with secp256k1
+    use crate::crypto::curves::secp256k1::Secp256k1Curve;
+    use crate::crypto::curves::EllipticCurve;
+    
+    match Secp256k1Curve::sign(&private_key, hash.as_ref()) {
+        Ok(signature) => {
+            // Get public key
+            let pubkey = match Secp256k1Curve::public_key_from_private(&private_key) {
+                Ok(p) => hex::encode(&p),
+                Err(e) => return error_response(HawalaError::crypto_error(format!("Failed to get pubkey: {}", e))),
+            };
+            
+            success_response(serde_json::json!({
+                "signedTx": {
+                    "bodyBytes": hex::encode(&sign_bytes),
+                    "authInfoBytes": "",
+                    "signatures": [hex::encode(&signature)]
+                },
+                "signature": hex::encode(&signature),
+                "publicKey": pubkey,
+                "signDoc": sign_doc
+            }))
+        }
+        Err(e) => error_response(HawalaError::crypto_error(format!("Signing failed: {:?}", e))),
+    }
+}
+
+/// Helper to parse chain names to IBCChain enum
+fn parse_ibc_chain(name: &str) -> Result<crate::ibc::types::IBCChain, HawalaError> {
+    use crate::ibc::types::IBCChain;
+    
+    match name.to_lowercase().as_str() {
+        "cosmoshub" | "cosmos" | "atom" => Ok(IBCChain::CosmosHub),
+        "osmosis" | "osmo" => Ok(IBCChain::Osmosis),
+        "juno" => Ok(IBCChain::Juno),
+        "stargaze" | "stars" => Ok(IBCChain::Stargaze),
+        "akash" | "akt" => Ok(IBCChain::Akash),
+        "stride" | "strd" => Ok(IBCChain::Stride),
+        "celestia" | "tia" => Ok(IBCChain::Celestia),
+        "dymension" | "dym" => Ok(IBCChain::Dymension),
+        "neutron" | "ntrn" => Ok(IBCChain::Neutron),
+        "injective" | "inj" => Ok(IBCChain::Injective),
+        "sei" => Ok(IBCChain::Sei),
+        "noble" => Ok(IBCChain::Noble),
+        "kujira" | "kuji" => Ok(IBCChain::Kujira),
+        "terra" | "luna" => Ok(IBCChain::Terra),
+        "secret" | "scrt" => Ok(IBCChain::Secret),
+        "axelar" | "axl" => Ok(IBCChain::Axelar),
+        _ => Err(HawalaError::invalid_input(format!("Unknown IBC chain: {}", name))),
+    }
+}
+
+// =============================================================================
+// Shamir's Secret Sharing FFI
+// =============================================================================
+
+/// Create Shamir secret shares from a seed phrase
+///
+/// # Input
+/// ```json
+/// {
+///   "seed_phrase": "word1 word2 ... word12",
+///   "total_shares": 5,
+///   "threshold": 3,
+///   "labels": ["Mom", "Bank", "Lawyer", "Brother", "Safe"]  // optional
+/// }
+/// ```
+///
+/// # Output
+/// Array of RecoveryShare objects
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_shamir_create_shares(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let request: crate::security::shamir::CreateSharesRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    match crate::security::shamir::create_shares(
+        &request.seed_phrase,
+        request.total_shares,
+        request.threshold,
+        request.labels,
+    ) {
+        Ok(shares) => success_response(shares),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Recover a seed phrase from Shamir shares
+///
+/// # Input
+/// ```json
+/// {
+///   "shares": [
+///     { "id": 1, "data": "...", "threshold": 3, "total": 5, "created_at": 0, "label": "Mom", "checksum": "..." },
+///     { "id": 2, "data": "...", "threshold": 3, "total": 5, "created_at": 0, "label": "Bank", "checksum": "..." },
+///     { "id": 3, "data": "...", "threshold": 3, "total": 5, "created_at": 0, "label": "Lawyer", "checksum": "..." }
+///   ]
+/// }
+/// ```
+///
+/// # Output
+/// ```json
+/// { "seed_phrase": "word1 word2 ... word12" }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_shamir_recover(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let request: crate::security::shamir::RecoverRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    match crate::security::shamir::recover_seed(&request.shares) {
+        Ok(seed_phrase) => success_response(serde_json::json!({ "seed_phrase": seed_phrase })),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Validate a single Shamir share
+///
+/// # Input
+/// A single RecoveryShare object as JSON
+///
+/// # Output
+/// ShareValidation object
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_shamir_validate_share(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let share: crate::security::shamir::RecoveryShare = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let validation = crate::security::shamir::validate_share(&share);
+    success_response(validation)
+}
+
+// =============================================================================
+// Staking FFI
+// =============================================================================
+
+/// Get staking info for an address on a chain
+///
+/// # Input
+/// ```json
+/// { "address": "cosmos1...", "chain": "cosmos" }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_staking_get_info(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        address: String,
+        chain: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let chain = match Chain::from_str(&request.chain) {
+        Ok(c) => c,
+        Err(_) => return error_response(HawalaError::invalid_input(format!("Unknown chain: {}", request.chain))),
+    };
+
+    match crate::staking::get_staking_info(&request.address, chain) {
+        Ok(info) => success_response(info),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Get validators for a chain
+///
+/// # Input
+/// ```json
+/// { "chain": "cosmos", "limit": 100 }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_staking_get_validators(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        chain: String,
+        limit: Option<usize>,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let chain = match Chain::from_str(&request.chain) {
+        Ok(c) => c,
+        Err(_) => return error_response(HawalaError::invalid_input(format!("Unknown chain: {}", request.chain))),
+    };
+
+    let limit = request.limit.unwrap_or(100);
+
+    match crate::staking::get_validators(chain, limit) {
+        Ok(validators) => success_response(validators),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Prepare a staking transaction (delegate/undelegate/claim)
+///
+/// # Input
+/// ```json
+/// {
+///   "chain": "solana",
+///   "delegator_address": "...",
+///   "validator_address": "...",
+///   "amount": "1000000000",
+///   "action": "Delegate"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_staking_prepare_tx(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let request: crate::staking::StakeRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    match crate::staking::prepare_stake_transaction(&request) {
+        Ok(tx_json) => success_response(serde_json::json!({ "transaction": tx_json })),
+        Err(e) => error_response(e),
+    }
+}
+
+// =============================================================================
+// Phase 2: Security & Trust Features
+// =============================================================================
+
+/// Simulate a transaction before signing to preview balance changes and risks
+///
+/// # Input
+/// ```json
+/// {
+///   "chain": "ethereum",
+///   "from": "0x...",
+///   "to": "0x...",
+///   "value": "0x0",
+///   "data": "0x095ea7b3..."
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_simulate_transaction(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let request: crate::security::simulation::SimulationRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let simulator = crate::security::simulation::TransactionSimulator::new();
+    match simulator.simulate(&request) {
+        Ok(result) => success_response(result),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Analyze transaction risk without full simulation
+///
+/// # Input
+/// ```json
+/// {
+///   "chain": "ethereum",
+///   "from": "0x...",
+///   "to": "0x...",
+///   "value": "0x0",
+///   "data": "0x..."
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_analyze_risk(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let request: crate::security::simulation::SimulationRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let simulator = crate::security::simulation::TransactionSimulator::new();
+    match simulator.analyze_risk(&request) {
+        Ok(warnings) => success_response(serde_json::json!({
+            "warnings": warnings,
+            "count": warnings.len()
+        })),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Get all token approvals for an address
+///
+/// # Input
+/// ```json
+/// {
+///   "address": "0x...",
+///   "chain": "ethereum"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_get_approvals(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let request: crate::security::approvals::GetApprovalsRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let manager = crate::security::approvals::ApprovalManager::new();
+    match manager.get_approvals(&request) {
+        Ok(result) => success_response(result),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Create a revoke transaction for a token approval
+///
+/// # Input
+/// ```json
+/// {
+///   "token_address": "0x...",
+///   "spender_address": "0x...",
+///   "chain": "ethereum"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_revoke_approval(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let request: crate::security::approvals::RevokeRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let manager = crate::security::approvals::ApprovalManager::new();
+    match manager.create_revoke_transaction(&request) {
+        Ok(tx) => success_response(tx),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Create batch revoke transactions for multiple approvals
+///
+/// # Input
+/// ```json
+/// {
+///   "owner_address": "0x...",
+///   "chain": "ethereum",
+///   "approvals": [
+///     { "token_address": "0x...", "spender_address": "0x..." }
+///   ]
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_batch_revoke(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct BatchRequest {
+        chain: Chain,
+        approvals: Vec<ApprovalItem>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ApprovalItem {
+        token_address: String,
+        spender_address: String,
+    }
+
+    let request: BatchRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let approvals: Vec<(String, String)> = request.approvals
+        .into_iter()
+        .map(|a| (a.token_address, a.spender_address))
+        .collect();
+
+    let batch_request = crate::security::approvals::BatchRevokeRequest {
+        approvals,
+        chain: request.chain,
+    };
+
+    let manager = crate::security::approvals::ApprovalManager::new();
+    match manager.create_batch_revoke_transactions(&batch_request) {
+        Ok(txs) => success_response(txs),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Check an address for phishing/scam flags
+///
+/// # Input
+/// ```json
+/// {
+///   "address": "0x..."
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_check_phishing_address(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        address: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let detector = crate::security::phishing::PhishingDetector::new();
+    let result = detector.check_address(&request.address);
+    success_response(result)
+}
+
+/// Check a domain for phishing flags
+///
+/// # Input
+/// ```json
+/// {
+///   "domain": "uniswap.org"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_check_phishing_domain(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        domain: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let detector = crate::security::phishing::PhishingDetector::new();
+    let result = detector.check_domain(&request.domain);
+    success_response(result)
+}
+
+/// Add an address to whitelist
+///
+/// # Input
+/// ```json
+/// {
+///   "wallet_id": "wallet1",
+///   "address": "0x...",
+///   "label": "My Exchange",
+///   "chains": ["ethereum", "polygon"],
+///   "skip_time_lock": false
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_whitelist_add(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        wallet_id: String,
+        address: String,
+        label: Option<String>,
+        chains: Option<Vec<Chain>>,
+        notes: Option<String>,
+        skip_time_lock: Option<bool>,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let add_request = crate::security::whitelist::AddWhitelistRequest {
+        address: request.address,
+        label: request.label,
+        chains: request.chains.unwrap_or_default(),
+        notes: request.notes,
+        skip_time_lock: request.skip_time_lock.unwrap_or(false),
+    };
+
+    let manager = crate::security::whitelist::WhitelistManager::new();
+    match manager.add_address(&request.wallet_id, add_request) {
+        Ok(entry) => success_response(entry),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Remove an address from whitelist
+///
+/// # Input
+/// ```json
+/// {
+///   "wallet_id": "wallet1",
+///   "address": "0x..."
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_whitelist_remove(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        wallet_id: String,
+        address: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let manager = crate::security::whitelist::WhitelistManager::new();
+    match manager.remove_address(&request.wallet_id, &request.address) {
+        Ok(()) => success_response(serde_json::json!({ "removed": true })),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Check if an address is whitelisted
+///
+/// # Input
+/// ```json
+/// {
+///   "wallet_id": "wallet1",
+///   "address": "0x...",
+///   "chain": "ethereum",
+///   "transaction_usd": 5000.0
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_whitelist_check(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        wallet_id: String,
+        address: String,
+        chain: Chain,
+        transaction_usd: Option<f64>,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let manager = crate::security::whitelist::WhitelistManager::new();
+    let result = manager.check_address(
+        &request.wallet_id,
+        &request.address,
+        request.chain,
+        request.transaction_usd,
+    );
+    success_response(result)
+}
+
+/// Get all whitelisted addresses for a wallet
+///
+/// # Input
+/// ```json
+/// {
+///   "wallet_id": "wallet1"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_whitelist_get_all(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        wallet_id: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let manager = crate::security::whitelist::WhitelistManager::new();
+    let entries = manager.get_all_entries(&request.wallet_id);
+    success_response(serde_json::json!({
+        "entries": entries,
+        "count": entries.len()
+    }))
+}
+
+/// Configure whitelist settings
+///
+/// # Input
+/// ```json
+/// {
+///   "require_for_all": false,
+///   "require_above_usd": 1000.0,
+///   "time_lock_seconds": 86400,
+///   "allow_with_warning": true
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_whitelist_configure(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let config: crate::security::whitelist::WhitelistConfig = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let manager = crate::security::whitelist::WhitelistManager::new();
+    manager.set_config(config.clone());
+    success_response(serde_json::json!({
+        "configured": true,
+        "config": config
+    }))
+}
+
+/// Combined security check before transaction signing
+/// Runs simulation, phishing check, and whitelist check
+///
+/// # Input
+/// ```json
+/// {
+///   "wallet_id": "wallet1",
+///   "chain": "ethereum",
+///   "from": "0x...",
+///   "to": "0x...",
+///   "value": "0x0",
+///   "data": "0x...",
+///   "transaction_usd": 5000.0
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_security_check(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        wallet_id: String,
+        chain: Chain,
+        from: String,
+        to: String,
+        value: String,
+        data: Option<String>,
+        gas_limit: Option<u64>,
+        transaction_usd: Option<f64>,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    // 1. Phishing check
+    let phishing_detector = crate::security::phishing::PhishingDetector::new();
+    let phishing_result = phishing_detector.check_address(&request.to);
+
+    // 2. Whitelist check
+    let whitelist_manager = crate::security::whitelist::WhitelistManager::new();
+    let whitelist_result = whitelist_manager.check_address(
+        &request.wallet_id,
+        &request.to,
+        request.chain,
+        request.transaction_usd,
+    );
+
+    // 3. Transaction simulation (for EVM chains)
+    let simulation_result = if request.chain.is_evm() {
+        let sim_request = crate::security::simulation::SimulationRequest {
+            chain: request.chain,
+            from: request.from.clone(),
+            to: request.to.clone(),
+            value: request.value.clone(),
+            data: request.data.clone().unwrap_or_else(|| "0x".to_string()),
+            gas_limit: request.gas_limit,
+        };
+        let simulator = crate::security::simulation::TransactionSimulator::new();
+        simulator.simulate(&sim_request).ok()
+    } else {
+        None
+    };
+
+    // Determine if transaction should be blocked
+    let should_block = phishing_result.should_block
+        || !whitelist_result.allowed
+        || simulation_result.as_ref().map(|s| s.warnings.iter().any(|w| w.should_block)).unwrap_or(false);
+
+    // Collect all warnings
+    let mut all_warnings: Vec<String> = Vec::new();
+    
+    if phishing_result.is_flagged {
+        all_warnings.push(format!("Phishing alert: {:?}", phishing_result.flag_type));
+    }
+    if let Some(warning) = &whitelist_result.warning {
+        all_warnings.push(warning.clone());
+    }
+    if let Some(sim) = &simulation_result {
+        for w in &sim.warnings {
+            all_warnings.push(w.message.clone());
+        }
+    }
+
+    success_response(serde_json::json!({
+        "should_block": should_block,
+        "phishing": phishing_result,
+        "whitelist": whitelist_result,
+        "simulation": simulation_result,
+        "warnings": all_warnings,
+        "warnings_count": all_warnings.len()
+    }))
+}
+
+// =============================================================================
+// Phase 3: L2 Balance Aggregation
+// =============================================================================
+
+/// Aggregate native token balances across L1 and L2 chains
+/// 
+/// # Input
+/// ```json
+/// {
+///   "address": "0x...",
+///   "token": "ETH",
+///   "chains": []
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_aggregate_balances(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let request: crate::balances::aggregator::AggregationRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let aggregator = crate::balances::aggregator::BalanceAggregator::new();
+    match aggregator.aggregate_native_balance(&request) {
+        Ok(result) => success_response(result),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Suggest the best chain for a transaction
+/// 
+/// # Input
+/// ```json
+/// {
+///   "address": "0x...",
+///   "token": "ETH",
+///   "amount": "1.0"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_suggest_chain(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        address: String,
+        token: String,
+        amount: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let aggregator = crate::balances::aggregator::BalanceAggregator::new();
+    match aggregator.suggest_chain(&request.address, &request.token, &request.amount) {
+        Ok(result) => success_response(result),
+        Err(e) => error_response(e),
+    }
+}
+
+// =============================================================================
+// Phase 3: Payment Request Links
+// =============================================================================
+
+/// Create a payment request link
+/// 
+/// # Input
+/// ```json
+/// {
+///   "to": "0x...",
+///   "amount": "1.5",
+///   "token": "ETH",
+///   "chain_id": 1,
+///   "memo": "Payment for services"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_create_payment_link(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let request: crate::payments::PaymentRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let manager = crate::payments::PaymentLinkManager::new();
+    match manager.create_link(&request) {
+        Ok(link) => success_response(serde_json::json!({ "link": link })),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Parse a payment link (hawala://, bitcoin:, ethereum:, solana:)
+/// 
+/// # Input
+/// ```json
+/// {
+///   "uri": "hawala://pay?to=0x...&amount=1.5"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_parse_payment_link(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        uri: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let manager = crate::payments::PaymentLinkManager::new();
+    match manager.parse_link(&request.uri) {
+        Ok(result) => success_response(result),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Create a BIP-21 Bitcoin payment link
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_create_bip21_link(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let request: crate::payments::PaymentRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let manager = crate::payments::PaymentLinkManager::new();
+    match manager.create_bip21_link(&request) {
+        Ok(link) => success_response(serde_json::json!({ "link": link })),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Create an EIP-681 Ethereum payment link
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_create_eip681_link(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let request: crate::payments::PaymentRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let manager = crate::payments::PaymentLinkManager::new();
+    match manager.create_eip681_link(&request) {
+        Ok(link) => success_response(serde_json::json!({ "link": link })),
+        Err(e) => error_response(e),
+    }
+}
+
+// =============================================================================
+// Phase 3: Transaction Notes
+// =============================================================================
+
+/// Add a note to a transaction
+/// 
+/// # Input
+/// ```json
+/// {
+///   "tx_hash": "0x...",
+///   "chain": "ethereum",
+///   "content": "Payment to Alice",
+///   "tags": ["payment", "friend"],
+///   "category": "expense"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_add_note(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let request: crate::notes::AddNoteRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let mut manager = crate::notes::NotesManager::new();
+    match manager.add_note(request) {
+        Ok(note) => success_response(note),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Search transaction notes
+/// 
+/// # Input
+/// ```json
+/// {
+///   "query": "Alice",
+///   "chain": "ethereum",
+///   "tags": ["payment"],
+///   "pinned_only": false,
+///   "limit": 50
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_search_notes(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let request: crate::notes::SearchNotesRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let manager = crate::notes::NotesManager::new();
+    let result = manager.search(&request);
+    success_response(result)
+}
+
+/// Export notes to JSON or CSV
+/// 
+/// # Input
+/// ```json
+/// {
+///   "format": "json"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_export_notes(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        format: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let format = match request.format.to_lowercase().as_str() {
+        "csv" => crate::notes::ExportFormat::Csv,
+        _ => crate::notes::ExportFormat::Json,
+    };
+
+    let manager = crate::notes::NotesManager::new();
+    match manager.export(format) {
+        Ok(data) => success_response(serde_json::json!({ "data": data })),
+        Err(e) => error_response(e),
+    }
+}
+
+// =============================================================================
+// Phase 3: Fiat Off-Ramp
+// =============================================================================
+
+/// Get off-ramp quote for selling crypto
+/// 
+/// # Input
+/// ```json
+/// {
+///   "provider": "moonpay",
+///   "crypto_symbol": "ETH",
+///   "crypto_amount": 1.0,
+///   "fiat_currency": "USD",
+///   "country": "US"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_offramp_quote(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let request: crate::offramp::OffRampQuoteRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let service = crate::offramp::OffRampService::new();
+    match service.get_quote(&request) {
+        Ok(quote) => success_response(quote),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Compare off-ramp quotes from all providers
+/// 
+/// # Input
+/// ```json
+/// {
+///   "crypto_symbol": "ETH",
+///   "crypto_amount": 1.0,
+///   "fiat_currency": "USD",
+///   "country": "US"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_offramp_compare(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        crypto_symbol: String,
+        crypto_amount: f64,
+        fiat_currency: String,
+        country: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let service = crate::offramp::OffRampService::new();
+    let quotes = service.compare_quotes(
+        &request.crypto_symbol,
+        request.crypto_amount,
+        &request.fiat_currency,
+        &request.country,
+    );
+    success_response(serde_json::json!({ "quotes": quotes }))
+}
+
+/// Get supported fiat currencies for off-ramp
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_offramp_currencies(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        provider: crate::offramp::OffRampProvider,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let service = crate::offramp::OffRampService::new();
+    let currencies = service.get_supported_currencies(request.provider);
+    success_response(serde_json::json!({ "currencies": currencies }))
+}
+
+/// Get sellable cryptos for off-ramp
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_offramp_cryptos(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        provider: crate::offramp::OffRampProvider,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let service = crate::offramp::OffRampService::new();
+    let cryptos = service.get_sellable_cryptos(request.provider);
+    success_response(serde_json::json!({ "cryptos": cryptos }))
+}
+
+// =============================================================================
+// Phase 3: Price Alerts
+// =============================================================================
+
+/// Create a price alert
+/// 
+/// # Input
+/// ```json
+/// {
+///   "symbol": "BTC",
+///   "alert_type": "above",
+///   "target_value": 100000.0,
+///   "note": "Moon target",
+///   "repeat": false
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_create_alert(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    let request: crate::alerts::CreateAlertRequest = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let mut manager = crate::alerts::PriceAlertManager::new();
+    match manager.create_alert(request) {
+        Ok(alert) => success_response(alert),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Get current price with 24h change
+/// 
+/// # Input
+/// ```json
+/// {
+///   "symbol": "BTC"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_get_price(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        symbol: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let mut manager = crate::alerts::PriceAlertManager::new();
+    match manager.get_price_data(&request.symbol) {
+        Ok(data) => success_response(data),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Get alert statistics
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_alert_stats() -> *mut c_char {
+    let manager = crate::alerts::PriceAlertManager::new();
+    let stats = manager.get_stats();
+    success_response(stats)
+}
+
+// =============================================================================
+// Phase 4: ERC-4337 Smart Accounts (Account Abstraction)
+// =============================================================================
+
+/// Compute smart account address
+/// 
+/// # Input
+/// ```json
+/// {
+///   "account_type": "simple_account",
+///   "owner": "0x123...",
+///   "salt": "0x000...000",
+///   "factory": "0xabc...",
+///   "chain": "ethereum"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hawala_compute_smart_account(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    #[allow(dead_code)]
+    struct Request {
+        account_type: String,
+        owner: String,
+        salt: String,
+        factory: String,
+        #[serde(default)]
+        chain: Option<String>,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let salt_bytes = match hex::decode(request.salt.strip_prefix("0x").unwrap_or(&request.salt)) {
+        Ok(b) if b.len() == 32 => {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&b);
+            arr
+        }
+        _ => return error_response(HawalaError::invalid_input("Salt must be 32 bytes hex")),
+    };
+
+    use crate::erc4337::SmartAccountManager;
+
+    let address = match request.account_type.as_str() {
+        "simple_account" | "SimpleAccount" => {
+            SmartAccountManager::compute_simple_account_address(
+                &request.owner,
+                &salt_bytes,
+                &request.factory,
+            )
+        }
+        _ => return error_response(HawalaError::invalid_input("Unsupported account type")),
+    };
+
+    match address {
+        Ok(addr) => success_response(serde_json::json!({
+            "address": addr,
+            "account_type": request.account_type,
+            "is_counterfactual": true
+        })),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Build a UserOperation
+/// 
+/// # Input
+/// ```json
+/// {
+///   "sender": "0x123...",
+///   "nonce": 0,
+///   "call_data": "0xb61d27f6...",
+///   "chain": "ethereum",
+///   "max_fee_per_gas": "0x77359400",
+///   "max_priority_fee_per_gas": "0x3b9aca00"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hawala_build_user_operation(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    #[allow(dead_code)]
+    struct Request {
+        sender: String,
+        nonce: u64,
+        call_data: String,
+        #[serde(default)]
+        chain: Option<String>,
+        #[serde(default)]
+        factory: Option<String>,
+        #[serde(default)]
+        factory_data: Option<String>,
+        #[serde(default)]
+        max_fee_per_gas: Option<String>,
+        #[serde(default)]
+        max_priority_fee_per_gas: Option<String>,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    use crate::erc4337::UserOperation;
+
+    let mut user_op = UserOperation::new(&request.sender, request.nonce, &request.call_data);
+
+    if let (Some(factory), Some(factory_data)) = (request.factory, request.factory_data) {
+        user_op = user_op.with_factory(&factory, &factory_data);
+    }
+
+    if let (Some(max_fee), Some(priority_fee)) = (request.max_fee_per_gas, request.max_priority_fee_per_gas) {
+        // Parse as hex strings
+        let max = u64::from_str_radix(max_fee.strip_prefix("0x").unwrap_or(&max_fee), 16).unwrap_or(2_000_000_000);
+        let priority = u64::from_str_radix(priority_fee.strip_prefix("0x").unwrap_or(&priority_fee), 16).unwrap_or(1_000_000_000);
+        user_op = user_op.with_fees(max, priority);
+    }
+
+    success_response(user_op)
+}
+
+/// Get UserOperation hash for signing
+/// 
+/// # Input
+/// ```json
+/// {
+///   "user_op": { ... },
+///   "chain": "ethereum"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hawala_get_user_op_hash(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        user_op: crate::erc4337::UserOperation,
+        chain: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let chain: crate::erc4337::ERC4337Chain = match request.chain.parse() {
+        Ok(c) => c,
+        Err(e) => return error_response(e),
+    };
+
+    match request.user_op.get_hash(chain.entry_point(), chain.chain_id()) {
+        Ok(hash) => success_response(serde_json::json!({
+            "hash": format!("0x{}", hex::encode(hash)),
+            "entry_point": chain.entry_point(),
+            "chain_id": chain.chain_id()
+        })),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Check if paymaster will sponsor a UserOperation
+/// 
+/// # Input
+/// ```json
+/// {
+///   "user_op": { ... },
+///   "chain": "ethereum",
+///   "provider": "pimlico",
+///   "api_key": "your_key"
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hawala_check_sponsorship(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        user_op: crate::erc4337::UserOperation,
+        chain: String,
+        provider: String,
+        api_key: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let chain: crate::erc4337::ERC4337Chain = match request.chain.parse() {
+        Ok(c) => c,
+        Err(e) => return error_response(e),
+    };
+
+    let provider = match request.provider.to_lowercase().as_str() {
+        "pimlico" => crate::erc4337::PaymasterProvider::Pimlico,
+        "alchemy" => crate::erc4337::PaymasterProvider::Alchemy,
+        "stackup" => crate::erc4337::PaymasterProvider::Stackup,
+        "zerodev" => crate::erc4337::PaymasterProvider::ZeroDev,
+        _ => return error_response(HawalaError::invalid_input("Unknown paymaster provider")),
+    };
+
+    let manager = crate::erc4337::PaymasterManager::new(provider)
+        .with_api_key(&request.api_key);
+
+    match manager.check_sponsorship(&request.user_op, chain) {
+        Ok(result) => success_response(result),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Get gas account info
+/// 
+/// # Input
+/// ```json
+/// {
+///   "owner": "0x123..."
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hawala_gas_account_info(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        owner: String,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let manager = crate::erc4337::GasAccountManager::new(&request.owner);
+    let info = manager.get_info();
+    success_response(info)
+}
+
+/// Estimate gas cost in USD
+/// 
+/// # Input
+/// ```json
+/// {
+///   "owner": "0x123...",
+///   "chain": "ethereum",
+///   "gas_limit": 200000,
+///   "gas_price_gwei": 30.0
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hawala_estimate_gas_cost_usd(input: *const c_char) -> *mut c_char {
+    let json_str = match parse_input(input) {
+        Ok(s) => s,
+        Err(ptr) => return ptr,
+    };
+
+    #[derive(serde::Deserialize)]
+    struct Request {
+        owner: String,
+        chain: String,
+        gas_limit: u64,
+        gas_price_gwei: f64,
+    }
+
+    let request: Request = match serde_json::from_str(json_str) {
+        Ok(r) => r,
+        Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
+    };
+
+    let chain: crate::erc4337::ERC4337Chain = match request.chain.parse() {
+        Ok(c) => c,
+        Err(e) => return error_response(e),
+    };
+
+    let manager = crate::erc4337::GasAccountManager::new(&request.owner);
+    let cost_usd = manager.estimate_gas_cost_usd(chain, request.gas_limit, request.gas_price_gwei);
+
+    success_response(serde_json::json!({
+        "estimated_cost_usd": cost_usd,
+        "chain": request.chain,
+        "gas_limit": request.gas_limit,
+        "gas_price_gwei": request.gas_price_gwei
+    }))
+}
+
+/// Get supported ERC-4337 chains
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_erc4337_chains() -> *mut c_char {
+    let chains = vec![
+        serde_json::json!({
+            "name": "Ethereum",
+            "chain_id": 1,
+            "entry_point": crate::erc4337::ERC4337Chain::Ethereum.entry_point()
+        }),
+        serde_json::json!({
+            "name": "Polygon",
+            "chain_id": 137,
+            "entry_point": crate::erc4337::ERC4337Chain::Polygon.entry_point()
+        }),
+        serde_json::json!({
+            "name": "Arbitrum",
+            "chain_id": 42161,
+            "entry_point": crate::erc4337::ERC4337Chain::Arbitrum.entry_point()
+        }),
+        serde_json::json!({
+            "name": "Optimism",
+            "chain_id": 10,
+            "entry_point": crate::erc4337::ERC4337Chain::Optimism.entry_point()
+        }),
+        serde_json::json!({
+            "name": "Base",
+            "chain_id": 8453,
+            "entry_point": crate::erc4337::ERC4337Chain::Base.entry_point()
+        }),
+        serde_json::json!({
+            "name": "Avalanche",
+            "chain_id": 43114,
+            "entry_point": crate::erc4337::ERC4337Chain::Avalanche.entry_point()
+        }),
+        serde_json::json!({
+            "name": "BNB Chain",
+            "chain_id": 56,
+            "entry_point": crate::erc4337::ERC4337Chain::BNB.entry_point()
+        }),
+        serde_json::json!({
+            "name": "Sepolia (Testnet)",
+            "chain_id": 11155111,
+            "entry_point": crate::erc4337::ERC4337Chain::Sepolia.entry_point()
+        }),
+    ];
+
+    success_response(serde_json::json!({ "chains": chains }))
 }

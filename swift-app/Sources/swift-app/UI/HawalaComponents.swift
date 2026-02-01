@@ -3705,3 +3705,170 @@ struct RefreshIndicator: View {
     }
 }
 
+// MARK: - Sparkline View
+
+/// A compact sparkline chart showing price trends with percentage change
+struct SparklineView: View {
+    let dataPoints: [Double]
+    var lineColor: Color = .blue
+    var height: CGFloat = 24
+    
+    // Pre-computed values for performance
+    private let normalizedPoints: [CGFloat]
+    private let priceChange: Double
+    private let trendColor: Color
+    
+    init(dataPoints: [Double], lineColor: Color = .blue, height: CGFloat = 24) {
+        self.dataPoints = dataPoints
+        self.lineColor = lineColor
+        self.height = height
+        
+        // Pre-compute all values once at init time
+        if dataPoints.isEmpty {
+            normalizedPoints = []
+            priceChange = 0
+            trendColor = .secondary
+        } else {
+            let minVal = dataPoints.min() ?? 0
+            let maxVal = dataPoints.max() ?? 1
+            let range = maxVal - minVal
+            
+            if range > 0 {
+                normalizedPoints = dataPoints.map { CGFloat(($0 - minVal) / range) }
+            } else {
+                normalizedPoints = dataPoints.map { _ in CGFloat(0.5) }
+            }
+            
+            // Pre-compute price change
+            if dataPoints.count >= 2,
+               let first = dataPoints.first,
+               let last = dataPoints.last,
+               first > 0 {
+                priceChange = ((last - first) / first) * 100
+            } else {
+                priceChange = 0
+            }
+            
+            // Pre-compute trend color
+            if priceChange > 0.1 {
+                trendColor = .green
+            } else if priceChange < -0.1 {
+                trendColor = .red
+            } else {
+                trendColor = .secondary
+            }
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            // Sparkline chart using Canvas for better scroll performance
+            Canvas { context, size in
+                guard normalizedPoints.count > 1 else { return }
+                
+                let stepX = size.width / CGFloat(normalizedPoints.count - 1)
+                var path = Path()
+                
+                for (index, value) in normalizedPoints.enumerated() {
+                    let x = stepX * CGFloat(index)
+                    let y = size.height * (1 - value)
+                    
+                    if index == 0 {
+                        path.move(to: CGPoint(x: x, y: y))
+                    } else {
+                        path.addLine(to: CGPoint(x: x, y: y))
+                    }
+                }
+                
+                context.stroke(
+                    path,
+                    with: .color(trendColor),
+                    style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
+                )
+            }
+            .frame(width: 50, height: height)
+
+            // Percentage change
+            if !dataPoints.isEmpty {
+                Text(priceChange >= 0 ? "+\(String(format: "%.1f", priceChange))%" : "\(String(format: "%.1f", priceChange))%")
+                    .font(.caption2)
+                    .fontWeight(.medium)
+                    .foregroundStyle(trendColor)
+            }
+        }
+    }
+}
+
+// MARK: - Skeleton Loading Line
+
+/// Animated skeleton loading placeholder for text content
+struct SkeletonLine: View {
+    var width: CGFloat? = 80
+    var height: CGFloat = 10
+    var cornerRadius: CGFloat = 6
+
+    @State private var phase: CGFloat = -0.8
+    @State private var isVisible = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(Color.primary.opacity(0.08))
+            .frame(width: width, height: height)
+            .overlay(
+                Group {
+                    if isVisible {
+                        GeometryReader { geometry in
+                            let gradient = LinearGradient(
+                                colors: [
+                                    Color.primary.opacity(0.08),
+                                    Color.primary.opacity(0.18),
+                                    Color.primary.opacity(0.08)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .fill(gradient)
+                                .scaleEffect(x: 1.6, y: 1, anchor: .leading)
+                                .offset(x: geometry.size.width * phase)
+                        }
+                    }
+                }
+            )
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .onAppear {
+                isVisible = true
+                withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) {
+                    phase = 0.9
+                }
+            }
+            .onDisappear {
+                // Stop animation when off-screen to save GPU cycles
+                isVisible = false
+                phase = -0.8
+            }
+    }
+}
+
+// MARK: - Copy Feedback Banner
+
+/// A banner showing copy confirmation feedback
+struct CopyFeedbackBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+            Text(message)
+                .font(.caption)
+                .fontWeight(.semibold)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 14)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+        .shadow(color: .black.opacity(0.15), radius: 6, y: 4)
+    }
+}

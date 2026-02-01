@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 // UserNotifications disabled - requires bundled .app to work
 // import UserNotifications
 import Combine
@@ -418,7 +419,39 @@ class TransactionScheduler: ObservableObject {
     }
     
     /// Execute a transaction immediately (manual trigger)
+    /// Requires biometric authentication for security
     func executeNow(_ transaction: ScheduledTransaction) async {
+        // Check biometric authentication if enabled
+        let biometricForSends = UserDefaults.standard.bool(forKey: "hawala.biometricForSends")
+        
+        if BiometricAuthHelper.shouldRequireBiometric(settingEnabled: biometricForSends) {
+            let result = await BiometricAuthHelper.authenticate(
+                reason: "Authenticate to execute scheduled transaction"
+            )
+            switch result {
+            case .success:
+                await performScheduledExecution(transaction)
+            case .cancelled:
+                #if DEBUG
+                print("[Scheduler] Biometric cancelled by user")
+                #endif
+                return
+            case .failed(let message):
+                #if DEBUG
+                print("[Scheduler] Authentication failed: \(message)")
+                #endif
+                return
+            case .notAvailable:
+                // Biometric not available, proceed anyway
+                await performScheduledExecution(transaction)
+            }
+        } else {
+            await performScheduledExecution(transaction)
+        }
+    }
+    
+    /// Internal execution after authentication
+    private func performScheduledExecution(_ transaction: ScheduledTransaction) async {
         guard let index = scheduledTransactions.firstIndex(where: { $0.id == transaction.id }) else {
             return
         }

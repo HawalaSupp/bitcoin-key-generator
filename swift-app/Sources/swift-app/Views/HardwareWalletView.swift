@@ -302,6 +302,12 @@ struct InstructionRow: View {
     }
 }
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     HardwareWalletView()
 }
+#endif
+#endif
+#endif

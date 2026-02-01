@@ -11,14 +11,12 @@
 //!
 //! Reference: https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki
 
-use bitcoin::hashes::{Hash, sha256};
 use bitcoin::secp256k1::{
-    Secp256k1, SecretKey, PublicKey, Keypair, Message,
+    Secp256k1, SecretKey, Keypair, Message,
     XOnlyPublicKey, schnorr::Signature as SchnorrSignature,
     All,
 };
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 
 // MARK: - Tagged Hash Functions
 

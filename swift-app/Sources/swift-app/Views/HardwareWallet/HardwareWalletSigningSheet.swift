@@ -428,6 +428,9 @@ struct SigningErrorView: View {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     let account = HardwareWalletAccount(
         deviceType: .ledgerNanoX,
@@ -456,3 +459,6 @@ struct SigningErrorView: View {
         onError: { _ in }
     )
 }
+#endif
+#endif
+#endif

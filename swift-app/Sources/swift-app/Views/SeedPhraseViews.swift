@@ -380,6 +380,9 @@ struct SeedPhraseVerificationView: View {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview("Display") {
     SeedPhraseDisplayView(
         seedPhrase: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
@@ -387,7 +390,13 @@ struct SeedPhraseVerificationView: View {
         onDismiss: {}
     )
 }
+#endif
+#endif
+#endif
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview("Verify") {
     SeedPhraseVerificationView(
         seedPhrase: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
@@ -395,3 +404,6 @@ struct SeedPhraseVerificationView: View {
         onDismiss: {}
     )
 }
+#endif
+#endif
+#endif

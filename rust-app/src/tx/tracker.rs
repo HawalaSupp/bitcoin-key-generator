@@ -30,9 +30,9 @@ pub enum TxStatus {
     Dropped,
 }
 
-/// A tracked transaction
+/// A transaction tracking entry (internal to tracker)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrackedTransaction {
+pub struct TxTrackingEntry {
     pub txid: String,
     pub chain: Chain,
     pub confirmations: u32,
@@ -42,7 +42,8 @@ pub struct TrackedTransaction {
     pub last_checked: u64,
 }
 
-impl TrackedTransaction {
+#[allow(dead_code)]
+impl TxTrackingEntry {
     /// Check if transaction is fully confirmed based on chain requirements
     pub fn is_confirmed(&self) -> bool {
         self.confirmations >= required_confirmations(self.chain)
@@ -77,7 +78,7 @@ pub struct TrackRequest {
 }
 
 lazy_static::lazy_static! {
-    static ref TRACKED_TXS: Mutex<HashMap<String, TrackedTransaction>> = Mutex::new(HashMap::new());
+    static ref TRACKED_TXS: Mutex<HashMap<String, TxTrackingEntry>> = Mutex::new(HashMap::new());
 }
 
 // =============================================================================
@@ -104,10 +105,10 @@ pub fn required_confirmations(chain: Chain) -> u32 {
 // =============================================================================
 
 /// Start tracking a transaction
-pub fn track_transaction(txid: &str, chain: Chain) -> HawalaResult<TrackedTransaction> {
+pub fn track_transaction(txid: &str, chain: Chain) -> HawalaResult<TxTrackingEntry> {
     let now = current_timestamp();
     
-    let tx = TrackedTransaction {
+    let tx = TxTrackingEntry {
         txid: txid.to_string(),
         chain,
         confirmations: 0,
@@ -134,19 +135,19 @@ pub fn stop_tracking(txid: &str) {
 }
 
 /// Get a tracked transaction
-pub fn get_tracked(txid: &str) -> Option<TrackedTransaction> {
+pub fn get_tracked(txid: &str) -> Option<TxTrackingEntry> {
     TRACKED_TXS.lock().ok()?.get(txid).cloned()
 }
 
 /// Get all tracked transactions
-pub fn get_all_tracked() -> Vec<TrackedTransaction> {
+pub fn get_all_tracked() -> Vec<TxTrackingEntry> {
     TRACKED_TXS.lock()
         .map(|t| t.values().cloned().collect())
         .unwrap_or_default()
 }
 
 /// Check transaction status and update tracking
-pub fn check_transaction(txid: &str, chain: Chain) -> HawalaResult<TrackedTransaction> {
+pub fn check_transaction(txid: &str, chain: Chain) -> HawalaResult<TxTrackingEntry> {
     let result = match chain {
         Chain::Bitcoin | Chain::BitcoinTestnet | Chain::Litecoin => {
             check_bitcoin_transaction(txid, chain)?
@@ -170,7 +171,7 @@ pub fn check_transaction(txid: &str, chain: Chain) -> HawalaResult<TrackedTransa
     
     // Update tracked transaction
     let now = current_timestamp();
-    let mut tx = TrackedTransaction {
+    let mut tx = TxTrackingEntry {
         txid: txid.to_string(),
         chain,
         confirmations: result.confirmations,
@@ -651,7 +652,7 @@ mod tests {
     
     #[test]
     fn test_confirmation_progress() {
-        let tx = TrackedTransaction {
+        let tx = TxTrackingEntry {
             txid: "test".to_string(),
             chain: Chain::Bitcoin,
             confirmations: 3,

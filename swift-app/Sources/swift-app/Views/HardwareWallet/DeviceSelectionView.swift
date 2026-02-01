@@ -332,7 +332,7 @@ extension HardwareDeviceType {
 struct DeviceSelectionView_Previews: PreviewProvider {
     static var previews: some View {
         DeviceSelectionView { device in
-            print("Selected: \(device.name)")
+            print("Selected: \(device.name ?? "Unknown")")
         }
     }
 }

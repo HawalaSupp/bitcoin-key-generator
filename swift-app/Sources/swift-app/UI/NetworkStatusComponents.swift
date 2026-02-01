@@ -361,6 +361,9 @@ struct NetworkSettingsSection: View {
 }
 
 // MARK: - Preview
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     VStack(spacing: 20) {
         NetworkStatusBar()
@@ -376,3 +379,6 @@ struct NetworkSettingsSection: View {
     .padding()
     .background(HawalaTheme.Colors.background)
 }
+#endif
+#endif
+#endif

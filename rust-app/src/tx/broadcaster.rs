@@ -9,6 +9,16 @@ use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Debug logging macro that only prints in debug builds
+#[cfg(debug_assertions)]
+macro_rules! debug_log {
+    ($($arg:tt)*) => { eprintln!($($arg)*) }
+}
+#[cfg(not(debug_assertions))]
+macro_rules! debug_log {
+    ($($arg:tt)*) => {}
+}
+
 /// Broadcast configuration
 pub struct BroadcastConfig {
     pub timeout_secs: u64,
@@ -211,7 +221,7 @@ pub fn broadcast_evm(raw_tx: &str, chain_id: u64) -> HawalaResult<BroadcastResul
                 });
             }
             Err(e) => {
-                eprintln!("[EVM Broadcast] Failed on {}: {}", endpoint, e);
+                debug_log!("[EVM Broadcast] Failed on {}: {}", endpoint, e);
                 last_error = e;
             }
         }

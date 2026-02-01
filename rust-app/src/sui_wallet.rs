@@ -10,7 +10,6 @@
 //! - Move calls
 
 use ed25519_dalek::{SigningKey, VerifyingKey, Signer, Signature};
-use sha3::Digest;
 use blake2::{Blake2b, Digest as BlakeDigest};
 use blake2::digest::consts::U32;
 type Blake2b256 = Blake2b<U32>;

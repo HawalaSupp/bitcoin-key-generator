@@ -144,7 +144,7 @@ impl TypedData {
         }
         
         // Validate all type references
-        for (type_name, fields) in &self.types {
+        for (_type_name, fields) in &self.types {
             for field in fields {
                 self.validate_type(&field.type_name)?;
             }

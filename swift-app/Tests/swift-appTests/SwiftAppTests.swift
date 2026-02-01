@@ -1,8 +1,9 @@
-import XCTest
+import Testing
 @testable import swift_app
 
-final class SwiftAppTests: XCTestCase {
-    func testAppStructLoads() {
-        XCTAssertNotNil(KeyGeneratorApp.self)
+@Suite
+struct SwiftAppTests {
+    @Test func testAppStructLoads() {
+        #expect(KeyGeneratorApp.self != nil)
     }
 }

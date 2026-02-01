@@ -2,7 +2,7 @@
 // Uses secp256k1 curve, similar to Ethereum but with different address encoding
 // Derivation path: m/44'/195'/0'/0/0
 
-use bitcoin::secp256k1::{Secp256k1, SecretKey, PublicKey};
+use bitcoin::secp256k1::{Secp256k1, PublicKey};
 use bitcoin::Network;
 use serde::{Deserialize, Serialize};
 

@@ -346,21 +346,29 @@ final class FeeEstimationService: ObservableObject {
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let result = json["result"] as? [String: Any],
                   let baseFeeHex = result["baseFeePerGas"] as? String else {
+                #if DEBUG
                 print("[BaseFee] Could not parse baseFeePerGas from latest block (chain \(chainId))")
+                #endif
                 return nil
             }
 
             let hexValue = baseFeeHex.hasPrefix("0x") ? String(baseFeeHex.dropFirst(2)) : baseFeeHex
             guard let baseFeeWei = UInt64(hexValue, radix: 16) else {
+                #if DEBUG
                 print("[BaseFee] Could not convert hex to UInt64: \(baseFeeHex)")
+                #endif
                 return nil
             }
 
             let baseFeeGwei = Double(baseFeeWei) / 1_000_000_000.0
+            #if DEBUG
             print("[BaseFee] Chain \(chainId): \(baseFeeGwei) Gwei (raw \(baseFeeWei) Wei)")
+            #endif
             return baseFeeGwei
         } catch {
+            #if DEBUG
             print("[BaseFee] Error fetching baseFee for chain \(chainId): \(error)")
+            #endif
             return nil
         }
     }

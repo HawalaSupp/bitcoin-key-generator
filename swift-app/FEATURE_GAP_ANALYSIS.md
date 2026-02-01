@@ -19,11 +19,11 @@
 
 | # | Feature | Priority | Status |
 |---|---------|----------|--------|
-| 1 | Bitcoin RBF Transaction Cancellation | HIGH | Missing |
-| 2 | Ethereum Transaction Cancellation | HIGH | Missing |
-| 3 | WalletConnect v2 Integration | HIGH | Missing |
-| 4 | EIP-1559 Transaction Support | HIGH | Missing |
-| 5 | Gas Estimation for Contracts | HIGH | Missing |
+| 1 | Bitcoin RBF Transaction Cancellation | HIGH | ✅ Complete |
+| 2 | Ethereum Transaction Cancellation | HIGH | ✅ Complete |
+| 3 | WalletConnect v2 Integration | HIGH | ✅ Complete |
+| 4 | EIP-1559 Transaction Support | HIGH | ✅ Complete |
+| 5 | Gas Estimation for Contracts | HIGH | ✅ Complete |
 | 6 | Biometric Confirmation for Transactions | HIGH | Missing |
 | 7 | Terms of Service/Privacy Policy | HIGH | Missing |
 | 8 | App Store Preparation | HIGH | Missing |
@@ -53,17 +53,18 @@
     "description": "Allow users to cancel unconfirmed Bitcoin transactions by replacing them with a higher-fee transaction that sends funds back to themselves. BlueWallet's 'Bump fee' and 'Cancel' feature uses Replace-By-Fee (BIP-125) to either speed up or effectively cancel stuck transactions.",
     "inspired_by": "BlueWallet, Electrum, Sparrow Wallet",
     "research_notes": "The app already has SpeedUpTransactionSheet.swift with RBF sequence number (0xfffffffd) set in BitcoinTransaction.swift, but actual Bitcoin RBF implementation throws 'featureInProgress' error. Full implementation requires: 1) Storing original UTXOs used in pending transactions, 2) Rebuilding transaction with same inputs but recipient = self address, 3) Higher fee rate. Technical limitation: Must track pending UTXOs to prevent double-spend attempts.",
-    "implementation_status": "missing",
+    "implementation_status": "complete",
     "priority": "high",
     "dependencies": ["UTXO tracking service", "Pending transaction storage with full input data"],
+    "notes": "Implemented in rust-app/src/tx/cancellation.rs with cancel_bitcoin_rbf() and speed_up_bitcoin_rbf() functions. Swift integration via TransactionCancellationManager.swift and SpeedUpTransactionSheet.swift.",
     "examples": ["User sends BTC with low fee, transaction stuck for hours, clicks 'Cancel' to reclaim funds", "Replace stuck transaction with self-send at higher fee to invalidate original"]
   },
   {
     "feature_name": "Ethereum Transaction Cancellation",
     "description": "Cancel pending Ethereum transactions by sending a 0-value transaction to self with the same nonce but higher gas price. This replaces the pending transaction in the mempool.",
     "inspired_by": "MetaMask, Trust Wallet, Rainbow Wallet",
-    "research_notes": "Ethereum uses nonce-based replacement. The app has speedUpEthereumTransaction() in SpeedUpTransactionSheet.swift which sends replacement transactions. For cancellation, simply send 0 ETH to self with same nonce and higher gas. EIP-1559 transactions use maxPriorityFeePerGas bump. Must store original nonce for pending transactions (already done via pendingTx.nonce). Implementation is straightforward.",
-    "implementation_status": "missing",
+    "research_notes": "Implemented in rust-app/src/tx/cancellation.rs with cancel_evm_nonce() and speed_up_evm() functions. Swift integration via TransactionCancellationManager.swift. Supports both legacy and EIP-1559 fee bumping.",
+    "implementation_status": "complete",
     "priority": "high",
     "dependencies": ["EIP-1559 transaction support"],
     "examples": ["User accidentally sends ETH to wrong address, quickly cancels before confirmation", "Cancel stuck transaction when gas prices drop"]
@@ -82,8 +83,8 @@
     "feature_name": "WalletConnect v2 Integration",
     "description": "Connect to dApps via WalletConnect protocol to sign transactions and messages from web3 applications without exposing private keys.",
     "inspired_by": "Trust Wallet, MetaMask, Rainbow Wallet, Coinbase Wallet",
-    "research_notes": "WalletConnect v2 uses WebSocket relay servers and requires implementing the Sign API. Swift SDK available at github.com/WalletConnect/WalletConnectSwiftV2. Requires: 1) QR code scanning for pairing, 2) Session management, 3) Transaction/message signing approval UI, 4) Chain switching support. Critical for DeFi interaction.",
-    "implementation_status": "missing",
+    "research_notes": "Fully implemented in WalletConnectService.swift (613 lines). Features: WebSocket relay connection, session proposal/approval/rejection, request handling (eth_sendTransaction, personal_sign, eth_signTypedData_v4), session persistence, chain switching, error handling. UI in WalletConnectView.swift. Integrated in ContentView.swift with handleWalletConnectSign().",
+    "implementation_status": "complete",
     "priority": "high",
     "dependencies": ["QR scanner (exists)", "Transaction signing (exists)", "Message signing"],
     "examples": ["Scan QR on Uniswap to connect wallet", "Approve swap transaction from dApp", "Sign message to prove wallet ownership"]
@@ -112,8 +113,8 @@
     "feature_name": "EIP-1559 Transaction Support",
     "description": "Support EIP-1559 (Type 2) transactions with baseFee + maxPriorityFeePerGas for better fee estimation and faster inclusion on Ethereum.",
     "inspired_by": "MetaMask, All modern Ethereum wallets",
-    "research_notes": "Current EthereumTransaction.swift uses legacy gasPrice transactions. EIP-1559 transactions include maxFeePerGas and maxPriorityFeePerGas. Benefits: More predictable fees, automatic refund of excess fee, better UX. Required for optimal Ethereum interaction post-London fork.",
-    "implementation_status": "missing",
+    "research_notes": "Fully implemented in rust-app/src/signing/preimage/ethereum.rs with get_eip1559_hash() and compile_eip1559_tx(). Supports maxFeePerGas, maxPriorityFeePerGas, accessList. FFI integration via hawala_sign_evm supports type 2 transactions.",
+    "implementation_status": "complete",
     "priority": "high",
     "dependencies": [],
     "examples": ["Set max fee user is willing to pay", "Automatic fee adjustment based on network conditions"]
@@ -122,8 +123,8 @@
     "feature_name": "Gas Estimation Improvement",
     "description": "Accurate gas limit estimation for contract interactions, not just simple transfers. Currently hardcoded to 21000 for ETH transfers.",
     "inspired_by": "MetaMask, Trust Wallet",
-    "research_notes": "Simple ETH transfers use 21000 gas, but ERC-20 transfers need ~65000, complex DeFi interactions can need 200000+. Must call eth_estimateGas RPC method before transaction. Add 10-20% buffer for safety.",
-    "implementation_status": "missing",
+    "research_notes": "Fully implemented in rust-app/src/fees/estimator.rs with estimate_gas_limit() calling eth_estimateGas RPC, and recommended_gas_limit() providing type-based defaults (21000 ETH, 65000 ERC20, 250000 Swap). 10-20% buffer applied automatically.",
+    "implementation_status": "complete",
     "priority": "high",
     "dependencies": [],
     "examples": ["Correctly estimate gas for USDT transfer", "Estimate gas for Uniswap swap"]
@@ -182,9 +183,9 @@
     "feature_name": "Social Recovery",
     "description": "Allow wallet recovery through trusted guardians who each hold a share of the recovery key (Shamir's Secret Sharing).",
     "inspired_by": "Argent, Loopring Wallet",
-    "research_notes": "Implement Shamir's Secret Sharing (SSS) to split seed into N shares where M are needed to recover. Complex UX challenge. Requires: 1) Share generation, 2) Secure share distribution, 3) Share collection for recovery. Consider as future advanced feature.",
-    "implementation_status": "missing",
-    "priority": "low",
+    "research_notes": "Fully implemented in rust-app/src/security/shamir.rs using the sharks crate. Supports M-of-N share creation (e.g., 2-of-3, 3-of-5), share recovery, and validation with checksums. Swift bridge in HawalaBridge.swift with createShamirShares(), recoverFromShares(), validateShare().",
+    "implementation_status": "complete",
+    "priority": "medium",
     "dependencies": [],
     "examples": ["Split seed into 3 shares, need 2 to recover", "Send shares to trusted family members"]
   },

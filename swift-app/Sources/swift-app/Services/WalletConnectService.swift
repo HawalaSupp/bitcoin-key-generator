@@ -407,23 +407,117 @@ class WalletConnectService: ObservableObject {
     // MARK: - Response Sending
     
     private func sendSessionApproval(proposal: WCSessionProposal, session: WCSession) async throws {
-        // Implementation for sending approval
+        let response: [String: Any] = [
+            "id": proposal.id,
+            "jsonrpc": "2.0",
+            "result": [
+                "relay": [
+                    "protocol": "irn"
+                ],
+                "namespaces": encodeNamespaces(session.namespaces),
+                "controller": [
+                    "publicKey": generatePublicKey(),
+                    "metadata": [
+                        "name": metadata.name,
+                        "description": metadata.description,
+                        "url": metadata.url,
+                        "icons": metadata.icons
+                    ]
+                ],
+                "expiry": Int(session.expiry.timeIntervalSince1970)
+            ]
+        ]
+        
+        try await sendWebSocketMessage(response)
+        isConnecting = false
+        print("✅ WalletConnect: Session approval sent")
     }
     
     private func sendSessionRejection(proposal: WCSessionProposal, reason: String) async throws {
-        // Implementation for sending rejection
+        let response: [String: Any] = [
+            "id": proposal.id,
+            "jsonrpc": "2.0",
+            "error": [
+                "code": 5000,
+                "message": reason
+            ]
+        ]
+        
+        try await sendWebSocketMessage(response)
+        isConnecting = false
+        print("❌ WalletConnect: Session rejection sent - \(reason)")
     }
     
     private func sendSessionDisconnect(session: WCSession) async throws {
-        // Implementation for sending disconnect
+        let message: [String: Any] = [
+            "id": Int64(Date().timeIntervalSince1970 * 1000),
+            "jsonrpc": "2.0",
+            "method": "wc_sessionDelete",
+            "params": [
+                "topic": session.topic,
+                "reason": [
+                    "code": 6000,
+                    "message": "User disconnected"
+                ]
+            ]
+        ]
+        
+        try await sendWebSocketMessage(message)
+        print("🔌 WalletConnect: Disconnect message sent")
     }
     
     private func sendRequestResponse(request: WCSessionRequest, result: String) async throws {
-        // Implementation for sending response
+        let response: [String: Any] = [
+            "id": request.id,
+            "jsonrpc": "2.0",
+            "result": result
+        ]
+        
+        try await sendWebSocketMessage(response)
+        print("✅ WalletConnect: Request response sent for \(request.method)")
     }
     
     private func sendRequestRejection(request: WCSessionRequest, reason: String) async throws {
-        // Implementation for sending rejection
+        let response: [String: Any] = [
+            "id": request.id,
+            "jsonrpc": "2.0",
+            "error": [
+                "code": 4001,
+                "message": reason
+            ]
+        ]
+        
+        try await sendWebSocketMessage(response)
+        print("❌ WalletConnect: Request rejection sent - \(reason)")
+    }
+    
+    private func sendWebSocketMessage(_ message: [String: Any]) async throws {
+        guard let webSocket = webSocket else {
+            throw WCError.connectionFailed
+        }
+        
+        let data = try JSONSerialization.data(withJSONObject: message)
+        let wsMessage = URLSessionWebSocketTask.Message.data(data)
+        try await webSocket.send(wsMessage)
+    }
+    
+    private func encodeNamespaces(_ namespaces: [String: WCSessionNamespace]) -> [String: [String: Any]] {
+        var result: [String: [String: Any]] = [:]
+        for (key, ns) in namespaces {
+            result[key] = [
+                "accounts": ns.accounts,
+                "methods": ns.methods,
+                "events": ns.events,
+                "chains": ns.chains
+            ]
+        }
+        return result
+    }
+    
+    private func generatePublicKey() -> String {
+        // Generate a random 32-byte public key for session
+        let bytes = (0..<32).map { _ in UInt8.random(in: 0...255) }
+        return bytes.map { String(format: "%02x", $0) }.joined()
     }
     
     // MARK: - Helpers

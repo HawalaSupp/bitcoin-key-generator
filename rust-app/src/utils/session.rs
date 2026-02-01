@@ -139,7 +139,8 @@ impl SessionManager {
             metadata: SessionMetadata::default(),
         };
 
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write()
+            .map_err(|_| HawalaError::internal("Session lock poisoned"))?;
         sessions.insert(session_id, session.clone());
 
         Ok(session)
@@ -147,7 +148,16 @@ impl SessionManager {
 
     /// Validate a session
     pub fn validate_session(&self, session_id: &str) -> SessionValidation {
-        let sessions = self.sessions.read().unwrap();
+        let sessions = match self.sessions.read() {
+            Ok(s) => s,
+            Err(_) => return SessionValidation {
+                is_valid: false,
+                state: SessionState::Expired,
+                time_remaining: None,
+                requires_reauth: true,
+                message: Some("Internal error: session lock".to_string()),
+            },
+        };
         
         match sessions.get(session_id) {
             None => SessionValidation {
@@ -229,7 +239,14 @@ impl SessionManager {
         }
 
         if self.config.require_reauth_for_sensitive {
-            let sessions = self.sessions.read().unwrap();
+            let sessions = match self.sessions.read() {
+                Ok(s) => s,
+                Err(_) => {
+                    validation.is_valid = false;
+                    validation.message = Some("Internal error: session lock".to_string());
+                    return validation;
+                }
+            };
             if let Some(session) = sessions.get(session_id) {
                 let needs_reauth = match session.last_sensitive_auth {
                     None => true,
@@ -250,7 +267,8 @@ impl SessionManager {
 
     /// Record activity (extends session if configured)
     pub fn record_activity(&self, session_id: &str) -> HawalaResult<()> {
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write()
+            .map_err(|_| HawalaError::internal("Session lock poisoned"))?;
         
         let session = sessions.get_mut(session_id)
             .ok_or_else(|| HawalaError::auth_error("Session not found"))?;
@@ -265,7 +283,8 @@ impl SessionManager {
 
     /// Record sensitive operation authentication
     pub fn record_sensitive_auth(&self, session_id: &str) -> HawalaResult<()> {
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write()
+            .map_err(|_| HawalaError::internal("Session lock poisoned"))?;
         
         let session = sessions.get_mut(session_id)
             .ok_or_else(|| HawalaError::auth_error("Session not found"))?;
@@ -279,7 +298,8 @@ impl SessionManager {
 
     /// Lock a session (require re-authentication to unlock)
     pub fn lock_session(&self, session_id: &str) -> HawalaResult<()> {
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write()
+            .map_err(|_| HawalaError::internal("Session lock poisoned"))?;
         
         let session = sessions.get_mut(session_id)
             .ok_or_else(|| HawalaError::auth_error("Session not found"))?;
@@ -290,7 +310,8 @@ impl SessionManager {
 
     /// Unlock a session (after re-authentication)
     pub fn unlock_session(&self, session_id: &str) -> HawalaResult<()> {
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write()
+            .map_err(|_| HawalaError::internal("Session lock poisoned"))?;
         
         let session = sessions.get_mut(session_id)
             .ok_or_else(|| HawalaError::auth_error("Session not found"))?;
@@ -308,7 +329,8 @@ impl SessionManager {
 
     /// Revoke a session
     pub fn revoke_session(&self, session_id: &str) -> HawalaResult<()> {
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write()
+            .map_err(|_| HawalaError::internal("Session lock poisoned"))?;
         
         let session = sessions.get_mut(session_id)
             .ok_or_else(|| HawalaError::auth_error("Session not found"))?;
@@ -319,7 +341,7 @@ impl SessionManager {
 
     /// Revoke all sessions for a wallet
     pub fn revoke_all_sessions(&self, wallet_id: &str) {
-        let mut sessions = self.sessions.write().unwrap();
+        let Ok(mut sessions) = self.sessions.write() else { return; };
         
         for session in sessions.values_mut() {
             if session.wallet_id == wallet_id {
@@ -330,7 +352,7 @@ impl SessionManager {
 
     /// Clean up expired sessions
     pub fn cleanup_expired(&self) -> usize {
-        let mut sessions = self.sessions.write().unwrap();
+        let Ok(mut sessions) = self.sessions.write() else { return 0; };
         let initial_count = sessions.len();
 
         sessions.retain(|_, session| {
@@ -346,13 +368,13 @@ impl SessionManager {
 
     /// Get session info
     pub fn get_session(&self, session_id: &str) -> Option<Session> {
-        let sessions = self.sessions.read().unwrap();
+        let sessions = self.sessions.read().ok()?;
         sessions.get(session_id).cloned()
     }
 
     /// Get all sessions for a wallet
     pub fn get_wallet_sessions(&self, wallet_id: &str) -> Vec<Session> {
-        let sessions = self.sessions.read().unwrap();
+        let Ok(sessions) = self.sessions.read() else { return vec![]; };
         sessions.values()
             .filter(|s| s.wallet_id == wallet_id)
             .cloned()
@@ -361,7 +383,8 @@ impl SessionManager {
 
     /// Enforce concurrent session limit
     fn enforce_concurrent_limit(&self, wallet_id: &str) -> HawalaResult<()> {
-        let sessions = self.sessions.read().unwrap();
+        let sessions = self.sessions.read()
+            .map_err(|_| HawalaError::internal("Session lock poisoned"))?;
         
         let active_count = sessions.values()
             .filter(|s| s.wallet_id == wallet_id && s.state == SessionState::Active)

@@ -7,7 +7,7 @@
 //! - Migration utilities
 //! - Key deprecation
 
-use crate::error::{HawalaError, HawalaResult};
+use crate::error::{read_lock, write_lock, HawalaError, HawalaResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -163,7 +163,7 @@ impl KeyRotationManager {
         derivation_path: Option<&str>,
         algorithm: &str,
     ) -> HawalaResult<KeyVersion> {
-        let mut versions = self.versions.write().unwrap();
+        let mut versions = write_lock(&self.versions)?;
         
         let wallet_versions = versions
             .entry(wallet_id.to_string())
@@ -194,21 +194,25 @@ impl KeyRotationManager {
 
     /// Get current active version for a key type
     pub fn get_active_version(&self, wallet_id: &str, key_type: KeyType) -> Option<KeyVersion> {
-        let versions = self.versions.read().unwrap();
-        
-        versions.get(wallet_id)
-            .and_then(|wallet_versions| {
-                wallet_versions.iter()
-                    .filter(|v| v.key_type == key_type && v.status == KeyStatus::Active)
-                    .max_by_key(|v| v.version)
-                    .cloned()
+        read_lock(&self.versions)
+            .ok()
+            .and_then(|versions| {
+                versions.get(wallet_id)
+                    .and_then(|wallet_versions| {
+                        wallet_versions.iter()
+                            .filter(|v| v.key_type == key_type && v.status == KeyStatus::Active)
+                            .max_by_key(|v| v.version)
+                            .cloned()
+                    })
             })
     }
 
     /// Get all versions for a wallet
     pub fn get_all_versions(&self, wallet_id: &str) -> Vec<KeyVersion> {
-        let versions = self.versions.read().unwrap();
-        versions.get(wallet_id).cloned().unwrap_or_default()
+        read_lock(&self.versions)
+            .ok()
+            .and_then(|versions| versions.get(wallet_id).cloned())
+            .unwrap_or_default()
     }
 
     /// Deprecate a key version
@@ -219,7 +223,7 @@ impl KeyRotationManager {
         version: u32,
         reason: &str,
     ) -> HawalaResult<()> {
-        let mut versions = self.versions.write().unwrap();
+        let mut versions = write_lock(&self.versions)?;
         
         let wallet_versions = versions.get_mut(wallet_id)
             .ok_or_else(|| HawalaError::invalid_input("Wallet not found"))?;
@@ -246,7 +250,7 @@ impl KeyRotationManager {
         key_type: KeyType,
         version: u32,
     ) -> HawalaResult<()> {
-        let mut versions = self.versions.write().unwrap();
+        let mut versions = write_lock(&self.versions)?;
         
         let wallet_versions = versions.get_mut(wallet_id)
             .ok_or_else(|| HawalaError::invalid_input("Wallet not found"))?;
@@ -263,14 +267,16 @@ impl KeyRotationManager {
 
     /// Set rotation policy for a wallet
     pub fn set_rotation_policy(&self, wallet_id: &str, policy: RotationPolicy) {
-        let mut policies = self.policies.write().unwrap();
-        policies.insert(wallet_id.to_string(), policy);
+        if let Ok(mut policies) = write_lock(&self.policies) {
+            policies.insert(wallet_id.to_string(), policy);
+        }
     }
 
     /// Get rotation policy
     pub fn get_rotation_policy(&self, wallet_id: &str) -> Option<RotationPolicy> {
-        let policies = self.policies.read().unwrap();
-        policies.get(wallet_id).cloned()
+        read_lock(&self.policies)
+            .ok()
+            .and_then(|policies| policies.get(wallet_id).cloned())
     }
 
     /// Check if rotation is needed
@@ -278,8 +284,22 @@ impl KeyRotationManager {
         let mut keys_to_rotate = Vec::new();
         let mut warnings = Vec::new();
 
-        let versions = self.versions.read().unwrap();
-        let policies = self.policies.read().unwrap();
+        let versions = match read_lock(&self.versions) {
+            Ok(v) => v,
+            Err(_) => return RotationCheckResult {
+                needs_rotation: false,
+                keys_to_rotate,
+                warnings,
+            },
+        };
+        let policies = match read_lock(&self.policies) {
+            Ok(p) => p,
+            Err(_) => return RotationCheckResult {
+                needs_rotation: false,
+                keys_to_rotate,
+                warnings,
+            },
+        };
 
         let Some(wallet_versions) = versions.get(wallet_id) else {
             return RotationCheckResult {
@@ -343,7 +363,7 @@ impl KeyRotationManager {
         let current = self.get_active_version(wallet_id, key_type)
             .ok_or_else(|| HawalaError::invalid_input("No active key to rotate"))?;
 
-        let mut pending = self.pending.write().unwrap();
+        let mut pending = write_lock(&self.pending)?;
         
         // Check for existing pending rotation
         if pending.iter().any(|p| 
@@ -363,12 +383,16 @@ impl KeyRotationManager {
             notified: false,
         });
 
+        // Need to drop pending lock before acquiring versions lock
+        drop(pending);
+
         // Mark current key as pending rotation
-        let mut versions = self.versions.write().unwrap();
-        if let Some(wallet_versions) = versions.get_mut(wallet_id) {
-            if let Some(key) = wallet_versions.iter_mut()
-                .find(|v| v.key_type == key_type && v.version == current.version) {
-                key.status = KeyStatus::PendingRotation;
+        if let Ok(mut versions) = write_lock(&self.versions) {
+            if let Some(wallet_versions) = versions.get_mut(wallet_id) {
+                if let Some(key) = wallet_versions.iter_mut()
+                    .find(|v| v.key_type == key_type && v.version == current.version) {
+                    key.status = KeyStatus::PendingRotation;
+                }
             }
         }
 
@@ -377,7 +401,10 @@ impl KeyRotationManager {
 
     /// Get pending rotations
     pub fn get_pending_rotations(&self, wallet_id: Option<&str>) -> Vec<PendingRotation> {
-        let pending = self.pending.read().unwrap();
+        let pending = match read_lock(&self.pending) {
+            Ok(p) => p,
+            Err(_) => return Vec::new(),
+        };
         
         match wallet_id {
             Some(id) => pending.iter()
@@ -409,19 +436,20 @@ impl KeyRotationManager {
         )?;
 
         // Remove from pending
-        let mut pending = self.pending.write().unwrap();
-        pending.retain(|p| 
-            !(p.wallet_id == wallet_id && 
-              p.key_type == key_type && 
-              p.current_version == old_version)
-        );
+        if let Ok(mut pending) = write_lock(&self.pending) {
+            pending.retain(|p| 
+                !(p.wallet_id == wallet_id && 
+                  p.key_type == key_type && 
+                  p.current_version == old_version)
+            );
+        }
 
         Ok(new_version)
     }
 
     /// Cancel a scheduled rotation
     pub fn cancel_rotation(&self, wallet_id: &str, key_type: KeyType) -> HawalaResult<()> {
-        let mut pending = self.pending.write().unwrap();
+        let mut pending = write_lock(&self.pending)?;
         let initial_len = pending.len();
         
         pending.retain(|p| !(p.wallet_id == wallet_id && p.key_type == key_type));
@@ -430,12 +458,16 @@ impl KeyRotationManager {
             return Err(HawalaError::invalid_input("No pending rotation found"));
         }
 
+        // Need to drop pending lock before acquiring versions lock
+        drop(pending);
+
         // Restore key status
-        let mut versions = self.versions.write().unwrap();
-        if let Some(wallet_versions) = versions.get_mut(wallet_id) {
-            for v in wallet_versions.iter_mut() {
-                if v.key_type == key_type && v.status == KeyStatus::PendingRotation {
-                    v.status = KeyStatus::Active;
+        if let Ok(mut versions) = write_lock(&self.versions) {
+            if let Some(wallet_versions) = versions.get_mut(wallet_id) {
+                for v in wallet_versions.iter_mut() {
+                    if v.key_type == key_type && v.status == KeyStatus::PendingRotation {
+                        v.status = KeyStatus::Active;
+                    }
                 }
             }
         }
@@ -451,7 +483,7 @@ impl KeyRotationManager {
         version: u32,
         for_signing: bool,
     ) -> HawalaResult<()> {
-        let versions = self.versions.read().unwrap();
+        let versions = read_lock(&self.versions)?;
         
         let wallet_versions = versions.get(wallet_id)
             .ok_or_else(|| HawalaError::auth_error("Wallet not found"))?;

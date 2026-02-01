@@ -661,10 +661,22 @@ struct ShakeEffect: GeometryEffect {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview("Lock Screen") {
     PasscodeLockScreen(onUnlock: {})
 }
+#endif
+#endif
+#endif
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview("Setup Screen") {
     PasscodeSetupScreen(onComplete: {}, onSkip: {})
 }
+#endif
+#endif
+#endif

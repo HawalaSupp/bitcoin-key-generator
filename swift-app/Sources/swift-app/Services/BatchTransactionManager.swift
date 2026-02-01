@@ -546,25 +546,54 @@ struct BatchTransactionView: View {
         }
     }
     
+    @AppStorage("hawala.biometricForSends") private var biometricForSends = true
+    
     private func executeBatch() {
         guard let keys = keys else {
             ToastManager.shared.error("Wallet not loaded")
             return
         }
         
-        Task {
-            await manager.executeBatch(keys: keys, isTestnet: useTestnet)
-            
-            await MainActor.run {
-                if manager.successCount > 0 {
-                    ToastManager.shared.success("\(manager.successCount) transactions sent successfully")
+        // Check biometric authentication if enabled
+        if BiometricAuthHelper.shouldRequireBiometric(settingEnabled: biometricForSends) {
+            Task { @MainActor in
+                let result = await BiometricAuthHelper.authenticate(
+                    reason: "Authenticate to send batch transaction"
+                )
+                switch result {
+                case .success:
+                    await performBatchExecution(keys: keys)
+                case .cancelled:
+                    #if DEBUG
+                    print("[BatchTransaction] Biometric cancelled by user")
+                    #endif
+                    return
+                case .failed(let message):
+                    ToastManager.shared.error("Authentication failed: \(message)")
+                    return
+                case .notAvailable:
+                    // Biometric not available, proceed anyway
+                    await performBatchExecution(keys: keys)
                 }
-                if manager.failedCount > 0 {
-                    ToastManager.shared.error("\(manager.failedCount) transactions failed")
-                }
-                showResults = true
+            }
+        } else {
+            Task { @MainActor in
+                await performBatchExecution(keys: keys)
             }
         }
+    }
+    
+    @MainActor
+    private func performBatchExecution(keys: AllKeys) async {
+        await manager.executeBatch(keys: keys, isTestnet: useTestnet)
+        
+        if manager.successCount > 0 {
+            ToastManager.shared.success("\(manager.successCount) transactions sent successfully")
+        }
+        if manager.failedCount > 0 {
+            ToastManager.shared.error("\(manager.failedCount) transactions failed")
+        }
+        showResults = true
     }
     
     private var header: some View {

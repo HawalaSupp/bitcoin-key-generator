@@ -303,6 +303,9 @@ struct FeeWarningBanner: View {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     VStack(spacing: 20) {
         FeeWarningView(warning: FeeWarning(
@@ -328,3 +331,6 @@ struct FeeWarningBanner: View {
     }
     .padding()
 }
+#endif
+#endif
+#endif

@@ -5,6 +5,8 @@
 //! - Argon2id for key derivation from password
 //! - Random nonces to prevent nonce reuse
 
+#![allow(deprecated)] // GenericArray::from_slice deprecated in generic-array 1.x
+
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
     Aes256Gcm, Nonce,

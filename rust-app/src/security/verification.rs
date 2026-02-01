@@ -6,7 +6,7 @@
 //! - Challenge-response authentication
 //! - Signature verification
 
-use crate::error::{HawalaError, HawalaResult};
+use crate::error::{read_lock, write_lock, HawalaError, HawalaResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -131,13 +131,14 @@ impl VerificationManager {
 
     /// Update configuration
     pub fn set_config(&self, config: VerificationConfig) {
-        let mut cfg = self.config.write().unwrap();
-        *cfg = config;
+        if let Ok(mut cfg) = write_lock(&self.config) {
+            *cfg = config;
+        }
     }
 
     /// Create a challenge for an address
     pub fn create_challenge(&self, expected_signer: &str, domain: Option<&str>) -> HawalaResult<Challenge> {
-        let config = self.config.read().unwrap();
+        let config = read_lock(&self.config)?;
         
         // Check domain if required
         if config.require_domain {
@@ -151,7 +152,7 @@ impl VerificationManager {
             }
         }
 
-        let mut pending = self.pending_challenges.write().unwrap();
+        let mut pending = write_lock(&self.pending_challenges)?;
         
         // Check pending limit
         let count = pending.values()
@@ -210,7 +211,7 @@ impl VerificationManager {
         signature: &str,
         claimed_signer: &str,
     ) -> HawalaResult<VerificationResult> {
-        let mut pending = self.pending_challenges.write().unwrap();
+        let mut pending = write_lock(&self.pending_challenges)?;
         
         let challenge = pending.get_mut(challenge_id)
             .ok_or_else(|| HawalaError::auth_error("Challenge not found"))?;
@@ -262,27 +263,29 @@ impl VerificationManager {
         };
 
         // Record verification
-        let mut history = self.history.write().unwrap();
-        history.push(VerificationRecord {
-            challenge_id: challenge_id.to_string(),
-            signer: claimed_signer.to_string(),
-            success: result.valid,
-            timestamp: now,
-            error: result.error.clone(),
-        });
+        if let Ok(mut history) = write_lock(&self.history) {
+            history.push(VerificationRecord {
+                challenge_id: challenge_id.to_string(),
+                signer: claimed_signer.to_string(),
+                success: result.valid,
+                timestamp: now,
+                error: result.error.clone(),
+            });
+        }
 
         Ok(result)
     }
 
     /// Get a pending challenge
     pub fn get_challenge(&self, challenge_id: &str) -> Option<Challenge> {
-        let pending = self.pending_challenges.read().unwrap();
-        pending.get(challenge_id).cloned()
+        read_lock(&self.pending_challenges)
+            .ok()
+            .and_then(|pending| pending.get(challenge_id).cloned())
     }
 
     /// Cancel a challenge
     pub fn cancel_challenge(&self, challenge_id: &str) -> HawalaResult<()> {
-        let mut pending = self.pending_challenges.write().unwrap();
+        let mut pending = write_lock(&self.pending_challenges)?;
         
         if let Some(challenge) = pending.get_mut(challenge_id) {
             challenge.used = true;
@@ -294,7 +297,10 @@ impl VerificationManager {
 
     /// Clean up expired challenges
     pub fn cleanup_expired(&self) -> usize {
-        let mut pending = self.pending_challenges.write().unwrap();
+        let mut pending = match write_lock(&self.pending_challenges) {
+            Ok(p) => p,
+            Err(_) => return 0,
+        };
         let now = current_timestamp();
         let before = pending.len();
         
@@ -308,7 +314,10 @@ impl VerificationManager {
 
     /// Get verification history for an address
     pub fn get_history(&self, signer: &str, limit: usize) -> Vec<VerificationRecord> {
-        let history = self.history.read().unwrap();
+        let history = match read_lock(&self.history) {
+            Ok(h) => h,
+            Err(_) => return Vec::new(),
+        };
         
         history.iter()
             .filter(|r| addresses_match(&r.signer, signer))
@@ -320,7 +329,10 @@ impl VerificationManager {
 
     /// Get recent failed verifications (for anomaly detection)
     pub fn get_recent_failures(&self, since: Duration) -> Vec<VerificationRecord> {
-        let history = self.history.read().unwrap();
+        let history = match read_lock(&self.history) {
+            Ok(h) => h,
+            Err(_) => return Vec::new(),
+        };
         let cutoff = current_timestamp().saturating_sub(since.as_secs());
         
         history.iter()

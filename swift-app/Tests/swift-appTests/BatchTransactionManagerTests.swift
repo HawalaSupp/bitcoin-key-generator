@@ -1,124 +1,126 @@
-import XCTest
+import Testing
+import Foundation
 @testable import swift_app
 
 @MainActor
-final class BatchTransactionManagerTests: XCTestCase {
+@Suite
+struct BatchTransactionManagerTests {
     
     // MARK: - BatchRecipient Model Tests
     
-    func testBatchRecipientInitialization() {
+    @Test func testBatchRecipientInitialization() {
         let recipient = BatchRecipient(
             address: "0x742d35Cc6634C0532925a3b844Bc9e7595f2BD2e",
             amount: "0.5",
             label: "Test Recipient"
         )
         
-        XCTAssertEqual(recipient.address, "0x742d35Cc6634C0532925a3b844Bc9e7595f2BD2e")
-        XCTAssertEqual(recipient.amount, "0.5")
-        XCTAssertEqual(recipient.label, "Test Recipient")
+        #expect(recipient.address == "0x742d35Cc6634C0532925a3b844Bc9e7595f2BD2e")
+        #expect(recipient.amount == "0.5")
+        #expect(recipient.label == "Test Recipient")
     }
     
-    func testBatchRecipientWithoutLabel() {
+    @Test func testBatchRecipientWithoutLabel() {
         let recipient = BatchRecipient(
             address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq",
             amount: "0.001",
             label: nil
         )
         
-        XCTAssertNil(recipient.label)
-        XCTAssertEqual(recipient.amount, "0.001")
+        #expect(recipient.label == nil)
+        #expect(recipient.amount == "0.001")
     }
     
-    func testBatchRecipientAmountDouble() {
+    @Test func testBatchRecipientAmountDouble() {
         let recipient = BatchRecipient(
             address: "0xTest",
             amount: "1.5",
             label: nil
         )
         
-        XCTAssertEqual(recipient.amountDouble, 1.5, accuracy: 0.0001)
+        #expect(abs(recipient.amountDouble - 1.5) < 0.0001)
     }
     
-    func testBatchRecipientInvalidAmount() {
+    @Test func testBatchRecipientInvalidAmount() {
         let recipient = BatchRecipient(
             address: "0xTest",
             amount: "invalid",
             label: nil
         )
         
-        XCTAssertEqual(recipient.amountDouble, 0.0)
+        #expect(recipient.amountDouble == 0.0)
     }
     
     // MARK: - Batch Configuration Tests
     
-    func testBatchChainCases() {
+    @Test func testBatchChainCases() {
         let chains: [BatchChain] = [.bitcoin, .ethereum, .bnb, .solana]
-        XCTAssertEqual(chains.count, 4)
+        #expect(chains.count == 4)
     }
     
-    func testBatchChainDisplayName() {
-        XCTAssertEqual(BatchChain.bitcoin.displayName, "Bitcoin")
-        XCTAssertEqual(BatchChain.ethereum.displayName, "Ethereum")
-        XCTAssertEqual(BatchChain.bnb.displayName, "BNB Chain")
-        XCTAssertEqual(BatchChain.solana.displayName, "Solana")
+    @Test func testBatchChainDisplayName() {
+        #expect(BatchChain.bitcoin.displayName == "Bitcoin")
+        #expect(BatchChain.ethereum.displayName == "Ethereum")
+        #expect(BatchChain.bnb.displayName == "BNB Chain")
+        #expect(BatchChain.solana.displayName == "Solana")
     }
     
-    func testBatchChainSymbol() {
-        XCTAssertEqual(BatchChain.bitcoin.symbol, "BTC")
-        XCTAssertEqual(BatchChain.ethereum.symbol, "ETH")
-        XCTAssertEqual(BatchChain.bnb.symbol, "BNB")
-        XCTAssertEqual(BatchChain.solana.symbol, "SOL")
+    @Test func testBatchChainSymbol() {
+        #expect(BatchChain.bitcoin.symbol == "BTC")
+        #expect(BatchChain.ethereum.symbol == "ETH")
+        #expect(BatchChain.bnb.symbol == "BNB")
+        #expect(BatchChain.solana.symbol == "SOL")
     }
     
-    func testBatchChainSupportsBatching() {
-        XCTAssertTrue(BatchChain.bitcoin.supportsBatching)
-        XCTAssertTrue(BatchChain.ethereum.supportsBatching)
-        XCTAssertTrue(BatchChain.bnb.supportsBatching)
-        XCTAssertTrue(BatchChain.solana.supportsBatching)
+    @Test func testBatchChainSupportsBatching() {
+        #expect(BatchChain.bitcoin.supportsBatching)
+        #expect(BatchChain.ethereum.supportsBatching)
+        #expect(BatchChain.bnb.supportsBatching)
+        #expect(BatchChain.solana.supportsBatching)
     }
     
     // MARK: - Validation Tests
     
-    func testValidateBitcoinAddressFormat() {
+    @Test func testValidateBitcoinAddressFormat() {
         let bech32 = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"
         let legacy = "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"
         let p2sh = "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy"
         
-        XCTAssertTrue(bech32.hasPrefix("bc1"))
-        XCTAssertTrue(legacy.hasPrefix("1"))
-        XCTAssertTrue(p2sh.hasPrefix("3"))
+        #expect(bech32.hasPrefix("bc1"))
+        #expect(legacy.hasPrefix("1"))
+        #expect(p2sh.hasPrefix("3"))
     }
     
-    func testValidateEthereumAddressFormat() {
+    @Test func testValidateEthereumAddressFormat() {
         let validAddress = "0x742d35Cc6634C0532925a3b844Bc9e7595f2BD2e"
         
-        XCTAssertTrue(validAddress.hasPrefix("0x"))
-        XCTAssertEqual(validAddress.count, 42)
+        #expect(validAddress.hasPrefix("0x"))
+        #expect(validAddress.count == 42)
     }
     
-    func testValidateSolanaAddressFormat() {
+    @Test func testValidateSolanaAddressFormat() {
         let validAddress = "7KQCpknPURxD3B4i2E4qKc9d4rT5g2XyL3n9bCGcS8Uk"
         
-        XCTAssertTrue(validAddress.count >= 32 && validAddress.count <= 44)
+        #expect(validAddress.count >= 32 && validAddress.count <= 44)
     }
     
     // MARK: - Amount Validation Tests
     
-    func testValidPositiveAmount() {
+    @Test func testValidPositiveAmount() {
         let recipient = BatchRecipient(address: "0xTest", amount: "0.001", label: nil)
-        XCTAssertTrue(recipient.amountDouble > 0)
+        #expect(recipient.amountDouble > 0)
     }
     
-    func testMinimumAmountBitcoin() {
+    @Test func testMinimumAmountBitcoin() {
         let dustLimit: Double = 0.00000546
         let amount: Double = 0.0001
         
-        XCTAssertTrue(amount > dustLimit)
+        #expect(amount > dustLimit)
     }
     
     // MARK: - Recipient Encoding Tests
     
-    func testBatchRecipientEncodable() throws {
+    @Test func testBatchRecipientEncodable() throws {
         let recipient = BatchRecipient(
             address: "0xEncodeTest",
             amount: "1.5",
@@ -127,11 +129,11 @@ final class BatchTransactionManagerTests: XCTestCase {
         
         let encoder = JSONEncoder()
         let data = try encoder.encode(recipient)
-        XCTAssertNotNil(data)
-        XCTAssertFalse(data.isEmpty)
+        #expect(data != nil)
+        #expect(!(data.isEmpty))
     }
     
-    func testBatchRecipientDecodable() throws {
+    @Test func testBatchRecipientDecodable() throws {
         let json = """
         {
             "id": "\(UUID())",
@@ -145,71 +147,71 @@ final class BatchTransactionManagerTests: XCTestCase {
         let decoder = JSONDecoder()
         let recipient = try decoder.decode(BatchRecipient.self, from: json.data(using: .utf8)!)
         
-        XCTAssertEqual(recipient.address, "0xDecodeTest")
-        XCTAssertEqual(recipient.amount, "2.5")
-        XCTAssertEqual(recipient.label, "Decoded Label")
+        #expect(recipient.address == "0xDecodeTest")
+        #expect(recipient.amount == "2.5")
+        #expect(recipient.label == "Decoded Label")
     }
     
     // MARK: - Fee Estimation Tests
     
-    func testEstimatedFeePerTx() {
+    @Test func testEstimatedFeePerTx() {
         let btcFee: Double = 0.00001
         let ethFee: Double = 0.001
         let solFee: Double = 0.000005
         
-        XCTAssertTrue(btcFee > 0)
-        XCTAssertTrue(ethFee > 0)
-        XCTAssertTrue(solFee > 0)
+        #expect(btcFee > 0)
+        #expect(ethFee > 0)
+        #expect(solFee > 0)
     }
     
     // MARK: - Edge Cases
     
-    func testVerySmallAmount() {
+    @Test func testVerySmallAmount() {
         let recipient = BatchRecipient(
             address: "0xSmallAmount",
             amount: "0.000000001",
             label: nil
         )
         
-        XCTAssertTrue(recipient.amountDouble > 0)
+        #expect(recipient.amountDouble > 0)
     }
     
-    func testLargeAmount() {
+    @Test func testLargeAmount() {
         let recipient = BatchRecipient(
             address: "0xLargeAmount",
             amount: "1000000.0",
             label: nil
         )
         
-        XCTAssertEqual(recipient.amountDouble, 1000000.0, accuracy: 0.1)
+        #expect(abs(recipient.amountDouble - 1000000.0) < 0.1)
     }
     
-    func testEmptyAddress() {
+    @Test func testEmptyAddress() {
         let recipient = BatchRecipient(
             address: "",
             amount: "1.0",
             label: nil
         )
         
-        XCTAssertTrue(recipient.address.isEmpty)
+        #expect(recipient.address.isEmpty)
     }
     
-    func testEmptyAmount() {
+    @Test func testEmptyAmount() {
         let recipient = BatchRecipient(
             address: "0xTest",
             amount: "",
             label: nil
         )
         
-        XCTAssertEqual(recipient.amountDouble, 0.0)
+        #expect(recipient.amountDouble == 0.0)
     }
     
     // MARK: - Singleton Tests
     
-    func testBatchManagerSingleton() {
+    @Test func testBatchManagerSingleton() {
         let manager1 = BatchTransactionManager.shared
         let manager2 = BatchTransactionManager.shared
         
-        XCTAssertTrue(manager1 === manager2)
+        #expect(manager1 === manager2)
     }
 }

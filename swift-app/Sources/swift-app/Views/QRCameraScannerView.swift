@@ -303,8 +303,14 @@ struct CameraPreviewView: NSViewRepresentable {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     QRCameraScannerView(isPresented: .constant(true)) { code in
         print("Scanned: \(code)")
     }
 }
+#endif
+#endif
+#endif

@@ -11,10 +11,9 @@
 use super::{CurveError, EllipticCurve};
 use schnorrkel::{
     Keypair, MiniSecretKey, PublicKey, SecretKey, Signature,
-    derive::{ChainCode, Derivation, CHAIN_CODE_LENGTH},
+    derive::{ChainCode, Derivation},
     signing_context,
 };
-use sha2::{Sha512, Digest};
 use hmac::{Hmac, Mac};
 
 type HmacSha512 = Hmac<sha2::Sha512>;
@@ -439,7 +438,7 @@ mod tests {
         assert!(polkadot_addr.starts_with('1')); // Polkadot addresses start with 1
         
         // Kusama network ID = 2
-        let kusama_addr = Sr25519Curve::to_ss58_address(&pk_arr, 2);
+        let _kusama_addr = Sr25519Curve::to_ss58_address(&pk_arr, 2);
         // Kusama addresses have different prefix
         
         // Generic Substrate = 42

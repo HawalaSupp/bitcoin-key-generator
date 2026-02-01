@@ -106,6 +106,38 @@ pub mod eip7702;
 pub mod signing;
 pub mod swap;
 
+// Phase 3: User Experience Features
+pub mod payments;     // Payment request links
+pub mod notes;        // Transaction notes
+pub mod offramp;      // Fiat off-ramp
+pub mod alerts;       // Price alerts
+
+// Phase 4: Account Abstraction (ERC-4337)
+pub mod erc4337;      // Smart accounts, bundlers, paymasters
+
+// DEX Aggregator (1inch, 0x, unified interface)
+pub mod dex;
+
+// Cross-chain bridges (Wormhole, LayerZero, Stargate)
+pub mod bridge;
+
+// IBC (Inter-Blockchain Communication) for Cosmos chains
+pub mod ibc;
+
+// ABI (Application Binary Interface) encoder/decoder for EVM contracts
+pub mod abi;
+
+// Price charts and historical data (CoinGecko integration)
+pub mod charts;
+
+// Fiat on-ramp (MoonPay, Transak, Ramp Network)
+pub mod onramp;
+
+// Bitcoin Advanced: CPFP, Lightning Network, Ordinals
+pub mod cpfp;
+pub mod lightning;
+pub mod ordinals;
+
 // Cryptographic primitives (BIP-340 Schnorr, Taproot, Multi-Curve)
 pub mod crypto;
 
@@ -147,6 +179,14 @@ pub use ffi::{
     hawala_track_transaction,
     hawala_fetch_balances,
     hawala_validate_address,
+    // Shamir Secret Sharing
+    hawala_shamir_create_shares,
+    hawala_shamir_recover,
+    hawala_shamir_validate_share,
+    // Staking
+    hawala_staking_get_info,
+    hawala_staking_get_validators,
+    hawala_staking_prepare_tx,
     // Legacy compatibility
     generate_keys_ffi,
     restore_wallet_ffi,
@@ -194,7 +234,7 @@ fn legacy_error_json(msg: &str) -> *mut c_char {
 
 /// Legacy: Validate Ethereum address
 #[unsafe(no_mangle)]
-pub extern "C" fn validate_ethereum_address_ffi(address: *const c_char) -> bool {
+pub unsafe extern "C" fn validate_ethereum_address_ffi(address: *const c_char) -> bool {
     let c_str = unsafe {
         if address.is_null() { return false; }
         CStr::from_ptr(address)
@@ -211,7 +251,7 @@ pub extern "C" fn validate_ethereum_address_ffi(address: *const c_char) -> bool 
 
 /// Legacy: Fetch balances
 #[unsafe(no_mangle)]
-pub extern "C" fn fetch_balances_ffi(json_input: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn fetch_balances_ffi(json_input: *const c_char) -> *mut c_char {
     let c_str = unsafe {
         if json_input.is_null() { return std::ptr::null_mut(); }
         CStr::from_ptr(json_input)
@@ -268,8 +308,8 @@ pub extern "C" fn fetch_balances_ffi(json_input: *const c_char) -> *mut c_char {
 
 /// Legacy: Fetch Bitcoin history
 #[unsafe(no_mangle)]
-pub extern "C" fn fetch_bitcoin_history_ffi(address: *const c_char) -> *mut c_char {
-    let c_str = unsafe {
+pub unsafe extern "C" fn fetch_bitcoin_history_ffi(address: *const c_char) -> *mut c_char {
+    let c_str = {
         if address.is_null() { return std::ptr::null_mut(); }
         CStr::from_ptr(address)
     };
@@ -290,7 +330,7 @@ pub extern "C" fn fetch_bitcoin_history_ffi(address: *const c_char) -> *mut c_ch
 
 /// Legacy: Prepare Bitcoin transaction
 #[unsafe(no_mangle)]
-pub extern "C" fn prepare_transaction_ffi(json_input: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn prepare_transaction_ffi(json_input: *const c_char) -> *mut c_char {
     let c_str = unsafe {
         if json_input.is_null() { return std::ptr::null_mut(); }
         CStr::from_ptr(json_input)
@@ -329,7 +369,7 @@ pub extern "C" fn prepare_transaction_ffi(json_input: *const c_char) -> *mut c_c
 
 /// Legacy: Prepare Ethereum transaction
 #[unsafe(no_mangle)]
-pub extern "C" fn prepare_ethereum_transaction_ffi(json_input: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn prepare_ethereum_transaction_ffi(json_input: *const c_char) -> *mut c_char {
     let c_str = unsafe {
         if json_input.is_null() { return std::ptr::null_mut(); }
         CStr::from_ptr(json_input)
@@ -385,7 +425,7 @@ pub extern "C" fn prepare_ethereum_transaction_ffi(json_input: *const c_char) ->
 
 /// Legacy: Prepare Taproot transaction
 #[unsafe(no_mangle)]
-pub extern "C" fn prepare_taproot_transaction_ffi(json_input: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn prepare_taproot_transaction_ffi(json_input: *const c_char) -> *mut c_char {
     let c_str = unsafe {
         if json_input.is_null() { return std::ptr::null_mut(); }
         CStr::from_ptr(json_input)
@@ -424,8 +464,8 @@ pub extern "C" fn prepare_taproot_transaction_ffi(json_input: *const c_char) -> 
 
 /// Legacy: Derive Taproot address
 #[unsafe(no_mangle)]
-pub extern "C" fn derive_taproot_address_ffi(wif: *const c_char) -> *mut c_char {
-    let c_str = unsafe {
+pub unsafe extern "C" fn derive_taproot_address_ffi(wif: *const c_char) -> *mut c_char {
+    let c_str = {
         if wif.is_null() { return std::ptr::null_mut(); }
         CStr::from_ptr(wif)
     };
@@ -460,7 +500,7 @@ pub extern "C" fn derive_taproot_address_ffi(wif: *const c_char) -> *mut c_char 
 
 /// Legacy: Keccak256 hash
 #[unsafe(no_mangle)]
-pub extern "C" fn keccak256_ffi(data: *const u8, len: usize, output: *mut u8) {
+pub unsafe extern "C" fn keccak256_ffi(data: *const u8, len: usize, output: *mut u8) {
     use tiny_keccak::{Hasher, Keccak};
     
     // Safety check for null pointers
@@ -468,12 +508,10 @@ pub extern "C" fn keccak256_ffi(data: *const u8, len: usize, output: *mut u8) {
         return;
     }
     
-    let slice = unsafe { std::slice::from_raw_parts(data, len) };
+    let slice = std::slice::from_raw_parts(data, len);
     let mut hasher = Keccak::v256();
     hasher.update(slice);
     let mut hash = [0u8; 32];
     hasher.finalize(&mut hash);
-    unsafe {
-        std::ptr::copy_nonoverlapping(hash.as_ptr(), output, 32);
-    }
+    std::ptr::copy_nonoverlapping(hash.as_ptr(), output, 32);
 }

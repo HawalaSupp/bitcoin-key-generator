@@ -257,7 +257,7 @@ public struct ExternalSigner {
         transaction: [String: Any],
         signatures: [ExternalSignature]
     ) throws -> CompiledBitcoinTransaction {
-        let sigsArray = try signatures.map { sig -> [String: Any] in
+        let sigsArray = signatures.map { sig -> [String: Any] in
             var dict: [String: Any] = [
                 "signature": sig.signature.toHexString,
                 "public_key": sig.publicKey.toHexString
@@ -374,7 +374,7 @@ public struct ExternalSigner {
         transaction: [String: Any],
         signatures: [ExternalSignature]
     ) throws -> CompiledSolanaTransaction {
-        let sigsArray = try signatures.map { sig -> [String: Any] in
+        let sigsArray = signatures.map { sig -> [String: Any] in
             var dict: [String: Any] = [
                 "signature": sig.signature.toHexString,
                 "public_key": sig.publicKey.toHexString

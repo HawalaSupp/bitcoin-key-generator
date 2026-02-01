@@ -95,18 +95,25 @@ impl LogEntry {
             return;
         }
 
-        let fields_str = self.fields
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join(" ");
+        // In release builds, completely skip all logging to stderr
+        #[cfg(not(debug_assertions))]
+        return;
 
-        let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
-        
-        if fields_str.is_empty() {
-            eprintln!("[{}] {} [{}] {}", timestamp, self.level, self.module, self.message);
-        } else {
-            eprintln!("[{}] {} [{}] {} | {}", timestamp, self.level, self.module, self.message, fields_str);
+        #[cfg(debug_assertions)]
+        {
+            let fields_str = self.fields
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
+            
+            if fields_str.is_empty() {
+                eprintln!("[{}] {} [{}] {}", timestamp, self.level, self.module, self.message);
+            } else {
+                eprintln!("[{}] {} [{}] {} | {}", timestamp, self.level, self.module, self.message, fields_str);
+            }
         }
     }
 }

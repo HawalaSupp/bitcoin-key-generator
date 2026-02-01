@@ -12,10 +12,9 @@
 //! Reference: https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki
 
 use crate::crypto::schnorr::{tagged_hash, tags, XOnlyPubKey, SchnorrSig, SchnorrError, SchnorrSigner};
-use bitcoin::secp256k1::{Secp256k1, SecretKey, Keypair, XOnlyPublicKey, Parity};
+use bitcoin::secp256k1::{Secp256k1, SecretKey, Keypair, Parity};
 use bitcoin::key::TapTweak;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 
 // MARK: - Taproot Constants
 
@@ -318,7 +317,7 @@ impl TaprootTweaker {
         let (output_key, parity) = secp_internal_key.tap_tweak(&self.secp, merkle_root_bytes);
         
         Ok(TaprootOutputKey {
-            output_key: XOnlyPubKey::from(output_key.to_inner()),
+            output_key: XOnlyPubKey::from(output_key.to_x_only_public_key()),
             parity: parity == Parity::Odd,
         })
     }
@@ -346,7 +345,7 @@ impl TaprootTweaker {
         
         let tweaked_keypair = keypair.tap_tweak(&self.secp, merkle_root_bytes);
         
-        Ok(SecretKey::from_keypair(&tweaked_keypair.to_inner()))
+        Ok(SecretKey::from_keypair(&tweaked_keypair.to_keypair()))
     }
     
     /// Generate a Taproot output key from a private key
@@ -579,7 +578,7 @@ mod tests {
     
     #[test]
     fn test_tweak_private_key_and_sign() {
-        let tweaker = TaprootTweaker::new();
+        let _tweaker = TaprootTweaker::new();
         let signer = TaprootSigner::new();
         
         let private_key = [42u8; 32];

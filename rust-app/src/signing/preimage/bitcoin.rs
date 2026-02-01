@@ -70,6 +70,7 @@ pub struct BitcoinInput {
 
 /// Type of Bitcoin input
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(non_camel_case_types)]  // Bitcoin naming conventions (P2SH-P2WPKH, P2TR, etc.)
 pub enum BitcoinInputType {
     /// Legacy P2PKH
     P2PKH,

@@ -266,7 +266,7 @@ fn fetch_cosmos_unbonding(client: &Client, url: &str) -> HawalaResult<(String, O
     
     if let Some(responses) = unbonding_responses {
         let mut total_unbonding: u128 = 0;
-        let mut earliest_completion: Option<u64> = None;
+        let earliest_completion: Option<u64> = None;
         
         for response in responses {
             if let Some(entries) = response["entries"].as_array() {
@@ -275,7 +275,7 @@ fn fetch_cosmos_unbonding(client: &Client, url: &str) -> HawalaResult<(String, O
                         total_unbonding += balance.parse::<u128>().unwrap_or(0);
                     }
                     // Parse completion time
-                    if let Some(completion_time) = entry["completion_time"].as_str() {
+                    if let Some(_completion_time) = entry["completion_time"].as_str() {
                         // Parse ISO 8601 timestamp (simplified)
                         // In production, use chrono or time crate
                     }
@@ -393,7 +393,7 @@ fn get_substrate_staking_info(address: &str, chain: Chain) -> HawalaResult<Staki
     })
 }
 
-fn get_substrate_validators(chain: Chain, _limit: usize) -> HawalaResult<Vec<ValidatorInfo>> {
+fn get_substrate_validators(_chain: Chain, _limit: usize) -> HawalaResult<Vec<ValidatorInfo>> {
     // Would query Substrate RPC for validator info
     Ok(vec![])
 }
@@ -409,16 +409,86 @@ fn get_solana_staking_info(address: &str, chain: Chain) -> HawalaResult<StakingI
         "https://api.mainnet-beta.solana.com"
     };
     
-    // Would query stake accounts for the address
+    let client = create_client()?;
+    
+    // Query stake accounts owned by this address
+    let payload = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getProgramAccounts",
+        "params": [
+            "Stake11111111111111111111111111111111111111",
+            {
+                "encoding": "jsonParsed",
+                "filters": [
+                    {
+                        "memcmp": {
+                            "offset": 12,  // Staker authority offset
+                            "bytes": address
+                        }
+                    }
+                ]
+            }
+        ]
+    });
+    
+    let resp: serde_json::Value = client.post(rpc_url)
+        .json(&payload)
+        .timeout(Duration::from_secs(15))
+        .send()
+        .map_err(|e| HawalaError::network_error(e.to_string()))?
+        .json()
+        .map_err(|e| HawalaError::parse_error(e.to_string()))?;
+    
+    let mut delegations = Vec::new();
+    let mut total_staked: u64 = 0;
+    let total_rewards: u64 = 0;
+    
+    if let Some(accounts) = resp["result"].as_array() {
+        for account in accounts {
+            let pubkey = account["pubkey"].as_str().unwrap_or("");
+            let parsed = &account["account"]["data"]["parsed"]["info"];
+            
+            // Get stake info
+            let stake = &parsed["stake"];
+            let delegation = &stake["delegation"];
+            
+            if let Some(lamports_str) = delegation["stake"].as_str() {
+                if let Ok(lamports) = lamports_str.parse::<u64>() {
+                    total_staked += lamports;
+                    
+                    let validator = delegation["voter"].as_str().unwrap_or("").to_string();
+                    let warmup_lamports = delegation["warmupLamports"].as_str()
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .unwrap_or(0);
+                    
+                    // Rewards are implicitly in the stake balance growth
+                    // For accurate rewards, would need to track initial stake
+                    
+                    delegations.push(Delegation {
+                        validator_address: validator.clone(),
+                        validator_name: None, // Would need separate lookup
+                        amount: lamports.to_string(),
+                        rewards: warmup_lamports.to_string(),
+                        shares: Some(pubkey.to_string()), // Store stake account address
+                    });
+                }
+            }
+        }
+    }
+    
+    let decimals = 9u32; // Solana has 9 decimals
+    let divisor = 10u64.pow(decimals);
+    
     Ok(StakingInfo {
         chain,
         address: address.to_string(),
-        staked_amount: "0".to_string(),
-        staked_raw: "0".to_string(),
-        available_rewards: "0".to_string(),
-        unbonding_amount: "0".to_string(),
+        staked_amount: format!("{:.9}", total_staked as f64 / divisor as f64),
+        staked_raw: total_staked.to_string(),
+        available_rewards: format!("{:.9}", total_rewards as f64 / divisor as f64),
+        unbonding_amount: "0".to_string(), // Would need separate query for deactivating stakes
         unbonding_completion: None,
-        delegations: vec![],
+        delegations,
     })
 }
 
@@ -470,12 +540,188 @@ fn get_solana_validators(chain: Chain, limit: usize) -> HawalaResult<Vec<Validat
     Ok(vec![])
 }
 
-fn prepare_solana_stake_tx(_request: &StakeRequest) -> HawalaResult<String> {
-    // Would build Solana stake program instruction
-    Err(HawalaError::new(
-        ErrorCode::NotImplemented,
-        "Solana staking transactions not yet implemented",
-    ))
+#[allow(deprecated)]
+fn prepare_solana_stake_tx(request: &StakeRequest) -> HawalaResult<String> {
+    use solana_sdk::{
+        stake::instruction as stake_instruction,
+        stake::state::{Authorized, Lockup},
+        system_instruction,
+        pubkey::Pubkey,
+        signature::{Keypair, Signer},
+    };
+    use std::str::FromStr;
+    
+    // Parse addresses
+    let delegator = Pubkey::from_str(&request.delegator_address)
+        .map_err(|e| HawalaError::invalid_input(format!("Invalid delegator address: {}", e)))?;
+    let validator = Pubkey::from_str(&request.validator_address)
+        .map_err(|e| HawalaError::invalid_input(format!("Invalid validator address: {}", e)))?;
+    
+    // Parse amount as lamports
+    let lamports: u64 = request.amount.parse()
+        .map_err(|e| HawalaError::invalid_input(format!("Invalid amount: {}", e)))?;
+    
+    match &request.action {
+        StakeAction::Delegate => {
+            // Generate a new stake account keypair
+            let stake_account = Keypair::new();
+            let stake_pubkey = stake_account.pubkey();
+            
+            // Minimum stake account rent exemption (~2,282,880 lamports)
+            let rent_exempt_reserve: u64 = 2_282_880;
+            let total_lamports = lamports + rent_exempt_reserve;
+            
+            // Build instructions:
+            // 1. Create stake account
+            // 2. Initialize stake account with staker authority
+            // 3. Delegate to validator
+            
+            let _create_account_ix = system_instruction::create_account(
+                &delegator,
+                &stake_pubkey,
+                total_lamports,
+                200, // Stake account size
+                &solana_sdk::stake::program::id(),
+            );
+            
+            let authorized = Authorized {
+                staker: delegator,
+                withdrawer: delegator,
+            };
+            
+            let _initialize_ix = stake_instruction::initialize(
+                &stake_pubkey,
+                &authorized,
+                &Lockup::default(),
+            );
+            
+            let _delegate_ix = stake_instruction::delegate_stake(
+                &stake_pubkey,
+                &delegator,
+                &validator,
+            );
+            
+            // Return as JSON with instruction data for frontend to sign
+            let instructions = serde_json::json!({
+                "type": "solana_stake",
+                "action": "delegate",
+                "stake_account": stake_pubkey.to_string(),
+                "stake_account_secret": bs58::encode(stake_account.to_bytes()).into_string(),
+                "validator": request.validator_address,
+                "lamports": lamports,
+                "rent_exempt_reserve": rent_exempt_reserve,
+                "total_lamports": total_lamports,
+                "instructions": [
+                    {
+                        "program": "system",
+                        "type": "create_account",
+                        "from": request.delegator_address,
+                        "to": stake_pubkey.to_string(),
+                        "lamports": total_lamports,
+                        "space": 200,
+                        "owner": "Stake11111111111111111111111111111111111111"
+                    },
+                    {
+                        "program": "stake",
+                        "type": "initialize",
+                        "stake_account": stake_pubkey.to_string(),
+                        "staker": request.delegator_address,
+                        "withdrawer": request.delegator_address,
+                    },
+                    {
+                        "program": "stake",
+                        "type": "delegate_stake",
+                        "stake_account": stake_pubkey.to_string(),
+                        "vote_account": request.validator_address,
+                        "stake_authority": request.delegator_address,
+                    }
+                ]
+            });
+            
+            Ok(instructions.to_string())
+        }
+        StakeAction::Undelegate => {
+            // Deactivate stake - requires stake account address (passed as validator_address field)
+            let stake_account = Pubkey::from_str(&request.validator_address)
+                .map_err(|e| HawalaError::invalid_input(format!("Invalid stake account: {}", e)))?;
+            
+            let _deactivate_ix = stake_instruction::deactivate_stake(
+                &stake_account,
+                &delegator,
+            );
+            
+            let instructions = serde_json::json!({
+                "type": "solana_stake",
+                "action": "deactivate",
+                "stake_account": request.validator_address,
+                "stake_authority": request.delegator_address,
+                "instructions": [{
+                    "program": "stake",
+                    "type": "deactivate_stake",
+                    "stake_account": request.validator_address,
+                    "stake_authority": request.delegator_address,
+                }]
+            });
+            
+            Ok(instructions.to_string())
+        }
+        StakeAction::ClaimRewards => {
+            // For Solana, rewards auto-compound. "Claiming" means withdrawing.
+            // The stake account address is passed in validator_address
+            let stake_account = Pubkey::from_str(&request.validator_address)
+                .map_err(|e| HawalaError::invalid_input(format!("Invalid stake account: {}", e)))?;
+            
+            let _withdraw_ix = stake_instruction::withdraw(
+                &stake_account,
+                &delegator,  // Withdrawer
+                &delegator,  // Recipient
+                lamports,
+                None,        // No custodian
+            );
+            
+            let instructions = serde_json::json!({
+                "type": "solana_stake",
+                "action": "withdraw",
+                "stake_account": request.validator_address,
+                "recipient": request.delegator_address,
+                "lamports": lamports,
+                "instructions": [{
+                    "program": "stake",
+                    "type": "withdraw",
+                    "stake_account": request.validator_address,
+                    "withdrawer": request.delegator_address,
+                    "recipient": request.delegator_address,
+                    "lamports": lamports,
+                }]
+            });
+            
+            Ok(instructions.to_string())
+        }
+        StakeAction::Compound => {
+            // Solana staking auto-compounds, nothing to do
+            Ok(serde_json::json!({
+                "type": "solana_stake",
+                "action": "compound",
+                "message": "Solana staking rewards auto-compound. No action needed."
+            }).to_string())
+        }
+        StakeAction::Redelegate { new_validator } => {
+            // Solana doesn't have native redelegate - must deactivate, wait, then redelegate
+            let _new_validator_pk = Pubkey::from_str(new_validator)
+                .map_err(|e| HawalaError::invalid_input(format!("Invalid new validator: {}", e)))?;
+            
+            let instructions = serde_json::json!({
+                "type": "solana_stake",
+                "action": "redelegate",
+                "stake_account": request.validator_address,
+                "old_validator": validator.to_string(),
+                "new_validator": new_validator,
+                "message": "Solana requires deactivation (~2 epochs) before redelegation. Use deactivate first."
+            });
+            
+            Ok(instructions.to_string())
+        }
+    }
 }
 
 // =============================================================================

@@ -713,6 +713,9 @@ extension Decimal {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     let sampleIntent = TransactionIntent(
         type: .transfer,
@@ -752,6 +755,9 @@ extension Decimal {
         onCancel: { print("Cancelled") }
     )
 }
+#endif
+#endif
+#endif
 
 // MARK: - Demo View for Settings
 

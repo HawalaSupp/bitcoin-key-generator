@@ -148,6 +148,9 @@ struct ReceiveViewModern: View {
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Close")
+            .accessibilityHint("Dismiss receive view")
+            .accessibilityIdentifier("receive_close_button")
             
             Spacer()
             
@@ -278,6 +281,9 @@ struct ReceiveViewModern: View {
             }
             .scaleEffect(qrAnimationScale)
             .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
+            .accessibilityLabel("QR code for receiving \(chain.symbol)")
+            .accessibilityHint("Scan this code to send \(chain.symbol) to your wallet")
+            .accessibilityIdentifier("receive_qr_code")
             
             // Chain Name Badge with Amount
             HStack(spacing: 6) {
@@ -312,6 +318,9 @@ struct ReceiveViewModern: View {
                 .foregroundColor(HawalaTheme.Colors.success)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Verify address on device")
+            .accessibilityHint("Confirm your wallet address matches displayed address")
+            .accessibilityIdentifier("receive_verify_button")
         }
         .padding(.vertical, HawalaTheme.Spacing.lg)
         .opacity(appearAnimation ? 1 : 0)
@@ -342,6 +351,9 @@ struct ReceiveViewModern: View {
                     .foregroundColor(HawalaTheme.Colors.accent)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Copy address")
+                .accessibilityHint("Copy wallet address to clipboard")
+                .accessibilityIdentifier("receive_copy_button")
             }
             
             // Address display - tappable to copy
@@ -371,6 +383,10 @@ struct ReceiveViewModern: View {
                 .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Wallet address")
+            .accessibilityValue(address)
+            .accessibilityHint("Tap to copy address to clipboard")
+            .accessibilityIdentifier("receive_address_display")
             
             // Warning text
             HStack(spacing: HawalaTheme.Spacing.xs) {
@@ -380,6 +396,7 @@ struct ReceiveViewModern: View {
                     .font(HawalaTheme.Typography.caption)
             }
             .foregroundColor(HawalaTheme.Colors.warning)
+            .accessibilityLabel("Warning: Only send \(selectedChain?.symbol ?? "") to this address")
         }
         .hawalaCard()
         .opacity(appearAnimation ? 1 : 0)

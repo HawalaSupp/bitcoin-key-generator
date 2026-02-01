@@ -2,6 +2,8 @@
 //!
 //! Encodes data into QR code format, supporting both single and multi-part encoding.
 
+#![allow(unused_imports)]
+
 use super::{
     types::{QrFrame, MultiPartHeader, ContentType, QrOptions, AnimationSettings},
     ErrorCorrectionLevel, QrError, QrResult, RECOMMENDED_FRAGMENT_SIZE,

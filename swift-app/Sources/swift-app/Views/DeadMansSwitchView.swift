@@ -1076,6 +1076,12 @@ private struct HeirEditorSheet: View {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     DeadMansSwitchView()
 }
+#endif
+#endif
+#endif

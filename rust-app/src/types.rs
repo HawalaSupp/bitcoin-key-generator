@@ -43,7 +43,7 @@ pub enum Chain {
     Aurora,
     Metis,
     Boba,
-    zkSync,
+    ZkSync,
     PolygonZkEvm,
     Linea,
     Scroll,
@@ -132,7 +132,7 @@ impl Chain {
                 | Chain::Aurora
                 | Chain::Metis
                 | Chain::Boba
-                | Chain::zkSync
+                | Chain::ZkSync
                 | Chain::PolygonZkEvm
                 | Chain::Linea
                 | Chain::Scroll
@@ -205,7 +205,7 @@ impl Chain {
             Chain::Aurora => Some(1313161554),
             Chain::Metis => Some(1088),
             Chain::Boba => Some(288),
-            Chain::zkSync => Some(324),
+            Chain::ZkSync => Some(324),
             Chain::PolygonZkEvm => Some(1101),
             Chain::Linea => Some(59144),
             Chain::Scroll => Some(534352),
@@ -231,7 +231,7 @@ impl Chain {
             Chain::Ethereum | Chain::EthereumSepolia => "ETH",
             Chain::Bnb => "BNB",
             Chain::Polygon => "POL",
-            Chain::Arbitrum | Chain::Optimism | Chain::Base | Chain::zkSync 
+            Chain::Arbitrum | Chain::Optimism | Chain::Base | Chain::ZkSync 
                 | Chain::PolygonZkEvm | Chain::Linea | Chain::Scroll | Chain::Blast => "ETH",
             Chain::Avalanche => "AVAX",
             Chain::Fantom => "FTM",
@@ -305,7 +305,7 @@ impl Chain {
                 | Chain::Arbitrum | Chain::Optimism | Chain::Base | Chain::Avalanche
                 | Chain::Fantom | Chain::Cronos | Chain::Gnosis | Chain::Celo
                 | Chain::Moonbeam | Chain::Moonriver | Chain::Aurora | Chain::Metis
-                | Chain::Boba | Chain::zkSync | Chain::PolygonZkEvm | Chain::Linea
+                | Chain::Boba | Chain::ZkSync | Chain::PolygonZkEvm | Chain::Linea
                 | Chain::Scroll | Chain::Mantle | Chain::Blast
                 | Chain::Vechain | Chain::Harmony | Chain::Near | Chain::MultiversX
                 | Chain::Filecoin | Chain::Waves => 18,
@@ -349,7 +349,7 @@ impl Chain {
             Chain::EthereumSepolia => 1,
             
             // EVM L2s (fast finality)
-            Chain::Arbitrum | Chain::Optimism | Chain::Base | Chain::zkSync
+            Chain::Arbitrum | Chain::Optimism | Chain::Base | Chain::ZkSync
                 | Chain::PolygonZkEvm | Chain::Linea | Chain::Scroll 
                 | Chain::Mantle | Chain::Blast => 1,
             Chain::Fantom | Chain::Cronos | Chain::Gnosis | Chain::Celo
@@ -411,7 +411,7 @@ impl std::str::FromStr for Chain {
             "aurora" => Ok(Chain::Aurora),
             "metis" => Ok(Chain::Metis),
             "boba" => Ok(Chain::Boba),
-            "zksync" | "zksync_era" => Ok(Chain::zkSync),
+            "zksync" | "zksync_era" => Ok(Chain::ZkSync),
             "polygon_zkevm" | "polygonzkevm" => Ok(Chain::PolygonZkEvm),
             "linea" => Ok(Chain::Linea),
             "scroll" => Ok(Chain::Scroll),

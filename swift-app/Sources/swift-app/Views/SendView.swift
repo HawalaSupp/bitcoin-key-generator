@@ -160,6 +160,9 @@ struct SendView: View {
     // Keys passed from parent
     let keys: AllKeys
     
+    // Biometric setting for transaction confirmation
+    @AppStorage("hawala.biometricForSends") private var biometricForSends = true
+    
     @State private var selectedChain: Chain
     @State private var recipientAddress: String = ""
     @State private var amount: String = ""
@@ -556,6 +559,9 @@ struct SendView: View {
                             .foregroundColor(HawalaTheme.Colors.textTertiary)
                     }
                     .disableAutocorrection(true)
+                    .accessibilityLabel("Recipient address")
+                    .accessibilityHint("Enter wallet address or ENS domain name")
+                    .accessibilityIdentifier("send_recipient_address_field")
                     .onChange(of: recipientAddress) { _ in
                         validateAddressAsync()
                         // Trigger gas estimation for all EVM chains (Ethereum, Polygon, BNB)
@@ -572,6 +578,9 @@ struct SendView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Scan QR code")
+                .accessibilityLabel("Scan QR code")
+                .accessibilityHint("Open camera to scan recipient address from QR code")
+                .accessibilityIdentifier("send_scan_qr_button")
                 
                 // Paste button
                 Button(action: pasteFromClipboard) {
@@ -581,6 +590,9 @@ struct SendView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Paste from clipboard")
+                .accessibilityLabel("Paste address")
+                .accessibilityHint("Paste wallet address from clipboard")
+                .accessibilityIdentifier("send_paste_address_button")
             }
             .padding(HawalaTheme.Spacing.md)
             .background(HawalaTheme.Colors.backgroundTertiary)
@@ -651,6 +663,9 @@ struct SendView: View {
                             .font(.system(size: 28, weight: .semibold, design: .rounded))
                             .foregroundColor(HawalaTheme.Colors.textTertiary)
                     }
+                    .accessibilityLabel("Amount to send")
+                    .accessibilityHint("Enter amount in \(chainSymbol)")
+                    .accessibilityIdentifier("send_amount_field")
                 
                 Spacer()
                 
@@ -700,6 +715,9 @@ struct SendView: View {
                     .foregroundColor(HawalaTheme.Colors.accent)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Refresh network fees")
+                .accessibilityHint("Fetch current network fee estimates")
+                .accessibilityIdentifier("send_refresh_fees_button")
             }
             
             // Fee Priority Cards
@@ -727,6 +745,9 @@ struct SendView: View {
                     .foregroundColor(HawalaTheme.Colors.textSecondary)
                 }
                 .toggleStyle(SwitchToggleStyle(tint: HawalaTheme.Colors.accent))
+                .accessibilityLabel("Custom fee")
+                .accessibilityHint("Toggle to set a custom network fee")
+                .accessibilityIdentifier("send_custom_fee_toggle")
             }
             
             // Custom Fee Input
@@ -736,6 +757,8 @@ struct SendView: View {
                         .textFieldStyle(.plain)
                         .font(HawalaTheme.Typography.mono)
                         .foregroundColor(HawalaTheme.Colors.textPrimary)
+                        .accessibilityLabel(selectedChain.isBitcoin ? "Fee rate in satoshis per virtual byte" : "Gas price in Gwei")
+                        .accessibilityHint("Enter custom transaction fee")
                     
                     Text(selectedChain.isBitcoin ? "sat/vB" : "Gwei")
                         .font(HawalaTheme.Typography.caption)
@@ -766,6 +789,8 @@ struct SendView: View {
                         Toggle("Auto", isOn: $autoEstimateGas)
                             .toggleStyle(.switch)
                             .controlSize(.small)
+                            .accessibilityLabel("Auto-estimate gas")
+                            .accessibilityHint("Automatically estimate gas limit for transaction")
                             .onChange(of: autoEstimateGas) { newValue in
                                 if newValue {
                                     Task { await estimateGasLimit() }
@@ -787,6 +812,8 @@ struct SendView: View {
                                 .foregroundColor(HawalaTheme.Colors.textPrimary)
                                 .multilineTextAlignment(.leading)
                                 .disabled(autoEstimateGas)
+                                .accessibilityLabel("Gas limit")
+                                .accessibilityHint("Maximum gas units for this transaction")
                             
                             Spacer()
                             
@@ -1099,6 +1126,9 @@ struct SendView: View {
             }
             .buttonStyle(.plain)
             .disabled(!canSend || isLoading)
+            .accessibilityLabel(isLoading ? "Sending transaction" : "Review transaction")
+            .accessibilityHint("Review and confirm transaction details before sending")
+            .accessibilityIdentifier("send_review_button")
             .padding(HawalaTheme.Spacing.lg)
         }
         .background(HawalaTheme.Colors.background)
@@ -1249,7 +1279,9 @@ struct SendView: View {
 
         // Fetch actual baseFee from latest block — this determines what fee is required for inclusion.
         let baseFeeGwei = await FeeEstimationService.shared.fetchBaseFee(for: Int(chainId)) ?? 10.0
+        #if DEBUG
         print("[SendView] Fetched baseFee for \(selectedChain): \(baseFeeGwei) Gwei")
+        #endif
 
         // Priority fee (tip to validators).
         // For testnets, use generous priority; for mainnet, moderate.
@@ -1277,8 +1309,12 @@ struct SendView: View {
         maxFeePerGas = gasPrice
         maxPriorityFeePerGas = String(format: "%.0f", ceil(priorityFee))
 
+        #if DEBUG
         print("[SendView] ✅ EIP-1559 SET for \(selectedChain): baseFee=\(baseFeeGwei) Gwei, maxFee=\(maxFeePerGas) Gwei, priorityFee=\(maxPriorityFeePerGas) Gwei")
+        #endif
+        #if DEBUG
         print("[SendView] Gas price for \(selectedChain): final gasPrice=\(gasPrice) Gwei")
+        #endif
     }
     
     private func getEstimate(for priority: FeePriority) -> FeeEstimate? {
@@ -1596,7 +1632,9 @@ struct SendView: View {
         preSignedTxHex = nil
         preSignError = nil
         
+        #if DEBUG
         print("[SendView] Pre-signing transaction in background...")
+        #endif
         
         Task.detached(priority: .userInitiated) {
             do {
@@ -1684,14 +1722,18 @@ struct SendView: View {
                 await MainActor.run {
                     self.preSignedTxHex = signedHex
                     self.preSigningInProgress = false
+                    #if DEBUG
                     print("[SendView] Pre-signing complete! Tx ready for instant broadcast.")
+                    #endif
                 }
                 
             } catch {
                 await MainActor.run {
                     self.preSignError = error.localizedDescription
                     self.preSigningInProgress = false
+                    #if DEBUG
                     print("[SendView] Pre-signing failed: \(error)")
+                    #endif
                 }
             }
         }
@@ -1700,138 +1742,189 @@ struct SendView: View {
     // MARK: - Send Transaction
     
     private func sendTransaction() {
+        #if DEBUG
         print("[SendView] sendTransaction() called")
+        #endif
+        #if DEBUG
         print("[SendView] Sending \(amount) \(selectedChain.displayName) to \(recipientAddress)")
+        #endif
         
+        // Check biometric authentication if enabled
+        if BiometricAuthHelper.shouldRequireBiometric(settingEnabled: biometricForSends) {
+            Task { @MainActor in
+                let result = await BiometricAuthHelper.authenticate(
+                    reason: "Authenticate to send \(selectedChain.displayName)"
+                )
+                switch result {
+                case .success:
+                    await performSendTransaction()
+                case .cancelled:
+                    #if DEBUG
+                    print("[SendView] Biometric cancelled by user")
+                    #endif
+                    return
+                case .failed(let message):
+                    errorMessage = "Authentication failed: \(message)"
+                    return
+                case .notAvailable:
+                    // Biometric not available, proceed anyway
+                    await performSendTransaction()
+                }
+            }
+        } else {
+            Task { @MainActor in
+                await performSendTransaction()
+            }
+        }
+    }
+    
+    @MainActor
+    private func performSendTransaction() async {
         isLoading = true
         errorMessage = nil
         successTxId = nil
         
-        Task { @MainActor in
-            do {
-                print("[SendView] Step 1: Using keys passed from parent view")
-                
-                // Sign & Broadcast based on chain
-                var txId: String
-                var capturedFeeRate: Int? = nil
-                var capturedNonce: Int? = nil
-                
-                switch selectedChain {
-                case .bitcoinTestnet:
-                    (txId, capturedFeeRate) = try await sendBitcoin(isTestnet: true)
-                case .bitcoinMainnet:
-                    (txId, capturedFeeRate) = try await sendBitcoin(isTestnet: false)
-                case .litecoin:
-                    (txId, capturedFeeRate) = try await sendLitecoin()
-                case .ethereumSepolia:
-                    (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 11155111, isTestnet: true)
-                case .ethereumMainnet:
-                    (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 1, isTestnet: false)
-                case .polygon:
-                    (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 137, isTestnet: false)
-                case .bnb:
-                    (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 56, isTestnet: false)
-                case .solanaDevnet:
-                    txId = try await sendSolana(isDevnet: true)
-                case .solanaMainnet:
-                    txId = try await sendSolana(isDevnet: false)
-                case .xrpTestnet:
-                    txId = try await sendXRP(isTestnet: true)
-                case .xrpMainnet:
-                    txId = try await sendXRP(isTestnet: false)
-                case .monero:
-                    throw NSError(domain: "App", code: 2, userInfo: [NSLocalizedDescriptionKey: "Monero sending not yet supported"])
-                }                // Success! Show confirmation sheet
-                self.isLoading = false
-                
-                print("[SendView] SUCCESS! Transaction completed with TxID: \(txId)")
-                
-                // Calculate fee info for display
-                let feeInfo = calculateFeeForDisplay(feeRate: capturedFeeRate)
-                
-                // Create success details
-                self.successTransactionDetails = TransactionSuccessDetails(
-                    txId: txId,
-                    chain: selectedChain,
-                    amount: amount,
-                    recipient: recipientAddress,
-                    feeRate: capturedFeeRate,
-                    estimatedFee: feeInfo.fee,
-                    feeUnit: feeInfo.unit,
-                    timestamp: Date(),
-                    senderAddress: getSenderAddress(),
-                    nonce: capturedNonce,
-                    isRBFEnabled: selectedChain.isBitcoin // Bitcoin txs are RBF by default
-                )
-                
-                print("[SendView] Setting showingSuccessSheet = true")
-                
-                // Show success sheet with a small delay to ensure state is set
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    self.showingSuccessSheet = true
-                    print("[SendView] showingSuccessSheet is now: \(self.showingSuccessSheet)")
-                }
-                
-                // Store the result to be passed when user dismisses
-                self.pendingSuccessResult = TransactionBroadcastResult(
-                    txid: txId,
-                    chainId: selectedChain.id,
-                    chainName: selectedChain.displayName,
-                    amount: amount,
-                    recipient: recipientAddress,
-                    isRBFEnabled: selectedChain.isBitcoin,
-                    feeRate: capturedFeeRate,
-                    nonce: capturedNonce
-                )
-                // Note: onSuccess is called when success sheet is dismissed
-                
-                // Start tracking confirmations for this transaction
-                TransactionConfirmationTracker.shared.track(txid: txId, chainId: selectedChain.chainId)
-                
-            } catch let error as RustCLIError {
-                print("[SendView] RUST CLI ERROR: \(error)")
-                let errorDesc: String
-                switch error {
-                case .binaryNotFound:
-                    errorDesc = "Transaction signing unavailable. Please ensure the Rust wallet backend is built (run 'cargo build' in rust-app)."
-                case .executionFailed(let code, let output):
-                    // Parse common error patterns for more user-friendly messages
-                    errorDesc = parseTransactionError(code: code, output: output)
-                case .outputParsingFailed:
-                    errorDesc = "Unable to process the signed transaction. Please try again."
-                case .invalidInput:
-                    errorDesc = "Invalid transaction details. Please check the recipient address and amount."
-                }
-                self.errorMessage = errorDesc
-                self.isLoading = false
-                
-            } catch let error as BroadcastError {
-                print("[SendView] BROADCAST ERROR: \(error)")
-                let errorDesc: String
-                switch error {
-                case .invalidURL:
-                    errorDesc = "Unable to connect to the blockchain network. Please check your internet connection."
-                case .invalidResponse:
-                    errorDesc = "The network returned an unexpected response. Please try again."
-                case .broadcastFailed(let message):
-                    errorDesc = parseBroadcastError(message)
-                case .allEndpointsFailed:
-                    errorDesc = "Unable to reach any blockchain nodes. Please check your connection and try again."
-                case .unsupportedChain:
-                    errorDesc = "This blockchain is not yet supported for sending transactions."
-                case .propagationPending:
-                    errorDesc = "Your transaction was accepted but is still propagating across nodes. Please wait a moment and refresh — it should appear shortly."
-                }
-                self.errorMessage = errorDesc
-                self.isLoading = false
-                
-            } catch {
-                print("[SendView] ERROR: \(error)")
-                print("[SendView] ERROR localized: \(error.localizedDescription)")
-                // Provide more user-friendly generic errors
-                self.errorMessage = parseGenericError(error)
-                self.isLoading = false
+        do {
+            #if DEBUG
+            print("[SendView] Step 1: Using keys passed from parent view")
+            #endif
+            
+            // Sign & Broadcast based on chain
+            var txId: String
+            var capturedFeeRate: Int? = nil
+            var capturedNonce: Int? = nil
+            
+            switch selectedChain {
+            case .bitcoinTestnet:
+                (txId, capturedFeeRate) = try await sendBitcoin(isTestnet: true)
+            case .bitcoinMainnet:
+                (txId, capturedFeeRate) = try await sendBitcoin(isTestnet: false)
+            case .litecoin:
+                (txId, capturedFeeRate) = try await sendLitecoin()
+            case .ethereumSepolia:
+                (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 11155111, isTestnet: true)
+            case .ethereumMainnet:
+                (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 1, isTestnet: false)
+            case .polygon:
+                (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 137, isTestnet: false)
+            case .bnb:
+                (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 56, isTestnet: false)
+            case .solanaDevnet:
+                txId = try await sendSolana(isDevnet: true)
+            case .solanaMainnet:
+                txId = try await sendSolana(isDevnet: false)
+            case .xrpTestnet:
+                txId = try await sendXRP(isTestnet: true)
+            case .xrpMainnet:
+                txId = try await sendXRP(isTestnet: false)
+            case .monero:
+                throw NSError(domain: "App", code: 2, userInfo: [NSLocalizedDescriptionKey: "Monero sending not yet supported"])
             }
+            
+            // Success! Show confirmation sheet
+            self.isLoading = false
+                
+            #if DEBUG
+            print("[SendView] SUCCESS! Transaction completed with TxID: \(txId)")
+            #endif
+            
+            // Calculate fee info for display
+            let feeInfo = calculateFeeForDisplay(feeRate: capturedFeeRate)
+            
+            // Create success details
+            self.successTransactionDetails = TransactionSuccessDetails(
+                txId: txId,
+                chain: selectedChain,
+                amount: amount,
+                recipient: recipientAddress,
+                feeRate: capturedFeeRate,
+                estimatedFee: feeInfo.fee,
+                feeUnit: feeInfo.unit,
+                timestamp: Date(),
+                senderAddress: getSenderAddress(),
+                nonce: capturedNonce,
+                isRBFEnabled: selectedChain.isBitcoin // Bitcoin txs are RBF by default
+            )
+            
+            #if DEBUG
+            print("[SendView] Setting showingSuccessSheet = true")
+            #endif
+            
+            // Show success sheet with a small delay to ensure state is set
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.showingSuccessSheet = true
+                #if DEBUG
+                print("[SendView] showingSuccessSheet is now: \(self.showingSuccessSheet)")
+                #endif
+            }
+            
+            // Store the result to be passed when user dismisses
+            self.pendingSuccessResult = TransactionBroadcastResult(
+                txid: txId,
+                chainId: selectedChain.id,
+                chainName: selectedChain.displayName,
+                amount: amount,
+                recipient: recipientAddress,
+                isRBFEnabled: selectedChain.isBitcoin,
+                feeRate: capturedFeeRate,
+                nonce: capturedNonce
+            )
+            // Note: onSuccess is called when success sheet is dismissed
+            
+            // Start tracking confirmations for this transaction
+            TransactionConfirmationTracker.shared.track(txid: txId, chainId: selectedChain.chainId)
+            
+        } catch let error as RustCLIError {
+            #if DEBUG
+            print("[SendView] RUST CLI ERROR: \(error)")
+            #endif
+            let errorDesc: String
+            switch error {
+            case .binaryNotFound:
+                errorDesc = "Transaction signing unavailable. Please ensure the Rust wallet backend is built (run 'cargo build' in rust-app)."
+            case .executionFailed(let code, let output):
+                // Parse common error patterns for more user-friendly messages
+                errorDesc = parseTransactionError(code: code, output: output)
+            case .outputParsingFailed:
+                errorDesc = "Unable to process the signed transaction. Please try again."
+            case .invalidInput:
+                errorDesc = "Invalid transaction details. Please check the recipient address and amount."
+            }
+            self.errorMessage = errorDesc
+            self.isLoading = false
+            
+        } catch let error as BroadcastError {
+            #if DEBUG
+            print("[SendView] BROADCAST ERROR: \(error)")
+            #endif
+            let errorDesc: String
+            switch error {
+            case .invalidURL:
+                errorDesc = "Unable to connect to the blockchain network. Please check your internet connection."
+            case .invalidResponse:
+                errorDesc = "The network returned an unexpected response. Please try again."
+            case .broadcastFailed(let message):
+                errorDesc = parseBroadcastError(message)
+            case .allEndpointsFailed:
+                errorDesc = "Unable to reach any blockchain nodes. Please check your connection and try again."
+            case .unsupportedChain:
+                errorDesc = "This blockchain is not yet supported for sending transactions."
+            case .propagationPending:
+                errorDesc = "Your transaction was accepted but is still propagating across nodes. Please wait a moment and refresh — it should appear shortly."
+            }
+            self.errorMessage = errorDesc
+            self.isLoading = false
+            
+        } catch {
+            #if DEBUG
+            print("[SendView] ERROR: \(error)")
+            #endif
+            #if DEBUG
+            print("[SendView] ERROR localized: \(error.localizedDescription)")
+            #endif
+            // Provide more user-friendly generic errors
+            self.errorMessage = parseGenericError(error)
+            self.isLoading = false
         }
     }
     
@@ -2026,7 +2119,9 @@ struct SendView: View {
         // Current wallet uses SegWit UTXOs, so we always use SegWit signing
         // Taproot toggle will be useful once user has funded their Taproot address
         // For now, always use SegWit to ensure transactions work
+        #if DEBUG
         print("[SendView] Using standard SegWit (P2WPKH) signing")
+        #endif
         let signedHex = try RustCLIBridge.shared.signBitcoin(
             recipient: recipient,
             amountSats: amountSats,
@@ -2117,12 +2212,24 @@ struct SendView: View {
             senderAddress = keys.ethereum.address
         }
         
+        #if DEBUG
         print("[ETH TX] ========== ETHEREUM TRANSACTION DEBUG ==========")
+        #endif
+        #if DEBUG
         print("[ETH TX] Chain ID: \(chainId) (isTestnet: \(isTestnet))")
+        #endif
+        #if DEBUG
         print("[ETH TX] Sender: \(senderAddress)")
+        #endif
+        #if DEBUG
         print("[ETH TX] Recipient: \(recipient)")
+        #endif
+        #if DEBUG
         print("[ETH TX] Amount (Wei): \(amountWei)")
+        #endif
+        #if DEBUG
         print("[ETH TX] Sender Key (first 10): \(senderKey.prefix(10))...")
+        #endif
         
         // Auto-fetch nonce from network (fallback to user input if provided)
         let nonceVal: UInt64
@@ -2132,14 +2239,20 @@ struct SendView: View {
             let chainKey = (chainId == 11155111) ? "ethereum-sepolia" : (chainId == 1 ? "ethereum" : String(chainId))
             nonceVal = try await EVMNonceManager.shared.getNextNonce(for: senderAddress, chainId: chainKey)
             EVMNonceManager.shared.reserveNonce(nonceVal, chainId: chainKey)
+            #if DEBUG
             print("[ETH TX] Fetched + reserved nonce: \(nonceVal) (chainKey=\(chainKey))")
+            #endif
         } else {
             nonceVal = UInt64(nonce) ?? 0
+            #if DEBUG
             print("[ETH TX] Using manual nonce: \(nonceVal)")
+            #endif
         }
         
         let gasLimitVal = UInt64(gasLimit) ?? 21000
+        #if DEBUG
         print("[ETH TX] Gas Limit: \(gasLimitVal)")
+        #endif
         
         // IMPORTANT: Convert Gwei to Wei for Rust backend
         // UI displays/stores gas price in Gwei, but Rust expects Wei
@@ -2148,10 +2261,14 @@ struct SendView: View {
         if !gasPrice.isEmpty, let gasPriceGwei = Double(gasPrice) {
             let weiValue = UInt64(gasPriceGwei * 1_000_000_000)
             gasPriceWei = String(weiValue)
+            #if DEBUG
             print("[ETH TX] Gas price: \(gasPrice) Gwei → \(weiValue) Wei")
+            #endif
         } else {
             gasPriceWei = nil
+            #if DEBUG
             print("[ETH TX] WARNING: No gas price set!")
+            #endif
         }
         
         // For post-London chains (Sepolia, Ethereum mainnet), ensure EIP-1559 params are set
@@ -2163,7 +2280,9 @@ struct SendView: View {
             if effectiveMaxFeePerGas.isEmpty {
                 // Use gasPrice as maxFeePerGas fallback
                 effectiveMaxFeePerGas = gasPrice.isEmpty ? "50" : gasPrice
+                #if DEBUG
                 print("[ETH TX] ⚠️ maxFeePerGas was empty, using fallback: \(effectiveMaxFeePerGas) Gwei")
+                #endif
             }
             if effectiveMaxPriorityFeePerGas.isEmpty {
                 // Use 50% of maxFee as priority fee for Sepolia, 10% for mainnet
@@ -2174,7 +2293,9 @@ struct SendView: View {
                 } else {
                     effectiveMaxPriorityFeePerGas = chainId == 11155111 ? "25" : "3"
                 }
+                #if DEBUG
                 print("[ETH TX] ⚠️ maxPriorityFeePerGas was empty, using fallback: \(effectiveMaxPriorityFeePerGas) Gwei")
+                #endif
             }
         }
         
@@ -2182,31 +2303,45 @@ struct SendView: View {
         let maxFeeWei: String?
         if !effectiveMaxFeePerGas.isEmpty, let maxFeeGwei = Double(effectiveMaxFeePerGas) {
             maxFeeWei = String(UInt64(maxFeeGwei * 1_000_000_000))
+            #if DEBUG
             print("[ETH TX] Max Fee: \(effectiveMaxFeePerGas) Gwei → \(maxFeeWei!) Wei")
+            #endif
         } else {
             maxFeeWei = nil
+            #if DEBUG
             print("[ETH TX] Max Fee: NOT SET")
+            #endif
         }
         
         let maxPriorityWei: String?
         if !effectiveMaxPriorityFeePerGas.isEmpty, let maxPriorityGwei = Double(effectiveMaxPriorityFeePerGas) {
             maxPriorityWei = String(UInt64(maxPriorityGwei * 1_000_000_000))
+            #if DEBUG
             print("[ETH TX] Max Priority: \(effectiveMaxPriorityFeePerGas) Gwei → \(maxPriorityWei!) Wei")
+            #endif
         } else {
             maxPriorityWei = nil
+            #if DEBUG
             print("[ETH TX] Max Priority: NOT SET")
+            #endif
         }
         
         // Log transaction type
         if maxFeeWei != nil {
+            #if DEBUG
             print("[ETH TX] *** USING EIP-1559 TRANSACTION ***")
+            #endif
         } else {
+            #if DEBUG
             print("[ETH TX] *** USING LEGACY TRANSACTION (may be deprioritized on post-London chains!) ***")
+            #endif
         }
         
         let chainKeyForNonce = (chainId == 11155111) ? "ethereum-sepolia" : (chainId == 1 ? "ethereum" : String(chainId))
         do {
+            #if DEBUG
             print("[ETH TX] Calling Rust to sign transaction...")
+            #endif
             let signedHex = try RustCLIBridge.shared.signEthereum(
                 recipient: recipient,
                 amountWei: amountWei,
@@ -2218,10 +2353,16 @@ struct SendView: View {
                 maxFeePerGas: maxFeeWei,
                 maxPriorityFeePerGas: maxPriorityWei
             )
+            #if DEBUG
             print("[ETH TX] Signed TX hex (first 100 chars): \(signedHex.prefix(100))...")
+            #endif
+            #if DEBUG
             print("[ETH TX] Signed TX length: \(signedHex.count) chars")
+            #endif
 
+            #if DEBUG
             print("[ETH TX] Broadcasting transaction...")
+            #endif
             let txId: String
             do {
                 if chainId == 56 {
@@ -2237,15 +2378,21 @@ struct SendView: View {
                     // We don't have a tx hash from this code path when the propagation check fails.
                     // But in practice, the network often just needs a moment; treat as a user-facing
                     // "still propagating" state (same UX as pending).
+                    #if DEBUG
                     print("[ETH TX] \(message)")
+                    #endif
                     throw BroadcastError.broadcastFailed("Transaction broadcast is still propagating across nodes. Please wait a moment and refresh — it should appear shortly.")
                 default:
                     throw error
                 }
             }
         
+        #if DEBUG
         print("[ETH TX] ========== TRANSACTION COMPLETE ==========")
+        #endif
+        #if DEBUG
         print("[ETH TX] TxID: \(txId)")
+        #endif
         
     // Save the signed raw transaction for potential rebroadcast/debugging.
         // This is especially useful on testnets where some public nodes may accept
@@ -2288,7 +2435,9 @@ struct SendView: View {
                     try await TransactionStore.shared.attachRawData(txHash: txId, chainId: chainKey, rawData: data)
                 } catch {
                     // Don't block sending if persistence fails; just log.
+                    #if DEBUG
                     print("[ETH TX] ⚠️ Failed to persist tx record/raw for \(txId.prefix(12))…: \(error)")
+                    #endif
                 }
             }
         }

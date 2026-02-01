@@ -85,7 +85,9 @@ public final class DuressManager: ObservableObject {
         // First check if it's the decoy passcode
         if isDuressEnabled && isDecoyConfigured {
             if let decoyHash = getDecoyPasscodeHash(), hashPasscode(passcode) == decoyHash {
+                #if DEBUG
                 print("[Duress] Decoy passcode entered - switching to decoy mode")
+                #endif
                 currentMode = .decoy
                 return .decoy
             }
@@ -94,7 +96,9 @@ public final class DuressManager: ObservableObject {
         // Check real passcode
         if let realHash = realPasscodeHash {
             if hashPasscode(passcode) == realHash {
+                #if DEBUG
                 print("[Duress] Real passcode entered - normal mode")
+                #endif
                 currentMode = .real
                 return .real
             }
@@ -129,13 +133,17 @@ public final class DuressManager: ObservableObject {
         isDecoyConfigured = true
         isDuressEnabled = true
         
+        #if DEBUG
         print("[Duress] Decoy wallet configured successfully")
+        #endif
     }
     
     /// Get the decoy wallet seed (only accessible when in decoy mode)
     public func getDecoySeed() -> String? {
         guard currentMode == .decoy else {
+            #if DEBUG
             print("[Duress] Cannot access decoy seed in real mode")
+            #endif
             return nil
         }
         
@@ -161,7 +169,9 @@ public final class DuressManager: ObservableObject {
         
         // Update passcode
         try storeInKeychain(key: decoyPasscodeKey, data: newHash.data(using: .utf8)!)
+        #if DEBUG
         print("[Duress] Decoy passcode changed")
+        #endif
     }
     
     /// Disable duress mode and remove decoy wallet
@@ -174,21 +184,27 @@ public final class DuressManager: ObservableObject {
         isDecoyConfigured = false
         currentMode = .real
         
+        #if DEBUG
         print("[Duress] Duress mode disabled, decoy wallet removed")
+        #endif
     }
     
     /// Emergency: Wipe real wallet from decoy mode (requires confirmation)
     /// This is a "panic" feature for extreme duress situations
     public func panicWipeRealWallet() {
         guard currentMode == .decoy else {
+            #if DEBUG
             print("[Duress] Panic wipe only available in decoy mode")
+            #endif
             return
         }
         
         // This would need to be implemented to actually wipe the real wallet
         // For now, just post a notification
         NotificationCenter.default.post(name: .panicWipeRequested, object: nil)
+        #if DEBUG
         print("[Duress] PANIC WIPE REQUESTED - Real wallet will be destroyed")
+        #endif
     }
     
     /// Reset to real mode (for app restart)

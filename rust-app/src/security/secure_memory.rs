@@ -355,7 +355,7 @@ mod tests {
 
     #[test]
     fn test_secure_buffer_zeroize_on_drop() {
-        let mut captured_ptr: *const u8;
+        let captured_ptr: *const u8;
         let len: usize;
         
         {

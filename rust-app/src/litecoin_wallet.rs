@@ -8,6 +8,16 @@ use bitcoin::{
 use serde::Deserialize;
 use std::error::Error;
 
+/// Debug logging macro that only prints in debug builds
+#[cfg(debug_assertions)]
+macro_rules! debug_log {
+    ($($arg:tt)*) => { eprintln!($($arg)*) }
+}
+#[cfg(not(debug_assertions))]
+macro_rules! debug_log {
+    ($($arg:tt)*) => {}
+}
+
 // MARK: - Litecoin UTXO Models
 
 #[derive(Debug, Deserialize, Clone)]
@@ -37,7 +47,7 @@ pub fn fetch_litecoin_utxos(address: &str) -> Result<Vec<LitecoinUtxo>, Box<dyn 
         .connect_timeout(Duration::from_secs(5))
         .build()?;
     
-    eprintln!("Fetching Litecoin UTXOs from Blockchair...");
+    debug_log!("Fetching Litecoin UTXOs from Blockchair...");
     
     let resp = client
         .get(&url)
@@ -65,7 +75,7 @@ pub fn fetch_litecoin_utxos(address: &str) -> Result<Vec<LitecoinUtxo>, Box<dyn 
         })
         .collect::<Vec<_>>();
     
-    eprintln!("Found {} Litecoin UTXOs", utxos.len());
+    debug_log!("Found {} Litecoin UTXOs", utxos.len());
     Ok(utxos)
 }
 
@@ -101,7 +111,7 @@ pub fn prepare_litecoin_transaction(
     
     // 1. Fetch UTXOs (or use manual)
     let utxos = if let Some(u) = manual_utxos {
-        eprintln!("Using {} manually provided UTXOs", u.len());
+        debug_log!("Using {} manually provided UTXOs", u.len());
         u
     } else {
         fetch_litecoin_utxos(sender_address)?
@@ -124,7 +134,7 @@ pub fn prepare_litecoin_transaction(
     let target_value = amount_lits;
     
     for utxo in sorted_utxos {
-        eprintln!("UTXO: txid={}, vout={}, value={} lits", utxo.transaction_hash, utxo.index, utxo.value);
+        debug_log!("UTXO: txid={}, vout={}, value={} lits", utxo.transaction_hash, utxo.index, utxo.value);
         total_input_value += utxo.value;
         inputs.push(utxo);
         if total_input_value >= target_value {
@@ -132,7 +142,7 @@ pub fn prepare_litecoin_transaction(
         }
     }
     
-    eprintln!("Selected {} inputs with total {} lits (1 lit = 1 satoshi)", inputs.len(), total_input_value);
+    debug_log!("Selected {} inputs with total {} lits (1 lit = 1 satoshi)", inputs.len(), total_input_value);
     
     if total_input_value < target_value {
         return Err(format!("Insufficient funds: have {} lits, need {} lits", total_input_value, target_value).into());
@@ -191,7 +201,7 @@ pub fn prepare_litecoin_transaction(
         output: tx_outputs,
     };
     
-    eprintln!("Litecoin transaction built: {} inputs, {} outputs", tx.input.len(), tx.output.len());
+    debug_log!("Litecoin transaction built: {} inputs, {} outputs", tx.input.len(), tx.output.len());
     
     // 5. Sign each input
     for (i, utxo) in inputs.iter().enumerate() {
@@ -225,7 +235,7 @@ pub fn prepare_litecoin_transaction(
     let tx_bytes = encode::serialize(&tx);
     let tx_hex = hex::encode(&tx_bytes);
     
-    eprintln!("Signed Litecoin transaction: {} bytes", tx_bytes.len());
+    debug_log!("Signed Litecoin transaction: {} bytes", tx_bytes.len());
     
     Ok(tx_hex)
 }

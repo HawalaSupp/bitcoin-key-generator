@@ -482,6 +482,9 @@ private struct RiskWarningCard: View {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     TransactionPreviewSheet(
         preview: TransactionPreview(
@@ -524,3 +527,6 @@ private struct RiskWarningCard: View {
         onCancel: {}
     )
 }
+#endif
+#endif
+#endif

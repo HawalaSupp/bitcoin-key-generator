@@ -3,6 +3,11 @@ import CryptoKit
 import P256K
 
 // MARK: - Ethereum Transaction Builder
+//
+// NOTE: All Ethereum signing is done through RustCLIBridge.signEthereum() which
+// uses the ethers-core library for proper EIP-1559 and legacy transaction encoding.
+// The private helper functions below are NOT used and are kept for reference only.
+// DO NOT use nativeSign() - it has incomplete RLP encoding.
 
 struct EthereumTransaction {
     
@@ -137,46 +142,14 @@ struct EthereumTransaction {
         return try rlpEncode(items)
     }
     
+    /// DEPRECATED: This function has incomplete RLP encoding and should NOT be used.
+    /// All Ethereum signing must go through RustCLIBridge.signEthereum() which uses
+    /// ethers-core for proper EIP-155/EIP-1559 transaction encoding.
+    @available(*, deprecated, message: "Use RustCLIBridge.signEthereum instead")
     private static func signTransaction(txData: Data, privateKeyHex: String, chainId: Int) throws -> String {
-        // Hash the transaction data
-        let hash = SHA256.hash(data: txData)
-        let messageHash = Data(hash)
-        
-        // Parse private key
-        let privKeyData = try hexToData(privateKeyHex)
-        guard privKeyData.count == 32 else {
-            throw EthereumError.invalidPrivateKey
-        }
-        
-        // Sign using P256 (placeholder for secp256k1)
-        let privateKey = try P256.Signing.PrivateKey(rawRepresentation: privKeyData)
-        let signature = try privateKey.signature(for: messageHash)
-        
-        // Extract r, s, v from signature
-        let rawSig = signature.rawRepresentation
-        guard rawSig.count == 64 else {
-            throw EthereumError.signingFailed
-        }
-        
-        let r = rawSig[0..<32]
-        let s = rawSig[32..<64]
-        
-        // Calculate v for EIP-155: v = chainId * 2 + 35 + {0,1}
-        // We need to determine recovery ID (0 or 1)
-        let v = UInt64(chainId * 2 + 35) // Simplified - assume recovery ID 0
-        
-        // Build final signed transaction with r, s, v
-        // Note: signedItems is computed for future use when full RLP encoding is implemented
-        _ = [
-            RLPItem.uint(UInt64(txData.count)), // nonce (placeholder, need to extract from txData)
-            RLPItem.data("0x" + String(v, radix: 16)),
-            RLPItem.data("0x" + r.hexString),
-            RLPItem.data("0x" + s.hexString)
-        ]
-        
-        // For now, return hex-encoded signature components
-        // TODO: Properly encode the full signed transaction with RLP
-        return "0x" + r.hexString + s.hexString + String(v, radix: 16)
+        // SECURITY WARNING: This implementation is incomplete and will produce invalid transactions.
+        // The Rust bridge handles all signing - this code is never called.
+        fatalError("signTransaction is deprecated - use RustCLIBridge.signEthereum")
     }
     
     private static func hexToData(_ hex: String) throws -> Data {

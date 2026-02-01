@@ -51,6 +51,7 @@ fn derive_private_key(seed: &[u8]) -> HawalaResult<[u8; 32]> {
     Ok(key)
 }
 
+#[allow(dead_code)]
 fn encode_neo_wif(private_key: &[u8]) -> HawalaResult<String> {
     // NEO WIF = Base58Check(0x80 + private_key + 0x01)
     let mut data = vec![0x80];

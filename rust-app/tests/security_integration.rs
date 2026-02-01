@@ -8,8 +8,6 @@
 //! - Verification
 //! - FFI interface
 
-use rust_app::security::*;
-use rust_app::types::Chain;
 use rust_app::ffi::*;
 use std::ffi::{CStr, CString};
 
@@ -57,6 +55,7 @@ fn test_threat_assessment_ffi() {
     let result = call_ffi(hawala_assess_threat, input);
     
     #[derive(serde::Deserialize)]
+    #[allow(dead_code)]
     struct ThreatResponse {
         risk_level: String,
         threats: Vec<serde_json::Value>,
@@ -289,6 +288,7 @@ fn test_key_rotation_check_ffi() {
     let result = call_ffi(hawala_check_key_rotation, check_input);
     
     #[derive(serde::Deserialize)]
+    #[allow(dead_code)]
     struct RotationResponse {
         needs_rotation: bool,
         keys_to_rotate: Vec<serde_json::Value>,

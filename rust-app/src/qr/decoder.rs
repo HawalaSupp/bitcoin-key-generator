@@ -3,7 +3,7 @@
 //! Decodes QR code data, supporting both single and multi-part decoding.
 
 use super::{
-    types::{ContentType, ScanResult},
+    types::ScanResult,
     QrError, QrResult,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};

@@ -55,7 +55,7 @@ fn derive_private_key(seed: &[u8]) -> HawalaResult<[u8; 32]> {
 fn derive_zilliqa_address_hex(public_key: &[u8]) -> HawalaResult<String> {
     // Zilliqa address = last 20 bytes of SHA256(uncompressed public key)
     // First we need to get uncompressed key
-    let secp = Secp256k1::new();
+    let _secp = Secp256k1::new();
     let pk = PublicKey::from_slice(public_key)
         .map_err(|e| HawalaError::crypto_error(e.to_string()))?;
     let uncompressed = pk.serialize_uncompressed();

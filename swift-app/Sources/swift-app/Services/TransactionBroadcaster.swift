@@ -298,13 +298,17 @@ final class TransactionBroadcaster: ObservableObject {
         for round in 0..<rounds {
             for endpoint in rpcEndpoints {
                 if await isEthereumTxVisible(txid: txid, rpcURL: endpoint) {
+                    #if DEBUG
                     print("[ETH Broadcast] Propagation OK via: \(endpoint) (round \(round + 1)/\(rounds))")
+                    #endif
                     return true
                 }
             }
             try? await Task.sleep(nanoseconds: 800_000_000) // 0.8s
         }
+        #if DEBUG
         print("[ETH Broadcast] Propagation NOT confirmed across RPCs")
+        #endif
         return false
     }
 
@@ -357,8 +361,12 @@ final class TransactionBroadcaster: ObservableObject {
         
         let txWithPrefix = rawTxHex.hasPrefix("0x") ? rawTxHex : "0x\(rawTxHex)"
         
+        #if DEBUG
         print("[ETH Broadcast] Sending to RPC: \(rpcURL)")
+        #endif
+        #if DEBUG
         print("[ETH Broadcast] Raw TX (first 100 chars): \(String(txWithPrefix.prefix(100)))...")
+        #endif
         
         let body: [String: Any] = [
             "jsonrpc": "2.0",
@@ -371,15 +379,21 @@ final class TransactionBroadcaster: ObservableObject {
         let (data, response) = try await URLSession.shared.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
+            #if DEBUG
             print("[ETH Broadcast] ERROR: Non-HTTP response")
+            #endif
             throw BroadcastError.invalidResponse
         }
         
+        #if DEBUG
         print("[ETH Broadcast] HTTP Status: \(httpResponse.statusCode)")
+        #endif
         
         // Log raw response for debugging
         if let rawResponse = String(data: data, encoding: .utf8) {
+            #if DEBUG
             print("[ETH Broadcast] Response: \(rawResponse)")
+            #endif
         }
         
         guard httpResponse.statusCode == 200 else {
@@ -392,16 +406,22 @@ final class TransactionBroadcaster: ObservableObject {
         
         if let error = json["error"] as? [String: Any],
            let message = error["message"] as? String {
+            #if DEBUG
             print("[ETH Broadcast] RPC ERROR: \(message)")
+            #endif
             throw BroadcastError.broadcastFailed(message)
         }
         
         guard let txid = json["result"] as? String else {
+            #if DEBUG
             print("[ETH Broadcast] ERROR: No txid in response")
+            #endif
             throw BroadcastError.invalidResponse
         }
         
+        #if DEBUG
         print("[ETH Broadcast] SUCCESS! TxID: \(txid)")
+        #endif
         return txid
     }
     
@@ -600,7 +620,9 @@ final class TransactionBroadcaster: ObservableObject {
         }
         
         let nonce = UInt64(result.dropFirst(2), radix: 16) ?? 0
+        #if DEBUG
         print("[Nonce] ETH \(isTestnet ? "Sepolia" : "Mainnet"): fetched pending nonce = \(nonce)")
+        #endif
         return nonce
     }
     
@@ -630,7 +652,9 @@ final class TransactionBroadcaster: ObservableObject {
         }
         
         let nonce = UInt64(result.dropFirst(2), radix: 16) ?? 0
+        #if DEBUG
         print("[Nonce] Chain \(chainId): fetched pending nonce = \(nonce) for \(address.prefix(10))...")
+        #endif
         return nonce
     }
     

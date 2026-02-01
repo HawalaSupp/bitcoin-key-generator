@@ -755,6 +755,12 @@ private struct VaultStatCard: View {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     TimeLockedVaultsView()
 }
+#endif
+#endif
+#endif

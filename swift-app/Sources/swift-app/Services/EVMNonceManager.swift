@@ -43,13 +43,17 @@ final class EVMNonceManager: ObservableObject {
             pendingNonces[chainId] = []
         }
         pendingNonces[chainId]?.insert(nonce)
+        #if DEBUG
         print("[NonceManager] Reserved nonce \(nonce) for chain \(chainId)")
+        #endif
     }
     
     /// Release a nonce when transaction is confirmed or failed
     func releaseNonce(_ nonce: UInt64, chainId: String) {
         pendingNonces[chainId]?.remove(nonce)
+        #if DEBUG
         print("[NonceManager] Released nonce \(nonce) for chain \(chainId)")
+        #endif
     }
     
     /// Mark a nonce as confirmed (update last known nonce)
@@ -62,7 +66,9 @@ final class EVMNonceManager: ObservableObject {
             lastKnownNonce[chainId] = nonce + 1
         }
         
+        #if DEBUG
         print("[NonceManager] Confirmed nonce \(nonce) for chain \(chainId), next: \(lastKnownNonce[chainId] ?? 0)")
+        #endif
     }
     
     /// Get nonce for replacement transaction (same nonce as original)
@@ -98,7 +104,9 @@ final class EVMNonceManager: ObservableObject {
     /// Clear all pending nonces for a chain (e.g., after wallet reset)
     func clearPendingNonces(chainId: String) {
         pendingNonces[chainId] = []
+        #if DEBUG
         print("[NonceManager] Cleared pending nonces for chain \(chainId)")
+        #endif
     }
     
     // MARK: - Network Fetching

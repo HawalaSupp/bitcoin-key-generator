@@ -7,7 +7,7 @@
 //! - Chain-specific rules
 //! - Approval workflows
 
-use crate::error::{HawalaError, HawalaResult};
+use crate::error::{read_lock, write_lock, HawalaError, HawalaResult};
 use crate::types::Chain;
 use chrono::{Datelike, Timelike};
 use std::collections::{HashMap, HashSet};
@@ -79,6 +79,7 @@ impl Default for GlobalPolicy {
 
 /// Spending record
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct SpendRecord {
     amount: u128,
     chain: Chain,
@@ -168,8 +169,7 @@ impl PolicyManager {
         let mut requires_approval = false;
 
         // Check global policy
-        {
-            let global = self.global_policy.read().unwrap();
+        if let Ok(global) = read_lock(&self.global_policy) {
             
             if global.lockdown_enabled {
                 violations.push(PolicyViolation {
@@ -212,7 +212,22 @@ impl PolicyManager {
         }
 
         // Check wallet-specific policy
-        let policies = self.policies.read().unwrap();
+        let policies = match read_lock(&self.policies) {
+            Ok(p) => p,
+            Err(_) => return PolicyCheckResult {
+                allowed: false,
+                violations: vec![PolicyViolation {
+                    violation_type: ViolationType::SystemLockdown,
+                    message: "Unable to read policies".to_string(),
+                    limit: None,
+                    actual: None,
+                }],
+                warnings: vec![],
+                requires_approval: false,
+                remaining_daily_limit: None,
+                remaining_weekly_limit: None,
+            },
+        };
         if let Some(policy) = policies.get(wallet_id) {
             if policy.enabled {
                 // Per-transaction limit
@@ -368,7 +383,17 @@ impl PolicyManager {
         }
 
         // Calculate remaining limits
-        let policies = self.policies.read().unwrap();
+        let policies = match read_lock(&self.policies) {
+            Ok(p) => p,
+            Err(_) => return PolicyCheckResult {
+                allowed: violations.is_empty(),
+                violations,
+                warnings,
+                requires_approval,
+                remaining_daily_limit: None,
+                remaining_weekly_limit: None,
+            },
+        };
         let remaining_daily = policies.get(wallet_id)
             .and_then(|p| p.daily_limit)
             .map(|limit| limit.saturating_sub(self.get_daily_spending(wallet_id)));
@@ -403,36 +428,39 @@ impl PolicyManager {
             system_time: SystemTime::now(),
         };
 
-        let mut history = self.spending_history.write().unwrap();
-        history
-            .entry(wallet_id.to_string())
-            .or_insert_with(Vec::new)
-            .push(record);
+        if let Ok(mut history) = write_lock(&self.spending_history) {
+            history
+                .entry(wallet_id.to_string())
+                .or_insert_with(Vec::new)
+                .push(record);
 
-        // Clean up old records (older than 31 days)
-        if let Some(records) = history.get_mut(wallet_id) {
-            let cutoff = SystemTime::now() - Duration::from_secs(31 * 24 * 60 * 60);
-            records.retain(|r| r.system_time > cutoff);
+            // Clean up old records (older than 31 days)
+            if let Some(records) = history.get_mut(wallet_id) {
+                let cutoff = SystemTime::now() - Duration::from_secs(31 * 24 * 60 * 60);
+                records.retain(|r| r.system_time > cutoff);
+            }
         }
     }
 
     /// Set policy for a wallet
     pub fn set_policy(&self, wallet_id: &str, policy: WalletPolicy) {
-        let mut policies = self.policies.write().unwrap();
-        let mut policy = policy;
-        policy.wallet_id = wallet_id.to_string();
-        policies.insert(wallet_id.to_string(), policy);
+        if let Ok(mut policies) = write_lock(&self.policies) {
+            let mut policy = policy;
+            policy.wallet_id = wallet_id.to_string();
+            policies.insert(wallet_id.to_string(), policy);
+        }
     }
 
     /// Get policy for a wallet
     pub fn get_policy(&self, wallet_id: &str) -> Option<WalletPolicy> {
-        let policies = self.policies.read().unwrap();
-        policies.get(wallet_id).cloned()
+        read_lock(&self.policies)
+            .ok()
+            .and_then(|policies| policies.get(wallet_id).cloned())
     }
 
     /// Enable/disable policy for a wallet
     pub fn set_policy_enabled(&self, wallet_id: &str, enabled: bool) -> HawalaResult<()> {
-        let mut policies = self.policies.write().unwrap();
+        let mut policies = write_lock(&self.policies)?;
         if let Some(policy) = policies.get_mut(wallet_id) {
             policy.enabled = enabled;
             Ok(())
@@ -443,19 +471,21 @@ impl PolicyManager {
 
     /// Set global lockdown
     pub fn set_lockdown(&self, enabled: bool) {
-        let mut global = self.global_policy.write().unwrap();
-        global.lockdown_enabled = enabled;
+        if let Ok(mut global) = write_lock(&self.global_policy) {
+            global.lockdown_enabled = enabled;
+        }
     }
 
     /// Set maintenance mode
     pub fn set_maintenance_mode(&self, enabled: bool) {
-        let mut global = self.global_policy.write().unwrap();
-        global.maintenance_mode = enabled;
+        if let Ok(mut global) = write_lock(&self.global_policy) {
+            global.maintenance_mode = enabled;
+        }
     }
 
     /// Add address to wallet whitelist
     pub fn whitelist_address(&self, wallet_id: &str, address: &str) -> HawalaResult<()> {
-        let mut policies = self.policies.write().unwrap();
+        let mut policies = write_lock(&self.policies)?;
         let policy = policies.entry(wallet_id.to_string())
             .or_insert_with(|| {
                 let mut p = WalletPolicy::default();
@@ -469,16 +499,17 @@ impl PolicyManager {
 
     /// Remove address from wallet whitelist
     pub fn remove_whitelist_address(&self, wallet_id: &str, address: &str) -> HawalaResult<()> {
-        let mut policies = self.policies.write().unwrap();
-        if let Some(policy) = policies.get_mut(wallet_id) {
-            policy.whitelisted_addresses.remove(&address.to_lowercase());
+        if let Ok(mut policies) = write_lock(&self.policies) {
+            if let Some(policy) = policies.get_mut(wallet_id) {
+                policy.whitelisted_addresses.remove(&address.to_lowercase());
+            }
         }
         Ok(())
     }
 
     /// Block an address
     pub fn block_address(&self, wallet_id: &str, address: &str) -> HawalaResult<()> {
-        let mut policies = self.policies.write().unwrap();
+        let mut policies = write_lock(&self.policies)?;
         let policy = policies.entry(wallet_id.to_string())
             .or_insert_with(|| {
                 let mut p = WalletPolicy::default();
@@ -492,7 +523,10 @@ impl PolicyManager {
 
     /// Get daily spending for a wallet
     fn get_daily_spending(&self, wallet_id: &str) -> u128 {
-        let history = self.spending_history.read().unwrap();
+        let history = match read_lock(&self.spending_history) {
+            Ok(h) => h,
+            Err(_) => return 0,
+        };
         let one_day_ago = SystemTime::now() - Duration::from_secs(24 * 60 * 60);
         
         history.get(wallet_id)
@@ -507,7 +541,10 @@ impl PolicyManager {
 
     /// Get weekly spending for a wallet
     fn get_weekly_spending(&self, wallet_id: &str) -> u128 {
-        let history = self.spending_history.read().unwrap();
+        let history = match read_lock(&self.spending_history) {
+            Ok(h) => h,
+            Err(_) => return 0,
+        };
         let one_week_ago = SystemTime::now() - Duration::from_secs(7 * 24 * 60 * 60);
         
         history.get(wallet_id)
@@ -522,7 +559,10 @@ impl PolicyManager {
 
     /// Get monthly spending for a wallet
     fn get_monthly_spending(&self, wallet_id: &str) -> u128 {
-        let history = self.spending_history.read().unwrap();
+        let history = match read_lock(&self.spending_history) {
+            Ok(h) => h,
+            Err(_) => return 0,
+        };
         let one_month_ago = SystemTime::now() - Duration::from_secs(30 * 24 * 60 * 60);
         
         history.get(wallet_id)
@@ -537,10 +577,13 @@ impl PolicyManager {
 
     /// Get last transaction time
     fn get_last_transaction_time(&self, wallet_id: &str) -> Option<Instant> {
-        let history = self.spending_history.read().unwrap();
-        history.get(wallet_id)
-            .and_then(|records| records.last())
-            .map(|r| r.timestamp)
+        read_lock(&self.spending_history)
+            .ok()
+            .and_then(|history| {
+                history.get(wallet_id)
+                    .and_then(|records| records.last())
+                    .map(|r| r.timestamp)
+            })
     }
 }
 

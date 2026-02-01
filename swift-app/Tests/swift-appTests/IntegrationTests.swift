@@ -1,7 +1,8 @@
-import XCTest
+import Testing
 import Foundation
 
-final class IntegrationTests: XCTestCase {
+@Suite
+struct IntegrationTests {
     
     // Known test vector
     // Mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
@@ -22,7 +23,7 @@ final class IntegrationTests: XCTestCase {
     // Bitcoin: m/84'/0'/0'/0/0 -> Correct
     // Ethereum: m/44'/60'/0'/0/0 -> Let's verify in lib.rs
     
-    func testRustCLIIntegration() throws {
+    @Test func testRustCLIIntegration() throws {
         // 1. Locate the binary
         let fileManager = FileManager.default
         let currentDirectory = URL(fileURLWithPath: fileManager.currentDirectoryPath)
@@ -57,7 +58,7 @@ final class IntegrationTests: XCTestCase {
         }
         
         guard let executableURL = binaryURL else {
-            XCTFail("Could not find rust-app binary. Checked paths: \(possiblePaths)")
+            #expect(Bool(false), "Could not find rust-app binary. Checked paths: \(possiblePaths)")
             return
         }
         
@@ -75,7 +76,7 @@ final class IntegrationTests: XCTestCase {
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         
         guard process.terminationStatus == 0 else {
-            XCTFail("Rust binary failed with status \(process.terminationStatus)")
+            #expect(Bool(false), "Rust binary failed with status \(process.terminationStatus)")
             return
         }
         
@@ -103,26 +104,27 @@ final class IntegrationTests: XCTestCase {
         let output = try decoder.decode(RustOutput.self, from: data)
         
         // 4. Assertions
-        XCTAssertEqual(output.mnemonic, testMnemonic)
-        XCTAssertEqual(output.keys.bitcoin.address, expectedBitcoinAddress, "Bitcoin address mismatch")
+        #expect(output.mnemonic == testMnemonic)
+        #expect(output.keys.bitcoin.address == expectedBitcoinAddress, "Bitcoin address mismatch")
         
         // Note: Update this expectation once we confirm the exact derivation path used in Rust
         let expectedEthereumAddress = "0x9858EfFD232B4033E47d90003D41EC34EcaEda94"
-        XCTAssertEqual(output.keys.ethereum.address, expectedEthereumAddress, "Ethereum address mismatch")
+        #expect(output.keys.ethereum.address == expectedEthereumAddress, "Ethereum address mismatch")
         
         print("✅ Integration Test Passed: Bitcoin address matches expected vector.")
     }
     
     // MARK: - Signing Tests
     
-    func testRustCLISigning() throws {
+    @Test func testRustCLISigning() throws {
         // These signing tests currently depend on live network access (e.g., fetching UTXOs)
         // and on provider-specific seed formats. To keep `swift test` reliable and CI-friendly,
         // we only run them when explicitly enabled.
         let env = ProcessInfo.processInfo.environment
         let shouldRun = (env["HAWALA_RUN_NETWORK_INTEGRATION"] == "1") || (env["HAWALA_RUN_NETWORK_INTEGRATION"] == "true")
         guard shouldRun else {
-            throw XCTSkip("Skipping network-dependent signing integration tests. Set HAWALA_RUN_NETWORK_INTEGRATION=1 to enable.")
+            print("Skipping network-dependent signing integration tests. Set HAWALA_RUN_NETWORK_INTEGRATION=1 to enable.")
+            return
         }
 
         // 1. Locate the binary
@@ -150,7 +152,7 @@ final class IntegrationTests: XCTestCase {
         }
         
         guard let executableURL = binaryURL else {
-            XCTFail("Could not find rust-app binary")
+            #expect(Bool(false), "Could not find rust-app binary")
             return
         }
         
@@ -202,9 +204,9 @@ final class IntegrationTests: XCTestCase {
         
         let btcData = btcPipe.fileHandleForReading.readDataToEndOfFile()
         let btcHex = String(data: btcData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        XCTAssertFalse(btcHex.isEmpty, "Bitcoin signed hex should not be empty")
+        #expect(!btcHex.isEmpty, "Bitcoin signed hex should not be empty")
         // Basic hex validation
-        XCTAssertTrue(btcHex.range(of: "^[0-9a-fA-F]+$", options: .regularExpression) != nil, "Bitcoin output should be hex")
+        #expect(btcHex.range(of: "^[0-9a-fA-F]+$", options: .regularExpression) != nil, "Bitcoin output should be hex")
         
         // 4. Test Ethereum Signing
         let ethProcess = Process()
@@ -226,8 +228,8 @@ final class IntegrationTests: XCTestCase {
         
         let ethData = ethPipe.fileHandleForReading.readDataToEndOfFile()
         let ethHex = String(data: ethData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        XCTAssertFalse(ethHex.isEmpty, "Ethereum signed hex should not be empty")
-        XCTAssertTrue(ethHex.hasPrefix("0x"), "Ethereum output should start with 0x")
+        #expect(!ethHex.isEmpty, "Ethereum signed hex should not be empty")
+        #expect(ethHex.hasPrefix("0x"), "Ethereum output should start with 0x")
         
         // 5. Test Solana Signing
         let solProcess = Process()
@@ -248,7 +250,7 @@ final class IntegrationTests: XCTestCase {
         
         let solData = solPipe.fileHandleForReading.readDataToEndOfFile()
         let solTx = String(data: solData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        XCTAssertFalse(solTx.isEmpty, "Solana signed tx should not be empty")
+        #expect(!solTx.isEmpty, "Solana signed tx should not be empty")
         
         // 6. Test Monero Signing (Validation)
         let xmrProcess = Process()
@@ -267,7 +269,7 @@ final class IntegrationTests: XCTestCase {
         
         let xmrData = xmrPipe.fileHandleForReading.readDataToEndOfFile()
         let xmrTx = String(data: xmrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        XCTAssertFalse(xmrTx.isEmpty, "Monero signed tx (mock) should not be empty")
+        #expect(!xmrTx.isEmpty, "Monero signed tx (mock) should not be empty")
         
         // 7. Test XRP Signing
         let xrpProcess = Process()
@@ -286,6 +288,6 @@ final class IntegrationTests: XCTestCase {
         
         let xrpData = xrpPipe.fileHandleForReading.readDataToEndOfFile()
         let xrpTx = String(data: xrpData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        XCTAssertFalse(xrpTx.isEmpty, "XRP signed tx should not be empty")
+        #expect(!xrpTx.isEmpty, "XRP signed tx should not be empty")
     }
 }

@@ -256,17 +256,21 @@ impl SecurityConfig {
 
     /// Get current settings
     pub fn settings(&self) -> SecuritySettings {
-        self.config.read().unwrap().clone()
+        self.config.read()
+            .map(|c| c.clone())
+            .unwrap_or_else(|_| SecuritySettings::standard())
     }
 
     /// Get security level
     pub fn level(&self) -> SecurityLevel {
-        self.config.read().unwrap().level
+        self.config.read()
+            .map(|c| c.level)
+            .unwrap_or(SecurityLevel::Standard)
     }
 
     /// Set security level (applies preset)
     pub fn set_level(&self, level: SecurityLevel) {
-        let mut config = self.config.write().unwrap();
+        let Ok(mut config) = self.config.write() else { return };
         *config = match level {
             SecurityLevel::Standard => SecuritySettings::standard(),
             SecurityLevel::High => SecuritySettings::high(),
@@ -284,7 +288,9 @@ impl SecurityConfig {
     where
         F: FnOnce(&mut SecuritySettings),
     {
-        let mut config = self.config.write().unwrap();
+        let Ok(mut config) = self.config.write() else { 
+            return vec!["Failed to acquire config lock".to_string()]; 
+        };
         config.level = SecurityLevel::Custom; // Any manual change makes it custom
         updater(&mut config);
         config.validate()
@@ -292,33 +298,44 @@ impl SecurityConfig {
 
     /// Check if a transaction amount is high-value
     pub fn is_high_value(&self, amount_satoshis: u64) -> bool {
-        let config = self.config.read().unwrap();
-        amount_satoshis >= config.high_value_threshold
+        self.config.read()
+            .map(|c| amount_satoshis >= c.high_value_threshold)
+            .unwrap_or(true) // Default to treating as high-value for safety
     }
 
     /// Check if re-authentication is required for send
     pub fn requires_reauth_for_send(&self) -> bool {
-        self.config.read().unwrap().require_reauth_for_send
+        self.config.read()
+            .map(|c| c.require_reauth_for_send)
+            .unwrap_or(true) // Default to requiring reauth for safety
     }
 
     /// Get session timeout
     pub fn session_timeout(&self) -> Duration {
-        self.config.read().unwrap().session_timeout
+        self.config.read()
+            .map(|c| c.session_timeout)
+            .unwrap_or(Duration::from_secs(300)) // Default 5 min timeout
     }
 
     /// Check if custom endpoints are allowed
     pub fn allows_custom_endpoints(&self) -> bool {
-        self.config.read().unwrap().allow_custom_endpoints
+        self.config.read()
+            .map(|c| c.allow_custom_endpoints)
+            .unwrap_or(false) // Default to disallowing for safety
     }
 
     /// Get minimum backup password entropy
     pub fn min_backup_entropy(&self) -> u32 {
-        self.config.read().unwrap().min_backup_password_entropy
+        self.config.read()
+            .map(|c| c.min_backup_password_entropy)
+            .unwrap_or(60) // Default to standard entropy requirement
     }
 
     /// Check if audit logging is enabled
     pub fn audit_enabled(&self) -> bool {
-        self.config.read().unwrap().enable_audit_log
+        self.config.read()
+            .map(|c| c.enable_audit_log)
+            .unwrap_or(true) // Default to enabling audit for safety
     }
 }
 
@@ -460,7 +477,7 @@ mod tests {
     fn test_update_settings() {
         let config = SecurityConfig::new();
         
-        let warnings = config.update(|s| {
+        let _warnings = config.update(|s| {
             s.session_timeout = Duration::from_secs(60);
         });
         

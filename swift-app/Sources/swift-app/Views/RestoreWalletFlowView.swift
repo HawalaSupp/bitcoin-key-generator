@@ -458,6 +458,12 @@ struct RestoreWalletFlowView: View {
     }
 }
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     RestoreWalletFlowView(walletManager: WalletManager.shared)
 }
+#endif
+#endif
+#endif

@@ -438,6 +438,9 @@ private struct TxDetailRow: View {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     TransactionDetailSheet(
         transaction: HawalaTransactionEntry(
@@ -457,3 +460,6 @@ private struct TxDetailRow: View {
         )
     )
 }
+#endif
+#endif
+#endif

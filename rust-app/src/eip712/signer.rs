@@ -5,7 +5,7 @@
 use super::hasher::hash_typed_data;
 use super::types::*;
 use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
-use zeroize::Zeroize;
+
 
 /// Sign EIP-712 typed data
 ///

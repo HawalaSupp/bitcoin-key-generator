@@ -5,9 +5,7 @@
 
 use crate::error::{HawalaError, HawalaResult, ErrorCode};
 use crate::types::Chain;
-use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 // =============================================================================
 // Swap Types
@@ -141,7 +139,7 @@ pub fn get_popular_tokens(chain: Chain) -> HawalaResult<Vec<SwapToken>> {
 // EVM Swaps (via 1inch or 0x aggregator style)
 // =============================================================================
 
-fn get_evm_swap_quote(request: &SwapQuoteRequest, chain_id: u64) -> HawalaResult<SwapQuote> {
+fn get_evm_swap_quote(request: &SwapQuoteRequest, _chain_id: u64) -> HawalaResult<SwapQuote> {
     // In production, this would call 1inch, 0x, or similar aggregator API
     // For now, return a simulated quote
     
@@ -201,7 +199,7 @@ fn get_evm_swap_quote(request: &SwapQuoteRequest, chain_id: u64) -> HawalaResult
     })
 }
 
-fn build_evm_swap_tx(quote: &SwapQuote, sender: &str) -> HawalaResult<SwapTransaction> {
+fn build_evm_swap_tx(quote: &SwapQuote, _sender: &str) -> HawalaResult<SwapTransaction> {
     // Build swap call data (simplified)
     // In production, this would be properly ABI-encoded
     
@@ -274,7 +272,7 @@ fn get_solana_swap_quote(request: &SwapQuoteRequest) -> HawalaResult<SwapQuote> 
 // Cross-Chain Swaps
 // =============================================================================
 
-fn get_cross_chain_quote(request: &SwapQuoteRequest) -> HawalaResult<SwapQuote> {
+fn get_cross_chain_quote(_request: &SwapQuoteRequest) -> HawalaResult<SwapQuote> {
     // Cross-chain via bridges (THORChain, Wormhole, etc.)
     Err(HawalaError::new(
         ErrorCode::NotImplemented,

@@ -555,8 +555,14 @@ struct ErrorView: View {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     HardwareWalletSetupSheet(chain: .ethereum) { account in
         print("Created account: \(account.address)")
     }
 }
+#endif
+#endif
+#endif

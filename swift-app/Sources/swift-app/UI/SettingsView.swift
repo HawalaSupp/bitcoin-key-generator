@@ -2727,7 +2727,13 @@ private struct DebugStatBadge: View {
     }
 }
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     SettingsView()
         .frame(width: 500, height: 800)
 }
+#endif
+#endif
+#endif

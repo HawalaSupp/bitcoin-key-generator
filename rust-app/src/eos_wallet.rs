@@ -50,6 +50,7 @@ fn derive_private_key(seed: &[u8]) -> HawalaResult<[u8; 32]> {
     Ok(key)
 }
 
+#[allow(dead_code)]
 fn encode_eos_wif(private_key: &[u8]) -> HawalaResult<String> {
     // EOS WIF = Base58Check(0x80 + private_key)
     use sha2::Sha256;

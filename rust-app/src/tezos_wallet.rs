@@ -41,7 +41,7 @@ pub fn derive_tezos_keys(seed: &[u8]) -> Result<TezosKeys, String> {
     let private_hex = hex::encode(private_bytes);
 
     // Tezos secret key (edsk... format)
-    let secret_key = encode_tezos_secret(&private_bytes)?;
+    let secret_key = encode_tezos_secret(&private_bytes, &verifying_key)?;
 
     // Public key hex
     let public_hex = hex::encode(verifying_key.as_bytes());
@@ -80,10 +80,14 @@ fn tezos_base58check_encode(prefix: &[u8], data: &[u8]) -> String {
 }
 
 /// Encode Tezos secret key (edsk...)
-fn encode_tezos_secret(private_key: &[u8; 32]) -> Result<String, String> {
-    // edsk prefix: [43, 246, 78, 7] for ed25519 seed (32 bytes)
+fn encode_tezos_secret(private_key: &[u8; 32], public_key: &VerifyingKey) -> Result<String, String> {
+    // edsk prefix for full secret key (64 bytes = 32 private + 32 public): [43, 246, 78, 7]
+    // This is the standard Tezos format: edsk + seed (32 bytes) + public key (32 bytes)
     let prefix = [43u8, 246, 78, 7];
-    Ok(tezos_base58check_encode(&prefix, private_key))
+    let mut full_key = Vec::with_capacity(64);
+    full_key.extend_from_slice(private_key);
+    full_key.extend_from_slice(public_key.as_bytes());
+    Ok(tezos_base58check_encode(&prefix, &full_key))
 }
 
 /// Encode Tezos public key (edpk...)
@@ -120,12 +124,17 @@ mod tests {
         
         let keys = derive_tezos_keys(&seed).unwrap();
         
+        // Debug output
+        eprintln!("secret_key: {}", keys.secret_key);
+        eprintln!("public_key: {}", keys.public_key);
+        eprintln!("address: {}", keys.address);
+        
         // Verify address starts with tz1
-        assert!(keys.address.starts_with("tz1"), "Tezos address should start with tz1");
+        assert!(keys.address.starts_with("tz1"), "Tezos address should start with tz1, got: {}", keys.address);
         // Verify public key starts with edpk
-        assert!(keys.public_key.starts_with("edpk"), "Tezos public key should start with edpk");
+        assert!(keys.public_key.starts_with("edpk"), "Tezos public key should start with edpk, got: {}", keys.public_key);
         // Verify secret key starts with edsk
-        assert!(keys.secret_key.starts_with("edsk"), "Tezos secret key should start with edsk");
+        assert!(keys.secret_key.starts_with("edsk"), "Tezos secret key should start with edsk, got: {}", keys.secret_key);
         assert!(!keys.private_hex.is_empty());
     }
 }

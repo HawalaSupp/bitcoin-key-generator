@@ -1,11 +1,13 @@
-import XCTest
+import Testing
+import Foundation
 @testable import swift_app
 
-final class CustomTokenManagerTests: XCTestCase {
+@Suite
+struct CustomTokenManagerTests {
     
     // MARK: - Token Model Tests
     
-    func testCustomTokenInitialization() {
+    @Test func testCustomTokenInitialization() {
         let token = CustomToken(
             contractAddress: "0x6B175474E89094C44Da98b954EescdkdjFasGD5c",
             symbol: "DAI",
@@ -14,14 +16,14 @@ final class CustomTokenManagerTests: XCTestCase {
             chain: .ethereum
         )
         
-        XCTAssertEqual(token.symbol, "DAI")
-        XCTAssertEqual(token.name, "Dai Stablecoin")
-        XCTAssertEqual(token.decimals, 18)
-        XCTAssertEqual(token.chain, .ethereum)
-        XCTAssertNil(token.logoURL)
+        #expect(token.symbol == "DAI")
+        #expect(token.name == "Dai Stablecoin")
+        #expect(token.decimals == 18)
+        #expect(token.chain == .ethereum)
+        #expect(token.logoURL == nil)
     }
     
-    func testCustomTokenWithOptionalFields() {
+    @Test func testCustomTokenWithOptionalFields() {
         let token = CustomToken(
             contractAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
             symbol: "USDC",
@@ -31,10 +33,10 @@ final class CustomTokenManagerTests: XCTestCase {
             logoURL: "https://example.com/usdc.png"
         )
         
-        XCTAssertEqual(token.logoURL, "https://example.com/usdc.png")
+        #expect(token.logoURL == "https://example.com/usdc.png")
     }
     
-    func testTokenChainIdentifier() {
+    @Test func testTokenChainIdentifier() {
         let ethToken = CustomToken(
             contractAddress: "0x123",
             symbol: "TEST",
@@ -51,45 +53,45 @@ final class CustomTokenManagerTests: XCTestCase {
             chain: .solana
         )
         
-        XCTAssertEqual(ethToken.chain, .ethereum)
-        XCTAssertEqual(solToken.chain, .solana)
+        #expect(ethToken.chain == .ethereum)
+        #expect(solToken.chain == .solana)
     }
     
     // MARK: - TokenChain Tests
     
-    func testTokenChainCases() {
+    @Test func testTokenChainCases() {
         let chains: [TokenChain] = [.ethereum, .bsc, .solana]
-        XCTAssertEqual(chains.count, 3)
+        #expect(chains.count == 3)
     }
     
-    func testTokenChainDisplayName() {
-        XCTAssertEqual(TokenChain.ethereum.displayName, "Ethereum (ERC-20)")
-        XCTAssertEqual(TokenChain.bsc.displayName, "BNB Chain (BEP-20)")
-        XCTAssertEqual(TokenChain.solana.displayName, "Solana (SPL)")
+    @Test func testTokenChainDisplayName() {
+        #expect(TokenChain.ethereum.displayName == "Ethereum (ERC-20)")
+        #expect(TokenChain.bsc.displayName == "BNB Chain (BEP-20)")
+        #expect(TokenChain.solana.displayName == "Solana (SPL)")
     }
     
-    func testTokenChainAddressPlaceholder() {
-        XCTAssertEqual(TokenChain.ethereum.addressPlaceholder, "0x...")
-        XCTAssertEqual(TokenChain.bsc.addressPlaceholder, "0x...")
-        XCTAssertEqual(TokenChain.solana.addressPlaceholder, "Token mint address")
+    @Test func testTokenChainAddressPlaceholder() {
+        #expect(TokenChain.ethereum.addressPlaceholder == "0x...")
+        #expect(TokenChain.bsc.addressPlaceholder == "0x...")
+        #expect(TokenChain.solana.addressPlaceholder == "Token mint address")
     }
     
     // MARK: - Contract Address Validation Tests
     
-    func testEthereumAddressFormat() {
+    @Test func testEthereumAddressFormat() {
         let validAddress = "0x6B175474E89094C44Da98b954EeadDeFE456dAcE" // exactly 42 chars
-        XCTAssertTrue(validAddress.hasPrefix("0x"))
-        XCTAssertEqual(validAddress.count, 42)
+        #expect(validAddress.hasPrefix("0x"))
+        #expect(validAddress.count == 42)
     }
     
-    func testSolanaAddressFormat() {
+    @Test func testSolanaAddressFormat() {
         let validAddress = "So11111111111111111111111111111111111111112"
-        XCTAssertTrue(validAddress.count >= 32 && validAddress.count <= 44)
+        #expect(validAddress.count >= 32 && validAddress.count <= 44)
     }
     
     // MARK: - Token Encoding Tests
     
-    func testTokenEncodable() throws {
+    @Test func testTokenEncodable() throws {
         let token = CustomToken(
             contractAddress: "0xTestEncode",
             symbol: "ENC",
@@ -100,11 +102,11 @@ final class CustomTokenManagerTests: XCTestCase {
         
         let encoder = JSONEncoder()
         let data = try encoder.encode(token)
-        XCTAssertNotNil(data)
-        XCTAssertFalse(data.isEmpty)
+        #expect(data != nil)
+        #expect(!(data.isEmpty))
     }
     
-    func testTokenDecodable() throws {
+    @Test func testTokenDecodable() throws {
         let dateFormatter = ISO8601DateFormatter()
         let dateString = dateFormatter.string(from: Date())
         
@@ -124,13 +126,13 @@ final class CustomTokenManagerTests: XCTestCase {
         decoder.dateDecodingStrategy = .iso8601
         let token = try decoder.decode(CustomToken.self, from: json.data(using: .utf8)!)
         
-        XCTAssertEqual(token.symbol, "DEC")
-        XCTAssertEqual(token.decimals, 18)
+        #expect(token.symbol == "DEC")
+        #expect(token.decimals == 18)
     }
     
     // MARK: - ChainId Tests
     
-    func testChainIdGeneration() {
+    @Test func testChainIdGeneration() {
         let ethToken = CustomToken(
             contractAddress: "0xTest",
             symbol: "USDT",
@@ -139,7 +141,7 @@ final class CustomTokenManagerTests: XCTestCase {
             chain: .ethereum
         )
         
-        XCTAssertEqual(ethToken.chainId, "usdt-erc20")
+        #expect(ethToken.chainId == "usdt-erc20")
         
         let bscToken = CustomToken(
             contractAddress: "0xTest",
@@ -149,7 +151,7 @@ final class CustomTokenManagerTests: XCTestCase {
             chain: .bsc
         )
         
-        XCTAssertEqual(bscToken.chainId, "cake-bep20")
+        #expect(bscToken.chainId == "cake-bep20")
         
         let splToken = CustomToken(
             contractAddress: "SolMint",
@@ -159,16 +161,16 @@ final class CustomTokenManagerTests: XCTestCase {
             chain: .solana
         )
         
-        XCTAssertEqual(splToken.chainId, "ray-spl")
+        #expect(splToken.chainId == "ray-spl")
     }
     
     // MARK: - Singleton Tests
     
     @MainActor
-    func testCustomTokenManagerSingleton() {
+    @Test func testCustomTokenManagerSingleton() {
         let manager1 = CustomTokenManager.shared
         let manager2 = CustomTokenManager.shared
         
-        XCTAssertTrue(manager1 === manager2)
+        #expect(manager1 === manager2)
     }
 }

@@ -1,8 +1,10 @@
-import XCTest
+import Testing
+import Foundation
 @testable import swift_app
 
-final class PriceStateReducerTests: XCTestCase {
-    func testLoadingStateUsesCacheWhenAvailable() {
+@Suite
+struct PriceStateReducerTests {
+    @Test func testLoadingStateUsesCacheWhenAvailable() {
         let now = Date()
         let cache = CachedPrice(value: "$25,000", lastUpdated: now.addingTimeInterval(-120))
         let state = PriceStateReducer.loadingState(
@@ -13,14 +15,14 @@ final class PriceStateReducerTests: XCTestCase {
 
         switch state {
         case .refreshing(let previous, let timestamp):
-            XCTAssertEqual(previous, cache.value)
-            XCTAssertEqual(timestamp, cache.lastUpdated)
+            #expect(previous == cache.value)
+            #expect(timestamp == cache.lastUpdated)
         default:
-            XCTFail("Expected refreshing state, got \(state)")
+            #expect(Bool(false), "Expected refreshing state, got \(state)")
         }
     }
 
-    func testLoadingStateFallsBackToStaticDisplay() {
+    @Test func testLoadingStateFallsBackToStaticDisplay() {
         let now = Date()
         let state = PriceStateReducer.loadingState(
             cache: nil,
@@ -30,14 +32,14 @@ final class PriceStateReducerTests: XCTestCase {
 
         switch state {
         case .loaded(let value, let timestamp):
-            XCTAssertEqual(value, "$1.00")
-            XCTAssertEqual(timestamp.timeIntervalSince1970, now.timeIntervalSince1970, accuracy: 0.01)
+            #expect(value == "$1.00")
+            #expect(abs(timestamp.timeIntervalSince1970 - now.timeIntervalSince1970) < 0.01)
         default:
-            XCTFail("Expected loaded static state, got \(state)")
+            #expect(Bool(false), "Expected loaded static state, got \(state)")
         }
     }
 
-    func testFailureStateSurfacesStaleWhenCacheExists() {
+    @Test func testFailureStateSurfacesStaleWhenCacheExists() {
         let now = Date()
         let cache = CachedPrice(value: "$31,200", lastUpdated: now.addingTimeInterval(-90))
         let state = PriceStateReducer.failureState(
@@ -49,15 +51,15 @@ final class PriceStateReducerTests: XCTestCase {
 
         switch state {
         case .stale(let value, let timestamp, let message):
-            XCTAssertEqual(value, cache.value)
-            XCTAssertEqual(timestamp, cache.lastUpdated)
-            XCTAssertEqual(message, "Temporarily rate limited")
+            #expect(value == cache.value)
+            #expect(timestamp == cache.lastUpdated)
+            #expect(message == "Temporarily rate limited")
         default:
-            XCTFail("Expected stale state, got \(state)")
+            #expect(Bool(false), "Expected stale state, got \(state)")
         }
     }
 
-    func testFailureStateWithoutCacheFallsBackToError() {
+    @Test func testFailureStateWithoutCacheFallsBackToError() {
         let state = PriceStateReducer.failureState(
             cache: nil,
             staticDisplay: nil,
@@ -67,9 +69,9 @@ final class PriceStateReducerTests: XCTestCase {
 
         switch state {
         case .failed(let message):
-            XCTAssertEqual(message, "Service unavailable")
+            #expect(message == "Service unavailable")
         default:
-            XCTFail("Expected failed state, got \(state)")
+            #expect(Bool(false), "Expected failed state, got \(state)")
         }
     }
 }

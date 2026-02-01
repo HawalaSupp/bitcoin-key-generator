@@ -240,7 +240,7 @@ impl NetworkConfig {
 
     /// Check if a domain is whitelisted
     pub fn is_domain_whitelisted(&self, domain: &str) -> bool {
-        let whitelist = self.whitelisted_domains.read().unwrap();
+        let Ok(whitelist) = self.whitelisted_domains.read() else { return false; };
         
         // Check exact match
         if whitelist.contains(domain) {
@@ -266,7 +266,8 @@ impl NetworkConfig {
             ));
         }
 
-        let mut whitelist = self.whitelisted_domains.write().unwrap();
+        let mut whitelist = self.whitelisted_domains.write()
+            .map_err(|_| HawalaError::internal("Whitelist lock poisoned"))?;
         whitelist.insert(domain.to_lowercase());
         Ok(())
     }
@@ -281,7 +282,8 @@ impl NetworkConfig {
             ));
         }
 
-        let mut endpoints = self.custom_endpoints.write().unwrap();
+        let mut endpoints = self.custom_endpoints.write()
+            .map_err(|_| HawalaError::internal("Endpoints lock poisoned"))?;
         endpoints
             .entry(endpoint.chain)
             .or_insert_with(Vec::new)
@@ -422,7 +424,7 @@ impl NetworkConfig {
 
     /// Update health status for an endpoint
     pub fn update_health(&self, url: &str, is_healthy: bool, latency_ms: Option<u64>) {
-        let mut cache = self.health_cache.write().unwrap();
+        let Ok(mut cache) = self.health_cache.write() else { return; };
         let entry = cache.entry(url.to_string()).or_insert(EndpointHealth {
             url: url.to_string(),
             is_healthy,
@@ -445,7 +447,7 @@ impl NetworkConfig {
 
     /// Get health status for an endpoint
     pub fn get_health(&self, url: &str) -> Option<EndpointHealth> {
-        let cache = self.health_cache.read().unwrap();
+        let cache = self.health_cache.read().ok()?;
         cache.get(url).cloned()
     }
 

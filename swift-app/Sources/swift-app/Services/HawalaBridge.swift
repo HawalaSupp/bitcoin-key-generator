@@ -1371,6 +1371,1335 @@ public final class HawalaBridge: @unchecked Sendable {
         }
     }
     
+    // MARK: - Shamir Secret Sharing (Social Recovery)
+    
+    /// Recovery share from Shamir's Secret Sharing
+    public struct HawalaRecoveryShare: Codable {
+        public let id: UInt8
+        public let data: String
+        public let threshold: UInt8
+        public let total: UInt8
+        public let createdAt: UInt64
+        public let label: String
+        public let checksum: String
+        
+        enum CodingKeys: String, CodingKey {
+            case id, data, threshold, total, label, checksum
+            case createdAt = "created_at"
+        }
+    }
+    
+    /// Validation result for a recovery share
+    public struct HawalaShareValidation: Codable {
+        public let valid: Bool
+        public let shareId: UInt8
+        public let threshold: UInt8
+        public let total: UInt8
+        public let error: String?
+        
+        enum CodingKeys: String, CodingKey {
+            case valid, threshold, total, error
+            case shareId = "share_id"
+        }
+    }
+    
+    /// Create Shamir secret shares from a seed phrase
+    /// - Parameters:
+    ///   - seedPhrase: The BIP-39 seed phrase (12 or 24 words)
+    ///   - totalShares: Total number of shares to create (N)
+    ///   - threshold: Minimum shares needed to recover (M)
+    ///   - labels: Optional labels for each share
+    /// - Returns: Array of recovery shares
+    public func createShamirShares(
+        seedPhrase: String,
+        totalShares: UInt8,
+        threshold: UInt8,
+        labels: [String]? = nil
+    ) throws -> [HawalaRecoveryShare] {
+        struct CreateRequest: Encodable {
+            let seedPhrase: String
+            let totalShares: UInt8
+            let threshold: UInt8
+            let labels: [String]?
+            
+            enum CodingKeys: String, CodingKey {
+                case labels
+                case seedPhrase = "seed_phrase"
+                case totalShares = "total_shares"
+                case threshold
+            }
+        }
+        
+        let request = CreateRequest(
+            seedPhrase: seedPhrase,
+            totalShares: totalShares,
+            threshold: threshold,
+            labels: labels
+        )
+        let input = try encodeJSON(request)
+        return try callRustFFIWithInput(input) { hawala_shamir_create_shares($0) }
+    }
+    
+    /// Recover a seed phrase from Shamir shares
+    /// - Parameter shares: At least M recovery shares
+    /// - Returns: The recovered seed phrase
+    public func recoverFromShares(_ shares: [HawalaRecoveryShare]) throws -> String {
+        struct RecoverRequest: Encodable { let shares: [HawalaRecoveryShare] }
+        struct RecoverResult: Codable { let seedPhrase: String
+            enum CodingKeys: String, CodingKey { case seedPhrase = "seed_phrase" }
+        }
+        
+        let input = try encodeJSON(RecoverRequest(shares: shares))
+        let result: RecoverResult = try callRustFFIWithInput(input) { hawala_shamir_recover($0) }
+        return result.seedPhrase
+    }
+    
+    /// Validate a single recovery share
+    /// - Parameter share: The share to validate
+    /// - Returns: Validation result
+    public func validateShare(_ share: HawalaRecoveryShare) throws -> HawalaShareValidation {
+        let input = try encodeJSON(share)
+        return try callRustFFIWithInput(input) { hawala_shamir_validate_share($0) }
+    }
+    
+    // MARK: - Staking Operations
+    
+    /// Staking information for an address
+    public struct HawalaStakingInfo: Codable {
+        public let chain: String
+        public let address: String
+        public let stakedAmount: String
+        public let stakedRaw: String
+        public let availableRewards: String
+        public let unbondingAmount: String
+        public let unbondingCompletion: UInt64?
+        public let delegations: [HawalaDelegation]
+        
+        enum CodingKeys: String, CodingKey {
+            case chain, address, delegations
+            case stakedAmount = "staked_amount"
+            case stakedRaw = "staked_raw"
+            case availableRewards = "available_rewards"
+            case unbondingAmount = "unbonding_amount"
+            case unbondingCompletion = "unbonding_completion"
+        }
+    }
+    
+    /// A single delegation to a validator
+    public struct HawalaDelegation: Codable {
+        public let validatorAddress: String
+        public let validatorName: String?
+        public let amount: String
+        public let rewards: String
+        public let shares: String?
+        
+        enum CodingKeys: String, CodingKey {
+            case amount, rewards, shares
+            case validatorAddress = "validator_address"
+            case validatorName = "validator_name"
+        }
+    }
+    
+    /// Validator information
+    public struct HawalaValidatorInfo: Codable {
+        public let address: String
+        public let name: String
+        public let description: String?
+        public let website: String?
+        public let commission: Double
+        public let votingPower: String
+        public let status: String
+        public let apr: Double?
+        public let uptime: Double?
+        
+        enum CodingKeys: String, CodingKey {
+            case address, name, description, website, commission, status, apr, uptime
+            case votingPower = "voting_power"
+        }
+    }
+    
+    /// Get staking info for an address on a chain
+    public func getStakingInfo(address: String, chain: HawalaChain) throws -> HawalaStakingInfo {
+        struct StakingRequest: Encodable { let address: String; let chain: String }
+        let input = try encodeJSON(StakingRequest(address: address, chain: chain.rawValue))
+        return try callRustFFIWithInput(input) { hawala_staking_get_info($0) }
+    }
+    
+    /// Get validators for a chain
+    public func getValidators(chain: HawalaChain, limit: Int = 100) throws -> [HawalaValidatorInfo] {
+        struct ValidatorRequest: Encodable { let chain: String; let limit: Int }
+        let input = try encodeJSON(ValidatorRequest(chain: chain.rawValue, limit: limit))
+        return try callRustFFIWithInput(input) { hawala_staking_get_validators($0) }
+    }
+    
+    /// Staking action types
+    public enum HawalaStakeAction: String, Encodable {
+        case delegate = "Delegate"
+        case undelegate = "Undelegate"
+        case claimRewards = "ClaimRewards"
+        case compound = "Compound"
+    }
+    
+    /// Prepare a staking transaction
+    public func prepareStakingTransaction(
+        chain: HawalaChain,
+        delegatorAddress: String,
+        validatorAddress: String,
+        amount: String,
+        action: HawalaStakeAction
+    ) throws -> String {
+        struct StakeRequest: Encodable {
+            let chain: String
+            let delegatorAddress: String
+            let validatorAddress: String
+            let amount: String
+            let action: String
+            
+            enum CodingKeys: String, CodingKey {
+                case chain, amount, action
+                case delegatorAddress = "delegator_address"
+                case validatorAddress = "validator_address"
+            }
+        }
+        
+        struct StakeResult: Codable { let transaction: String }
+        
+        let request = StakeRequest(
+            chain: chain.rawValue,
+            delegatorAddress: delegatorAddress,
+            validatorAddress: validatorAddress,
+            amount: amount,
+            action: action.rawValue
+        )
+        let input = try encodeJSON(request)
+        let result: StakeResult = try callRustFFIWithInput(input) { hawala_staking_prepare_tx($0) }
+        return result.transaction
+    }
+    
+    // MARK: - Phase 2: Security & Trust Features
+    
+    // MARK: Transaction Simulation
+    
+    /// Result of simulating a transaction
+    public struct SimulationResult: Codable {
+        public let success: Bool
+        public let gasUsed: UInt64
+        public let balanceChanges: [BalanceChange]
+        public let tokenApprovals: [TokenApprovalChange]
+        public let warnings: [SimulationWarning]
+        public let riskLevel: String
+        public let summary: String
+        
+        enum CodingKeys: String, CodingKey {
+            case success, warnings, summary
+            case gasUsed = "gas_used"
+            case balanceChanges = "balance_changes"
+            case tokenApprovals = "token_approvals"
+            case riskLevel = "risk_level"
+        }
+    }
+    
+    public struct BalanceChange: Codable {
+        public let tokenAddress: String
+        public let symbol: String
+        public let name: String
+        public let decimals: UInt8
+        public let amount: String
+        public let rawAmount: String
+        public let usdValue: String?
+        public let direction: String
+        
+        enum CodingKeys: String, CodingKey {
+            case symbol, name, decimals, amount, direction
+            case tokenAddress = "token_address"
+            case rawAmount = "raw_amount"
+            case usdValue = "usd_value"
+        }
+    }
+    
+    public struct TokenApprovalChange: Codable {
+        public let tokenAddress: String
+        public let symbol: String
+        public let spenderAddress: String
+        public let spenderName: String?
+        public let newAllowance: String
+        public let isUnlimited: Bool
+        public let riskLevel: String
+        
+        enum CodingKeys: String, CodingKey {
+            case symbol
+            case tokenAddress = "token_address"
+            case spenderAddress = "spender_address"
+            case spenderName = "spender_name"
+            case newAllowance = "new_allowance"
+            case isUnlimited = "is_unlimited"
+            case riskLevel = "risk_level"
+        }
+    }
+    
+    public struct SimulationWarning: Codable {
+        public let severity: String
+        public let code: String
+        public let message: String
+        public let details: String?
+        public let shouldBlock: Bool
+        
+        enum CodingKeys: String, CodingKey {
+            case severity, code, message, details
+            case shouldBlock = "should_block"
+        }
+    }
+    
+    /// Simulate a transaction before signing
+    public func simulateTransaction(
+        chain: HawalaChain,
+        from: String,
+        to: String,
+        value: String,
+        data: String = "0x",
+        gasLimit: UInt64? = nil
+    ) throws -> SimulationResult {
+        struct SimRequest: Encodable {
+            let chain: String
+            let from: String
+            let to: String
+            let value: String
+            let data: String
+            let gasLimit: UInt64?
+            
+            enum CodingKeys: String, CodingKey {
+                case chain, from, to, value, data
+                case gasLimit = "gas_limit"
+            }
+        }
+        
+        let request = SimRequest(
+            chain: chain.rawValue,
+            from: from,
+            to: to,
+            value: value,
+            data: data,
+            gasLimit: gasLimit
+        )
+        let input = try encodeJSON(request)
+        return try callRustFFIWithInput(input) { hawala_simulate_transaction($0) }
+    }
+    
+    /// Analyze transaction risk
+    public func analyzeRisk(
+        chain: HawalaChain,
+        from: String,
+        to: String,
+        value: String,
+        data: String = "0x"
+    ) throws -> [SimulationWarning] {
+        struct RiskRequest: Encodable {
+            let chain: String
+            let from: String
+            let to: String
+            let value: String
+            let data: String
+        }
+        struct RiskResult: Codable {
+            let warnings: [SimulationWarning]
+        }
+        
+        let request = RiskRequest(chain: chain.rawValue, from: from, to: to, value: value, data: data)
+        let input = try encodeJSON(request)
+        let result: RiskResult = try callRustFFIWithInput(input) { hawala_analyze_risk($0) }
+        return result.warnings
+    }
+    
+    // MARK: Token Approval Management
+    
+    /// Token approval information
+    public struct TokenApproval: Codable {
+        public let tokenAddress: String
+        public let symbol: String
+        public let name: String
+        public let decimals: UInt8
+        public let spenderAddress: String
+        public let spenderName: String?
+        public let spenderProtocol: String?
+        public let allowance: String
+        public let allowanceRaw: String
+        public let isUnlimited: Bool
+        public let valueAtRiskUsd: String?
+        public let lastUsed: UInt64?
+        public let riskLevel: String
+        public let riskReasons: [String]
+        public let chain: String
+        
+        enum CodingKeys: String, CodingKey {
+            case symbol, name, decimals, allowance, chain
+            case tokenAddress = "token_address"
+            case spenderAddress = "spender_address"
+            case spenderName = "spender_name"
+            case spenderProtocol = "spender_protocol"
+            case allowanceRaw = "allowance_raw"
+            case isUnlimited = "is_unlimited"
+            case valueAtRiskUsd = "value_at_risk_usd"
+            case lastUsed = "last_used"
+            case riskLevel = "risk_level"
+            case riskReasons = "risk_reasons"
+        }
+    }
+    
+    public struct ApprovalsResult: Codable {
+        public let approvals: [TokenApproval]
+        public let totalCount: Int
+        public let highRiskCount: Int
+        public let unlimitedCount: Int
+        public let totalValueAtRiskUsd: String?
+        
+        enum CodingKeys: String, CodingKey {
+            case approvals
+            case totalCount = "total_count"
+            case highRiskCount = "high_risk_count"
+            case unlimitedCount = "unlimited_count"
+            case totalValueAtRiskUsd = "total_value_at_risk_usd"
+        }
+    }
+    
+    /// Get all token approvals for an address
+    public func getApprovals(address: String, chain: HawalaChain) throws -> ApprovalsResult {
+        struct ApprovalsRequest: Encodable { let address: String; let chain: String }
+        let input = try encodeJSON(ApprovalsRequest(address: address, chain: chain.rawValue))
+        return try callRustFFIWithInput(input) { hawala_get_approvals($0) }
+    }
+    
+    public struct RevokeTransaction: Codable {
+        public let to: String
+        public let data: String
+        public let gasLimit: UInt64
+        
+        enum CodingKeys: String, CodingKey {
+            case to, data
+            case gasLimit = "gas_limit"
+        }
+    }
+    
+    /// Create a revoke transaction for a token approval
+    public func revokeApproval(
+        tokenAddress: String,
+        spenderAddress: String,
+        chain: HawalaChain
+    ) throws -> RevokeTransaction {
+        struct RevokeRequest: Encodable {
+            let tokenAddress: String
+            let spenderAddress: String
+            let chain: String
+            
+            enum CodingKeys: String, CodingKey {
+                case chain
+                case tokenAddress = "token_address"
+                case spenderAddress = "spender_address"
+            }
+        }
+        
+        let request = RevokeRequest(
+            tokenAddress: tokenAddress,
+            spenderAddress: spenderAddress,
+            chain: chain.rawValue
+        )
+        let input = try encodeJSON(request)
+        return try callRustFFIWithInput(input) { hawala_revoke_approval($0) }
+    }
+    
+    /// Batch revoke multiple approvals
+    public func batchRevoke(
+        approvals: [(tokenAddress: String, spenderAddress: String)],
+        chain: HawalaChain
+    ) throws -> [RevokeTransaction] {
+        struct ApprovalItem: Encodable {
+            let tokenAddress: String
+            let spenderAddress: String
+            
+            enum CodingKeys: String, CodingKey {
+                case tokenAddress = "token_address"
+                case spenderAddress = "spender_address"
+            }
+        }
+        struct BatchRequest: Encodable {
+            let chain: String
+            let approvals: [ApprovalItem]
+        }
+        
+        let items = approvals.map { ApprovalItem(tokenAddress: $0.tokenAddress, spenderAddress: $0.spenderAddress) }
+        let request = BatchRequest(chain: chain.rawValue, approvals: items)
+        let input = try encodeJSON(request)
+        return try callRustFFIWithInput(input) { hawala_batch_revoke($0) }
+    }
+    
+    // MARK: Phishing & Scam Detection
+    
+    /// Result of checking an address for phishing
+    public struct PhishingAddressResult: Codable {
+        public let address: String
+        public let isFlagged: Bool
+        public let flagType: String?
+        public let riskLevel: String
+        public let source: String?
+        public let reportCount: UInt32
+        public let details: String?
+        public let shouldBlock: Bool
+        
+        enum CodingKeys: String, CodingKey {
+            case address, source, details
+            case isFlagged = "is_flagged"
+            case flagType = "flag_type"
+            case riskLevel = "risk_level"
+            case reportCount = "report_count"
+            case shouldBlock = "should_block"
+        }
+    }
+    
+    /// Result of checking a domain for phishing
+    public struct PhishingDomainResult: Codable {
+        public let domain: String
+        public let isFlagged: Bool
+        public let flagType: String?
+        public let riskLevel: String
+        public let details: String?
+        public let impersonating: String?
+        public let shouldBlock: Bool
+        
+        enum CodingKeys: String, CodingKey {
+            case domain, details, impersonating
+            case isFlagged = "is_flagged"
+            case flagType = "flag_type"
+            case riskLevel = "risk_level"
+            case shouldBlock = "should_block"
+        }
+    }
+    
+    /// Check an address for phishing/scam flags
+    public func checkPhishingAddress(_ address: String) throws -> PhishingAddressResult {
+        struct Request: Encodable { let address: String }
+        let input = try encodeJSON(Request(address: address))
+        return try callRustFFIWithInput(input) { hawala_check_phishing_address($0) }
+    }
+    
+    /// Check a domain for phishing flags
+    public func checkPhishingDomain(_ domain: String) throws -> PhishingDomainResult {
+        struct Request: Encodable { let domain: String }
+        let input = try encodeJSON(Request(domain: domain))
+        return try callRustFFIWithInput(input) { hawala_check_phishing_domain($0) }
+    }
+    
+    // MARK: Address Whitelisting
+    
+    /// A whitelisted address entry
+    public struct WhitelistEntry: Codable {
+        public let address: String
+        public let label: String?
+        public let chains: [String]
+        public let addedAt: UInt64
+        public let activeAt: UInt64
+        public let isActive: Bool
+        public let notes: String?
+        
+        enum CodingKeys: String, CodingKey {
+            case address, label, chains, notes
+            case addedAt = "added_at"
+            case activeAt = "active_at"
+            case isActive = "is_active"
+        }
+    }
+    
+    /// Result of checking whitelist
+    public struct WhitelistCheckResult: Codable {
+        public let isWhitelisted: Bool
+        public let entry: WhitelistEntry?
+        public let allowed: Bool
+        public let warning: String?
+        public let blockReason: String?
+        public let pendingSeconds: UInt64?
+        
+        enum CodingKeys: String, CodingKey {
+            case entry, allowed, warning
+            case isWhitelisted = "is_whitelisted"
+            case blockReason = "block_reason"
+            case pendingSeconds = "pending_seconds"
+        }
+    }
+    
+    /// Add an address to the whitelist
+    public func whitelistAdd(
+        walletId: String,
+        address: String,
+        label: String? = nil,
+        chains: [HawalaChain]? = nil,
+        notes: String? = nil,
+        skipTimeLock: Bool = false
+    ) throws -> WhitelistEntry {
+        struct AddRequest: Encodable {
+            let walletId: String
+            let address: String
+            let label: String?
+            let chains: [String]?
+            let notes: String?
+            let skipTimeLock: Bool
+            
+            enum CodingKeys: String, CodingKey {
+                case address, label, chains, notes
+                case walletId = "wallet_id"
+                case skipTimeLock = "skip_time_lock"
+            }
+        }
+        
+        let request = AddRequest(
+            walletId: walletId,
+            address: address,
+            label: label,
+            chains: chains?.map { $0.rawValue },
+            notes: notes,
+            skipTimeLock: skipTimeLock
+        )
+        let input = try encodeJSON(request)
+        return try callRustFFIWithInput(input) { hawala_whitelist_add($0) }
+    }
+    
+    /// Remove an address from the whitelist
+    public func whitelistRemove(walletId: String, address: String) throws {
+        struct RemoveRequest: Encodable {
+            let walletId: String
+            let address: String
+            
+            enum CodingKeys: String, CodingKey {
+                case address
+                case walletId = "wallet_id"
+            }
+        }
+        struct RemoveResult: Codable { let removed: Bool }
+        
+        let request = RemoveRequest(walletId: walletId, address: address)
+        let input = try encodeJSON(request)
+        let _: RemoveResult = try callRustFFIWithInput(input) { hawala_whitelist_remove($0) }
+    }
+    
+    /// Check if an address is whitelisted
+    public func whitelistCheck(
+        walletId: String,
+        address: String,
+        chain: HawalaChain,
+        transactionUsd: Double? = nil
+    ) throws -> WhitelistCheckResult {
+        struct CheckRequest: Encodable {
+            let walletId: String
+            let address: String
+            let chain: String
+            let transactionUsd: Double?
+            
+            enum CodingKeys: String, CodingKey {
+                case address, chain
+                case walletId = "wallet_id"
+                case transactionUsd = "transaction_usd"
+            }
+        }
+        
+        let request = CheckRequest(
+            walletId: walletId,
+            address: address,
+            chain: chain.rawValue,
+            transactionUsd: transactionUsd
+        )
+        let input = try encodeJSON(request)
+        return try callRustFFIWithInput(input) { hawala_whitelist_check($0) }
+    }
+    
+    /// Get all whitelisted addresses for a wallet
+    public func whitelistGetAll(walletId: String) throws -> [WhitelistEntry] {
+        struct Request: Encodable {
+            let walletId: String
+            enum CodingKeys: String, CodingKey { case walletId = "wallet_id" }
+        }
+        struct Result: Codable { let entries: [WhitelistEntry]; let count: Int }
+        
+        let input = try encodeJSON(Request(walletId: walletId))
+        let result: Result = try callRustFFIWithInput(input) { hawala_whitelist_get_all($0) }
+        return result.entries
+    }
+    
+    // MARK: Combined Security Check
+    
+    /// Comprehensive security check result
+    public struct SecurityCheckResult: Codable {
+        public let shouldBlock: Bool
+        public let phishing: PhishingAddressResult
+        public let whitelist: WhitelistCheckResult
+        public let simulation: SimulationResult?
+        public let warnings: [String]
+        public let warningsCount: Int
+        
+        enum CodingKeys: String, CodingKey {
+            case phishing, whitelist, simulation, warnings
+            case shouldBlock = "should_block"
+            case warningsCount = "warnings_count"
+        }
+    }
+    
+    /// Run all security checks before signing a transaction
+    public func securityCheck(
+        walletId: String,
+        chain: HawalaChain,
+        from: String,
+        to: String,
+        value: String,
+        data: String? = nil,
+        gasLimit: UInt64? = nil,
+        transactionUsd: Double? = nil
+    ) throws -> SecurityCheckResult {
+        struct SecurityRequest: Encodable {
+            let walletId: String
+            let chain: String
+            let from: String
+            let to: String
+            let value: String
+            let data: String?
+            let gasLimit: UInt64?
+            let transactionUsd: Double?
+            
+            enum CodingKeys: String, CodingKey {
+                case chain, from, to, value, data
+                case walletId = "wallet_id"
+                case gasLimit = "gas_limit"
+                case transactionUsd = "transaction_usd"
+            }
+        }
+        
+        let request = SecurityRequest(
+            walletId: walletId,
+            chain: chain.rawValue,
+            from: from,
+            to: to,
+            value: value,
+            data: data,
+            gasLimit: gasLimit,
+            transactionUsd: transactionUsd
+        )
+        let input = try encodeJSON(request)
+        return try callRustFFIWithInput(input) { hawala_security_check($0) }
+    }
+    
+    // MARK: - Phase 3: L2 Balance Aggregation
+    
+    /// Aggregated balance across multiple chains
+    public struct AggregatedBalance: Codable {
+        public let token: String
+        public let tokenName: String
+        public let totalAmount: String
+        public let totalUsd: Double
+        public let chains: [ChainBalance]
+        public let chainCount: Int
+        
+        enum CodingKeys: String, CodingKey {
+            case token
+            case tokenName = "token_name"
+            case totalAmount = "total_amount"
+            case totalUsd = "total_usd"
+            case chains
+            case chainCount = "chain_count"
+        }
+    }
+    
+    /// Balance on a single chain
+    public struct ChainBalance: Codable {
+        public let chain: String
+        public let amount: String
+        public let amountDecimal: String
+        public let usdValue: Double
+        public let isL2: Bool
+        public let lastUpdated: UInt64
+        
+        enum CodingKeys: String, CodingKey {
+            case chain, amount
+            case amountDecimal = "amount_decimal"
+            case usdValue = "usd_value"
+            case isL2 = "is_l2"
+            case lastUpdated = "last_updated"
+        }
+    }
+    
+    /// Chain suggestion for a transaction
+    public struct ChainSuggestion: Codable {
+        public let chain: String
+        public let reason: String
+        public let estimatedFeeUsd: Double
+        public let availableBalance: String
+        public let hasSufficientBalance: Bool
+        
+        enum CodingKeys: String, CodingKey {
+            case chain, reason
+            case estimatedFeeUsd = "estimated_fee_usd"
+            case availableBalance = "available_balance"
+            case hasSufficientBalance = "has_sufficient_balance"
+        }
+    }
+    
+    /// Result of chain suggestion
+    public struct SuggestionResult: Codable {
+        public let recommended: ChainSuggestion
+        public let alternatives: [ChainSuggestion]
+    }
+    
+    /// Aggregate balances across L1 and L2 chains
+    public func aggregateBalances(
+        address: String,
+        token: String = "ETH",
+        chains: [String] = []
+    ) throws -> AggregatedBalance {
+        struct Request: Encodable {
+            let address: String
+            let token: String
+            let chains: [String]
+        }
+        let request = Request(address: address, token: token, chains: chains)
+        let input = try encodeJSON(request)
+        return try callRustFFIWithInput(input) { hawala_aggregate_balances($0) }
+    }
+    
+    /// Suggest the best chain for a transaction based on balance and fees
+    public func suggestChain(
+        address: String,
+        token: String,
+        amount: String
+    ) throws -> SuggestionResult {
+        struct Request: Encodable {
+            let address: String
+            let token: String
+            let amount: String
+        }
+        let request = Request(address: address, token: token, amount: amount)
+        let input = try encodeJSON(request)
+        return try callRustFFIWithInput(input) { hawala_suggest_chain($0) }
+    }
+    
+    // MARK: - Phase 3: Payment Request Links
+    
+    /// Payment request details
+    public struct PaymentRequest: Codable {
+        public let to: String
+        public let amount: String?
+        public let token: String?
+        public let chainId: UInt64?
+        public let memo: String?
+        public let requestId: String?
+        public let expiresAt: UInt64?
+        public let callbackUrl: String?
+        
+        public init(
+            to: String,
+            amount: String? = nil,
+            token: String? = nil,
+            chainId: UInt64? = nil,
+            memo: String? = nil,
+            requestId: String? = nil,
+            expiresAt: UInt64? = nil,
+            callbackUrl: String? = nil
+        ) {
+            self.to = to
+            self.amount = amount
+            self.token = token
+            self.chainId = chainId
+            self.memo = memo
+            self.requestId = requestId
+            self.expiresAt = expiresAt
+            self.callbackUrl = callbackUrl
+        }
+        
+        enum CodingKeys: String, CodingKey {
+            case to, amount, token, memo
+            case chainId = "chain_id"
+            case requestId = "request_id"
+            case expiresAt = "expires_at"
+            case callbackUrl = "callback_url"
+        }
+    }
+    
+    /// Parsed payment link result
+    public struct ParsedPaymentLink: Codable {
+        public let uri: String
+        public let scheme: String
+        public let request: PaymentRequest
+        public let isValid: Bool
+        public let errors: [String]
+        
+        enum CodingKeys: String, CodingKey {
+            case uri, scheme, request, errors
+            case isValid = "is_valid"
+        }
+    }
+    
+    /// Create a Hawala payment link
+    public func createPaymentLink(request: PaymentRequest) throws -> String {
+        let input = try encodeJSON(request)
+        let result: [String: String] = try callRustFFIWithInput(input) { hawala_create_payment_link($0) }
+        return result["link"] ?? ""
+    }
+    
+    /// Parse a payment link (hawala://, bitcoin:, ethereum:, solana:)
+    public func parsePaymentLink(uri: String) throws -> ParsedPaymentLink {
+        struct Request: Encodable {
+            let uri: String
+        }
+        let request = Request(uri: uri)
+        let input = try encodeJSON(request)
+        return try callRustFFIWithInput(input) { hawala_parse_payment_link($0) }
+    }
+    
+    /// Create a BIP-21 Bitcoin payment link
+    public func createBip21Link(request: PaymentRequest) throws -> String {
+        let input = try encodeJSON(request)
+        let result: [String: String] = try callRustFFIWithInput(input) { hawala_create_bip21_link($0) }
+        return result["link"] ?? ""
+    }
+    
+    /// Create an EIP-681 Ethereum payment link
+    public func createEip681Link(request: PaymentRequest) throws -> String {
+        let input = try encodeJSON(request)
+        let result: [String: String] = try callRustFFIWithInput(input) { hawala_create_eip681_link($0) }
+        return result["link"] ?? ""
+    }
+    
+    // MARK: - Phase 3: Transaction Notes
+    
+    /// Note category
+    public enum NoteCategory: String, Codable {
+        case income
+        case expense
+        case transfer
+        case swap
+        case nft
+        case airdrop
+        case stake
+        case unstake
+        case gas
+        case fee
+        case other
+    }
+    
+    /// A note attached to a transaction
+    public struct TransactionNote: Codable {
+        public let txHash: String
+        public let chain: String
+        public let content: String
+        public let tags: [String]
+        public let createdAt: UInt64
+        public let updatedAt: UInt64
+        public let isPinned: Bool
+        public let category: NoteCategory?
+        
+        enum CodingKeys: String, CodingKey {
+            case chain, content, tags, category
+            case txHash = "tx_hash"
+            case createdAt = "created_at"
+            case updatedAt = "updated_at"
+            case isPinned = "is_pinned"
+        }
+    }
+    
+    /// Search notes result
+    public struct SearchNotesResult: Codable {
+        public let notes: [TransactionNote]
+        public let totalCount: Int
+        public let hasMore: Bool
+        
+        enum CodingKeys: String, CodingKey {
+            case notes
+            case totalCount = "total_count"
+            case hasMore = "has_more"
+        }
+    }
+    
+    /// Add a note to a transaction
+    public func addNote(
+        txHash: String,
+        chain: HawalaChain,
+        content: String,
+        tags: [String]? = nil,
+        category: NoteCategory? = nil
+    ) throws -> TransactionNote {
+        struct Request: Encodable {
+            let txHash: String
+            let chain: String
+            let content: String
+            let tags: [String]?
+            let category: String?
+            
+            enum CodingKeys: String, CodingKey {
+                case chain, content, tags, category
+                case txHash = "tx_hash"
+            }
+        }
+        let request = Request(
+            txHash: txHash,
+            chain: chain.rawValue,
+            content: content,
+            tags: tags,
+            category: category?.rawValue
+        )
+        let input = try encodeJSON(request)
+        return try callRustFFIWithInput(input) { hawala_add_note($0) }
+    }
+    
+    /// Search transaction notes
+    public func searchNotes(
+        query: String? = nil,
+        chain: HawalaChain? = nil,
+        tags: [String]? = nil,
+        category: NoteCategory? = nil,
+        pinnedOnly: Bool = false,
+        limit: Int? = nil,
+        offset: Int? = nil
+    ) throws -> SearchNotesResult {
+        struct Request: Encodable {
+            let query: String?
+            let chain: String?
+            let tags: [String]?
+            let category: String?
+            let pinnedOnly: Bool
+            let limit: Int?
+            let offset: Int?
+            
+            enum CodingKeys: String, CodingKey {
+                case query, chain, tags, category, limit, offset
+                case pinnedOnly = "pinned_only"
+            }
+        }
+        let request = Request(
+            query: query,
+            chain: chain?.rawValue,
+            tags: tags,
+            category: category?.rawValue,
+            pinnedOnly: pinnedOnly,
+            limit: limit,
+            offset: offset
+        )
+        let input = try encodeJSON(request)
+        return try callRustFFIWithInput(input) { hawala_search_notes($0) }
+    }
+    
+    /// Export notes to JSON or CSV
+    public func exportNotes(format: String = "json") throws -> String {
+        struct Request: Encodable {
+            let format: String
+        }
+        let request = Request(format: format)
+        let input = try encodeJSON(request)
+        let result: [String: String] = try callRustFFIWithInput(input) { hawala_export_notes($0) }
+        return result["data"] ?? ""
+    }
+    
+    // MARK: - Phase 3: Fiat Off-Ramp
+    
+    /// Off-ramp provider
+    public enum OffRampProvider: String, Codable {
+        case moonpay
+        case transak
+        case ramp
+        case sardine
+        case banxa
+    }
+    
+    /// Fiat currency info
+    public struct FiatCurrency: Codable {
+        public let code: String
+        public let name: String
+        public let symbol: String
+        public let minAmount: Double
+        public let maxAmount: Double
+        
+        enum CodingKeys: String, CodingKey {
+            case code, name, symbol
+            case minAmount = "min_amount"
+            case maxAmount = "max_amount"
+        }
+    }
+    
+    /// Sellable crypto asset
+    public struct SellableCrypto: Codable {
+        public let symbol: String
+        public let name: String
+        public let chain: String
+        public let contractAddress: String?
+        public let minAmount: Double
+        public let maxAmount: Double
+        
+        enum CodingKeys: String, CodingKey {
+            case symbol, name, chain
+            case contractAddress = "contract_address"
+            case minAmount = "min_amount"
+            case maxAmount = "max_amount"
+        }
+    }
+    
+    /// Off-ramp quote
+    public struct OffRampQuote: Codable {
+        public let provider: OffRampProvider
+        public let cryptoAmount: Double
+        public let cryptoSymbol: String
+        public let fiatAmount: Double
+        public let fiatCurrency: String
+        public let exchangeRate: Double
+        public let providerFee: Double
+        public let networkFee: Double
+        public let totalFees: Double
+        public let expiresAt: UInt64
+        public let quoteId: String
+        
+        enum CodingKeys: String, CodingKey {
+            case provider
+            case cryptoAmount = "crypto_amount"
+            case cryptoSymbol = "crypto_symbol"
+            case fiatAmount = "fiat_amount"
+            case fiatCurrency = "fiat_currency"
+            case exchangeRate = "exchange_rate"
+            case providerFee = "provider_fee"
+            case networkFee = "network_fee"
+            case totalFees = "total_fees"
+            case expiresAt = "expires_at"
+            case quoteId = "quote_id"
+        }
+    }
+    
+    /// Get an off-ramp quote
+    public func getOffRampQuote(
+        provider: OffRampProvider,
+        cryptoSymbol: String,
+        cryptoAmount: Double,
+        fiatCurrency: String,
+        country: String
+    ) throws -> OffRampQuote {
+        struct Request: Encodable {
+            let provider: String
+            let cryptoSymbol: String
+            let cryptoAmount: Double
+            let fiatCurrency: String
+            let country: String
+            
+            enum CodingKeys: String, CodingKey {
+                case provider, country
+                case cryptoSymbol = "crypto_symbol"
+                case cryptoAmount = "crypto_amount"
+                case fiatCurrency = "fiat_currency"
+            }
+        }
+        let request = Request(
+            provider: provider.rawValue,
+            cryptoSymbol: cryptoSymbol,
+            cryptoAmount: cryptoAmount,
+            fiatCurrency: fiatCurrency,
+            country: country
+        )
+        let input = try encodeJSON(request)
+        return try callRustFFIWithInput(input) { hawala_offramp_quote($0) }
+    }
+    
+    /// Compare off-ramp quotes from multiple providers
+    public func compareOffRampQuotes(
+        cryptoSymbol: String,
+        cryptoAmount: Double,
+        fiatCurrency: String,
+        country: String
+    ) throws -> [OffRampQuote] {
+        struct Request: Encodable {
+            let cryptoSymbol: String
+            let cryptoAmount: Double
+            let fiatCurrency: String
+            let country: String
+            
+            enum CodingKeys: String, CodingKey {
+                case country
+                case cryptoSymbol = "crypto_symbol"
+                case cryptoAmount = "crypto_amount"
+                case fiatCurrency = "fiat_currency"
+            }
+        }
+        let request = Request(
+            cryptoSymbol: cryptoSymbol,
+            cryptoAmount: cryptoAmount,
+            fiatCurrency: fiatCurrency,
+            country: country
+        )
+        let input = try encodeJSON(request)
+        let result: [String: [OffRampQuote]] = try callRustFFIWithInput(input) { hawala_offramp_compare($0) }
+        return result["quotes"] ?? []
+    }
+    
+    /// Get supported fiat currencies for off-ramp
+    public func getOffRampCurrencies(provider: OffRampProvider) throws -> [FiatCurrency] {
+        struct Request: Encodable {
+            let provider: String
+        }
+        let request = Request(provider: provider.rawValue)
+        let input = try encodeJSON(request)
+        let result: [String: [FiatCurrency]] = try callRustFFIWithInput(input) { hawala_offramp_currencies($0) }
+        return result["currencies"] ?? []
+    }
+    
+    /// Get sellable cryptos for off-ramp
+    public func getOffRampCryptos(provider: OffRampProvider) throws -> [SellableCrypto] {
+        struct Request: Encodable {
+            let provider: String
+        }
+        let request = Request(provider: provider.rawValue)
+        let input = try encodeJSON(request)
+        let result: [String: [SellableCrypto]] = try callRustFFIWithInput(input) { hawala_offramp_cryptos($0) }
+        return result["cryptos"] ?? []
+    }
+    
+    // MARK: - Phase 3: Price Alerts
+    
+    /// Alert type
+    public enum AlertType: String, Codable {
+        case above
+        case below
+        case percentIncrease = "percent_increase"
+        case percentDecrease = "percent_decrease"
+        case percentChange = "percent_change"
+    }
+    
+    /// Alert status
+    public enum AlertStatus: String, Codable {
+        case active
+        case triggered
+        case paused
+        case expired
+        case cancelled
+    }
+    
+    /// Price alert
+    public struct PriceAlert: Codable {
+        public let id: String
+        public let symbol: String
+        public let alertType: AlertType
+        public let targetValue: Double
+        public let basePrice: Double?
+        public let status: AlertStatus
+        public let createdAt: UInt64
+        public let triggeredAt: UInt64?
+        public let triggeredPrice: Double?
+        public let note: String?
+        public let `repeat`: Bool
+        public let expiresAt: UInt64?
+        
+        enum CodingKeys: String, CodingKey {
+            case id, symbol, status, note
+            case alertType = "alert_type"
+            case targetValue = "target_value"
+            case basePrice = "base_price"
+            case createdAt = "created_at"
+            case triggeredAt = "triggered_at"
+            case triggeredPrice = "triggered_price"
+            case `repeat` = "repeat"
+            case expiresAt = "expires_at"
+        }
+    }
+    
+    /// Price data
+    public struct PriceData: Codable {
+        public let symbol: String
+        public let price: Double
+        public let change24h: Double
+        public let change24hPercent: Double
+        public let updatedAt: UInt64
+        
+        enum CodingKeys: String, CodingKey {
+            case symbol, price
+            case change24h = "change_24h"
+            case change24hPercent = "change_24h_percent"
+            case updatedAt = "updated_at"
+        }
+    }
+    
+    /// Alert statistics
+    public struct AlertStats: Codable {
+        public let total: Int
+        public let active: Int
+        public let triggered: Int
+        public let paused: Int
+        public let bySymbol: [String: Int]
+        
+        enum CodingKeys: String, CodingKey {
+            case total, active, triggered, paused
+            case bySymbol = "by_symbol"
+        }
+    }
+    
+    /// Create a price alert
+    public func createPriceAlert(
+        symbol: String,
+        alertType: AlertType,
+        targetValue: Double,
+        note: String? = nil,
+        `repeat`: Bool = false,
+        expiresAt: UInt64? = nil
+    ) throws -> PriceAlert {
+        struct Request: Encodable {
+            let symbol: String
+            let alertType: String
+            let targetValue: Double
+            let note: String?
+            let `repeat`: Bool
+            let expiresAt: UInt64?
+            
+            enum CodingKeys: String, CodingKey {
+                case symbol, note
+                case alertType = "alert_type"
+                case targetValue = "target_value"
+                case `repeat` = "repeat"
+                case expiresAt = "expires_at"
+            }
+        }
+        let request = Request(
+            symbol: symbol,
+            alertType: alertType.rawValue,
+            targetValue: targetValue,
+            note: note,
+            repeat: `repeat`,
+            expiresAt: expiresAt
+        )
+        let input = try encodeJSON(request)
+        return try callRustFFIWithInput(input) { hawala_create_alert($0) }
+    }
+    
+    /// Get current price with 24h change
+    public func getPrice(symbol: String) throws -> PriceData {
+        struct Request: Encodable {
+            let symbol: String
+        }
+        let request = Request(symbol: symbol)
+        let input = try encodeJSON(request)
+        return try callRustFFIWithInput(input) { hawala_get_price($0) }
+    }
+    
+    /// Get alert statistics
+    public func getAlertStats() throws -> AlertStats {
+        guard let cString = hawala_alert_stats() else {
+            throw HawalaError(code: "internal", message: "Null response from FFI", details: nil)
+        }
+        let jsonString = String(cString: cString)
+        freeRustString(UnsafeMutablePointer(mutating: cString))
+        
+        guard let data = jsonString.data(using: .utf8) else {
+            throw HawalaError(code: "encoding", message: "Invalid UTF-8 response", details: nil)
+        }
+        
+        struct AlertStatsResponse: Decodable {
+            let success: Bool
+            let data: AlertStats?
+            let error: HawalaError?
+        }
+        
+        let response = try JSONDecoder().decode(AlertStatsResponse.self, from: data)
+        if response.success, let stats = response.data {
+            return stats
+        } else {
+            throw response.error ?? HawalaError(code: "unknown", message: "Unknown error", details: nil)
+        }
+    }
+    
     // MARK: - Legacy Compatibility API (Deprecated)
     
     @available(*, deprecated, message: "Use generateWallet() instead")

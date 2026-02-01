@@ -479,6 +479,12 @@ struct EditWatchOnlyView: View {
     }
 }
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     WatchOnlyView()
 }
+#endif
+#endif
+#endif

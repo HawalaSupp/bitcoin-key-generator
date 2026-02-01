@@ -14,10 +14,12 @@ pub mod tezos;
 pub mod solana;
 pub mod cosmos;
 
-pub use ethereum::*;
-pub use tezos::*;
-pub use solana::*;
-pub use cosmos::*;
+// Note: Using qualified exports to avoid ambiguous function names
+// Each module has different naming conventions for their signing functions
+pub use ethereum::{personal_sign as sign_ethereum_message, verify_personal_sign as verify_ethereum_message, recover_address as recover_ethereum_address};
+pub use tezos::{sign_message as sign_tezos_message, verify_message as verify_tezos_message};
+pub use solana::{sign_message as sign_solana_message, verify_message as verify_solana_message, get_public_key as get_solana_public_key};
+pub use cosmos::{sign_arbitrary as sign_cosmos_message, verify_arbitrary as verify_cosmos_message, get_public_key as get_cosmos_public_key};
 
 use serde::{Deserialize, Serialize};
 

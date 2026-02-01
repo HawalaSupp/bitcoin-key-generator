@@ -138,10 +138,29 @@ pub enum ErrorCode {
     // Internal
     Internal,
     NotImplemented,
+    LockPoisoned,
 }
 
 /// Result type alias for Hawala operations
 pub type HawalaResult<T> = Result<T, HawalaError>;
+
+// Helper functions for safe lock access
+
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, PoisonError};
+
+/// Safely acquire a read lock, converting poison errors to HawalaError
+pub fn read_lock<T>(lock: &RwLock<T>) -> HawalaResult<RwLockReadGuard<'_, T>> {
+    lock.read().map_err(|_: PoisonError<_>| {
+        HawalaError::new(ErrorCode::LockPoisoned, "Lock poisoned - internal state may be corrupt")
+    })
+}
+
+/// Safely acquire a write lock, converting poison errors to HawalaError
+pub fn write_lock<T>(lock: &RwLock<T>) -> HawalaResult<RwLockWriteGuard<'_, T>> {
+    lock.write().map_err(|_: PoisonError<_>| {
+        HawalaError::new(ErrorCode::LockPoisoned, "Lock poisoned - internal state may be corrupt")
+    })
+}
 
 // Conversions from common error types
 

@@ -1061,6 +1061,12 @@ struct NewAddressSheet: View {
     }
 }
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview("Address Management") {
     AddressManagementView()
 }
+#endif
+#endif
+#endif

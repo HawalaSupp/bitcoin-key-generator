@@ -870,6 +870,12 @@ struct TravelModeSheet: View {
 }
 
 // MARK: - Preview
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     GeographicSecurityView()
 }
+#endif
+#endif
+#endif

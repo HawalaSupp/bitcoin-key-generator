@@ -1,11 +1,13 @@
-import XCTest
+import Testing
+import Foundation
 import GRDB
 @testable import swift_app
 
-final class TransactionRawDataPersistenceTests: XCTestCase {
+@Suite
+struct TransactionRawDataPersistenceTests {
 
     @MainActor
-    func testEnsureActiveWalletRecordCreatesRow() async throws {
+    @Test func testEnsureActiveWalletRecordCreatesRow() async throws {
         // Ensure there is at least one wallet in the WalletRepository.
         // (This is a lightweight, local-only wallet profile; no network.)
         if WalletRepository.shared.wallets.isEmpty {
@@ -18,16 +20,16 @@ final class TransactionRawDataPersistenceTests: XCTestCase {
         }
 
         let walletId = try await TransactionStore.shared.ensureActiveWalletRecord()
-        XCTAssertFalse(walletId.isEmpty)
+        #expect(!(walletId.isEmpty))
 
         // Verify row exists.
         let exists = try DatabaseManager.shared.read { db in
             try WalletRecord.filter(Column("id") == walletId).fetchCount(db) > 0
         }
-        XCTAssertTrue(exists)
+        #expect(exists)
     }
 
-    func testTransactionRecordRawDataRoundTrip() async throws {
+    @Test func testTransactionRecordRawDataRoundTrip() async throws {
         // Ensure a wallet exists for the transaction foreign key.
         let walletId = UUID().uuidString
         let wallet = WalletRecord(
@@ -48,7 +50,10 @@ final class TransactionRawDataPersistenceTests: XCTestCase {
         let chainId = "ethereum-sepolia"
 
         let rawHex = "0x02deadbeef"
-        let rawData = try XCTUnwrap(rawHex.data(using: .utf8))
+        guard let rawData = rawHex.data(using: .utf8) else {
+            #expect(Bool(false), "Failed to create raw data")
+            return
+        }
 
         // Create a minimal transaction record first.
         let record = TransactionRecord.from(
@@ -69,10 +74,14 @@ final class TransactionRawDataPersistenceTests: XCTestCase {
         try await TransactionStore.shared.attachRawData(txHash: txHash, chainId: chainId, rawData: rawData)
 
         let loaded = try await TransactionStore.shared.fetchRawData(txHash: txHash, chainId: chainId)
-        XCTAssertEqual(loaded, rawData)
+        #expect(loaded == rawData)
 
         // Ensure it decodes back to the same string.
-        let loadedString = String(data: try XCTUnwrap(loaded), encoding: .utf8)
-        XCTAssertEqual(loadedString, rawHex)
+        guard let loadedData = loaded else {
+            #expect(Bool(false), "Loaded data was nil")
+            return
+        }
+        let loadedString = String(data: loadedData, encoding: .utf8)
+        #expect(loadedString == rawHex)
     }
 }

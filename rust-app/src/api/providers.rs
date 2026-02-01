@@ -2,7 +2,7 @@
 //!
 //! Unified interface for multiple blockchain data providers.
 
-use crate::error::{HawalaError, HawalaResult};
+use crate::error::HawalaResult;
 use crate::types::*;
 use std::time::Duration;
 

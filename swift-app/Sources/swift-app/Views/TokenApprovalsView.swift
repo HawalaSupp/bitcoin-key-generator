@@ -503,6 +503,9 @@ private struct ApprovalFilterPill: View {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     TokenApprovalsView(
         walletAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f2b4F6",
@@ -510,3 +513,6 @@ private struct ApprovalFilterPill: View {
         onRevoke: { _ in }
     )
 }
+#endif
+#endif
+#endif

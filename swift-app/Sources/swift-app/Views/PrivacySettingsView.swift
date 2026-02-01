@@ -143,12 +143,18 @@ struct PrivacySettingsView: View {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     NavigationStack {
         PrivacySettingsView()
     }
     .frame(width: 500, height: 700)
 }
+#endif
+#endif
+#endif
 
 // MARK: - Privacy Settings Card (for main settings)
 

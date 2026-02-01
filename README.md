@@ -1,47 +1,49 @@
-# Multi-Chain Cryptocurrency Key Generator
+# Hawala - Multi-Chain Cryptocurrency Wallet
 
-A Rust CLI tool with a SwiftUI macOS interface that generates cryptographically secure keys and addresses for Bitcoin, Litecoin, Monero, Solana, and Ethereum.
+A comprehensive multi-chain cryptocurrency wallet with Rust backend and SwiftUI macOS/iOS interface. Supports 40+ blockchains with cutting-edge features including ERC-4337 account abstraction, hardware wallet integration, and cross-chain bridging.
 
 ## Overview
 
-This workspace combines Rust cryptographic primitives with a native SwiftUI front-end to provide a user-friendly multi-chain key generation experience. The Rust backend handles all cryptographic operations, while the Swift layer provides a macOS GUI with copy-to-clipboard functionality.
+Hawala combines Rust cryptographic primitives with a native SwiftUI front-end to provide a secure, feature-rich wallet experience. The Rust backend handles all cryptographic operations, transaction signing, and blockchain communication, while the Swift layer provides an elegant GUI.
 
 ## Features
 
-### Supported Cryptocurrencies
+### Supported Blockchains (40+)
 
-1. **Bitcoin (P2WPKH)**
-   - Private key (hex and WIF formats)
-   - Compressed public key
-   - Bech32 SegWit address (bc1...)
+**Major Chains:**
+- Bitcoin (BTC) - SegWit, Taproot, RBF
+- Ethereum (ETH) - EIP-1559, ERC-20, NFTs
+- Solana (SOL) - SPL tokens, staking
+- Polygon, Arbitrum, Optimism, Base - L2 support
 
-2. **Litecoin (P2WPKH)**
-   - Private key (hex and Litecoin WIF)
-   - Compressed public key
-   - Bech32 SegWit address (ltc1...)
+**EVM Compatible:**
+- Avalanche, BNB Chain, Fantom, Harmony, Moonbeam
 
-3. **Monero**
-   - Private spend and view keys (ed25519 scalars)
-   - Public spend and view keys
-   - Primary address (custom base58 encoding per Monero specs)
-   - Address checksum validation
+**Smart Contract Platforms:**
+- Cardano, Polkadot, Cosmos, Tezos, Near, Sui, Aptos
 
-4. **Solana**
-   - Ed25519 seed and keypair
-   - Private key (base58-encoded keypair)
-   - Public key / address (base58-encoded)
+**UTXO Chains:**
+- Litecoin, Dogecoin, Bitcoin Cash, Dash, Zcash, Ravencoin
 
-5. **Ethereum**
-   - Private key (256-bit hex)
-   - Uncompressed public key (Keccak-256 derived)
-   - EIP-55 checksummed address
+**Privacy Coins:**
+- Monero, Zcash (shielded)
 
-### Key Features
+### Cutting-Edge Features (Phase 4)
 
-- **Cryptographically Secure**: Uses OS-level RNG (`OsRng`) for entropy
-- **Copy to Clipboard**: SwiftUI button instantly copies all output to macOS clipboard
-- **Clear Output**: One-click clearing of generated keys
-- **Error Handling**: Graceful error messages if generation fails
+- **ERC-4337 Smart Accounts**: Account abstraction with counterfactual addresses
+- **Gasless Transactions**: Paymaster integration for sponsored gas
+- **Multi-Chain Gas Account**: Single balance pays gas on any chain
+- **Passkey Authentication**: WebAuthn/Face ID integration
+- **Hardware Wallet Support**: Ledger integration
+- **Cross-Chain Bridging**: Wormhole, LayerZero, Stargate
+
+### Key Capabilities
+
+- **867+ Unit Tests**: Comprehensive test coverage
+- **120fps Performance**: Optimized for ProMotion displays
+- **Security Hardened**: Constant-time comparisons, memory zeroing
+- **Transaction Simulation**: Pre-sign preview of balance changes
+- **Phishing Protection**: Blacklist checking, risk warnings
 
 ## Project Structure
 

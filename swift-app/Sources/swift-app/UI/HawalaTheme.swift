@@ -36,21 +36,30 @@ struct HawalaTheme {
             Color("hawala.textSecondary", bundle: nil)
                 .orDefault(dark: Color(hex: "A0A0A0"), light: Color(hex: "6E6E73"))
         }
+        // WCAG AA compliant: 4.5:1 contrast on both dark (#252525) and light (#F5F5F7) backgrounds
         static var textTertiary: Color {
             Color("hawala.textTertiary", bundle: nil)
-                .orDefault(dark: Color(hex: "666666"), light: Color(hex: "8E8E93"))
+                .orDefault(dark: Color(hex: "8E8E8E"), light: Color(hex: "6B6B70"))
         }
         
-        // Accent colors - same across themes
+        // Accent colors - same across themes (used for large text/buttons, 3:1 acceptable)
         static let accent = Color(hex: "835EF8")               // Purple accent
         static let accentHover = Color(hex: "9B7BFA")
         static let accentSubtle = Color(hex: "835EF8").opacity(0.15)
         
-        // Status colors - consistent across themes
-        static let success = Color(hex: "28A745")
-        static let warning = Color(hex: "FFC107")
-        static let error = Color(hex: "DC3545")
-        static let info = Color(hex: "17A2B8")
+        // Status colors - adaptive for WCAG AA compliance (4.5:1 contrast)
+        static var success: Color {
+            AdaptiveColor(dark: Color(hex: "32D74B"), light: Color(hex: "1E7E34")).color
+        }
+        static var warning: Color {
+            AdaptiveColor(dark: Color(hex: "FFD60A"), light: Color(hex: "856404")).color
+        }
+        static var error: Color {
+            AdaptiveColor(dark: Color(hex: "FF453A"), light: Color(hex: "C82333")).color
+        }
+        static var info: Color {
+            AdaptiveColor(dark: Color(hex: "64D2FF"), light: Color(hex: "117A8B")).color
+        }
         
         // Chain colors - consistent across themes
         static let bitcoin = Color(hex: "F7931A")

@@ -1,22 +1,23 @@
-import XCTest
+import Testing
 import SwiftUI
 @testable import swift_app
 
-final class AppearanceModeTests: XCTestCase {
-    func testShortLabelsAreStable() {
-        XCTAssertEqual(AppearanceMode.system.displayName, "System Default")
-        XCTAssertEqual(AppearanceMode.light.displayName, "Light Mode")
-        XCTAssertEqual(AppearanceMode.dark.displayName, "Dark Mode")
+@Suite
+struct AppearanceModeTests {
+    @Test func testShortLabelsAreStable() {
+        #expect(AppearanceMode.system.displayName == "System Default")
+        #expect(AppearanceMode.light.displayName == "Light Mode")
+        #expect(AppearanceMode.dark.displayName == "Dark Mode")
     }
 
-    func testColorSchemeMapping() {
-        XCTAssertNil(AppearanceMode.system.colorScheme)
-        XCTAssertEqual(AppearanceMode.light.colorScheme, .light)
-        XCTAssertEqual(AppearanceMode.dark.colorScheme, .dark)
+    @Test func testColorSchemeMapping() {
+        #expect(AppearanceMode.system.colorScheme == nil)
+        #expect(AppearanceMode.light.colorScheme == .light)
+        #expect(AppearanceMode.dark.colorScheme == .dark)
     }
 
-    func testMenuIconUniqueness() {
+    @Test func testMenuIconUniqueness() {
         let icons = AppearanceMode.allCases.map { $0.menuIconName }
-        XCTAssertEqual(Set(icons).count, icons.count, "Each appearance mode should use a unique icon")
+        #expect(Set(icons).count == icons.count, "Each appearance mode should use a unique icon")
     }
 }

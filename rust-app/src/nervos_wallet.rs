@@ -4,7 +4,6 @@
 //! Uses secp256k1 with bech32m ckb1... addresses.
 
 use secp256k1::{Secp256k1, SecretKey, PublicKey};
-use blake2::{Blake2b, Digest};
 use bech32::{self, Variant, ToBase32};
 
 use crate::error::{HawalaError, HawalaResult};

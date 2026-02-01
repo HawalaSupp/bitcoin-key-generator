@@ -1118,6 +1118,12 @@ struct ScheduleDetailRow: View {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     ScheduledTransactionsView()
 }
+#endif
+#endif
+#endif

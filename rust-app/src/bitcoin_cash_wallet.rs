@@ -2,7 +2,7 @@
 // Derivation path: m/44'/145'/0'/0/0
 // Uses CashAddr format (bitcoincash:q...)
 
-use bitcoin::secp256k1::{Secp256k1, SecretKey};
+use bitcoin::secp256k1::Secp256k1;
 use bitcoin::Network;
 use serde::{Deserialize, Serialize};
 

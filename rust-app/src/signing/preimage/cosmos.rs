@@ -3,7 +3,7 @@
 //! Generates signing hashes for Cosmos SDK transactions.
 //! Supports Amino (legacy) and Protobuf (modern) sign modes.
 
-use super::{PreImageHash, PreImageError, PreImageResult, SigningAlgorithm};
+use super::{PreImageHash, PreImageResult, SigningAlgorithm};
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
 

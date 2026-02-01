@@ -529,6 +529,12 @@ struct ContactPickerSheet: View {
     }
 }
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     ContactsView()
 }
+#endif
+#endif
+#endif

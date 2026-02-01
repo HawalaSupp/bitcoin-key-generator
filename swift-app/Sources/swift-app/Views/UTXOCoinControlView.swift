@@ -642,9 +642,15 @@ struct UTXODetailSheet: View {
 
 // MARK: - Preview
 
+#if false // Disabled #Preview for command-line builds
+#if false
+#if false
 #Preview {
     UTXOCoinControlView(
         address: "tb1qv629dc9dm623hywx0wrfq3ezfm64yylhh87ty3",
         chain: .bitcoinTestnet
     )
 }
+#endif
+#endif
+#endif

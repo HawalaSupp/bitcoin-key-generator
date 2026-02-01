@@ -7,7 +7,7 @@
 //! - Geographic anomalies
 //! - Known malicious address database
 
-use crate::error::{HawalaError, HawalaResult};
+use crate::error::{read_lock, write_lock};
 use crate::types::Chain;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::RwLock;
@@ -57,6 +57,7 @@ impl Default for ThreatConfig {
 
 /// Transaction record for analysis
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct TxRecord {
     wallet_id: String,
     recipient: String,
@@ -247,55 +248,65 @@ impl ThreatDetector {
             timestamp: Instant::now(),
         };
 
-        let mut history = self.tx_history.write().unwrap();
-        
-        if history.len() >= self.config.max_history_size {
-            history.pop_front();
+        // Use safe lock access - silently skip if lock is poisoned
+        // (better than crashing, and this is just recording history)
+        if let Ok(mut history) = write_lock(&self.tx_history) {
+            if history.len() >= self.config.max_history_size {
+                history.pop_front();
+            }
+            history.push_back(record);
         }
-        history.push_back(record);
     }
 
     /// Add address to blacklist
     pub fn blacklist_address(&self, address: &str) {
-        let mut blacklist = self.blacklist.write().unwrap();
-        blacklist.insert(normalize_address(address));
+        if let Ok(mut blacklist) = write_lock(&self.blacklist) {
+            blacklist.insert(normalize_address(address));
+        }
     }
 
     /// Remove address from blacklist
     pub fn unblacklist_address(&self, address: &str) {
-        let mut blacklist = self.blacklist.write().unwrap();
-        blacklist.remove(&normalize_address(address));
+        if let Ok(mut blacklist) = write_lock(&self.blacklist) {
+            blacklist.remove(&normalize_address(address));
+        }
     }
 
     /// Check if address is blacklisted
     pub fn is_blacklisted(&self, address: &str) -> bool {
-        let blacklist = self.blacklist.read().unwrap();
-        blacklist.contains(&normalize_address(address))
+        read_lock(&self.blacklist)
+            .map(|blacklist| blacklist.contains(&normalize_address(address)))
+            .unwrap_or(false)
     }
 
     /// Add address to whitelist for a wallet
     pub fn whitelist_address(&self, wallet_id: &str, address: &str) {
-        let mut whitelist = self.whitelist.write().unwrap();
-        whitelist
-            .entry(wallet_id.to_string())
-            .or_insert_with(HashSet::new)
-            .insert(normalize_address(address));
+        if let Ok(mut whitelist) = write_lock(&self.whitelist) {
+            whitelist
+                .entry(wallet_id.to_string())
+                .or_insert_with(HashSet::new)
+                .insert(normalize_address(address));
+        }
     }
 
     /// Check if address is whitelisted
     pub fn is_whitelisted(&self, wallet_id: &str, address: &str) -> bool {
-        let whitelist = self.whitelist.read().unwrap();
-        whitelist
-            .get(wallet_id)
-            .map(|addrs| addrs.contains(&normalize_address(address)))
+        read_lock(&self.whitelist)
+            .map(|whitelist| {
+                whitelist
+                    .get(wallet_id)
+                    .map(|addrs| addrs.contains(&normalize_address(address)))
+                    .unwrap_or(false)
+            })
             .unwrap_or(false)
     }
 
     /// Import known malicious addresses
     pub fn import_blacklist(&self, addresses: &[String]) {
-        let mut blacklist = self.blacklist.write().unwrap();
-        for addr in addresses {
-            blacklist.insert(normalize_address(addr));
+        if let Ok(mut blacklist) = write_lock(&self.blacklist) {
+            for addr in addresses {
+                blacklist.insert(normalize_address(addr));
+            }
         }
     }
 
@@ -323,7 +334,10 @@ impl ThreatDetector {
 
     /// Check transaction velocity
     fn check_velocity(&self, wallet_id: &str) -> Option<ThreatIndicator> {
-        let history = self.tx_history.read().unwrap();
+        let history = match read_lock(&self.tx_history) {
+            Ok(h) => h,
+            Err(_) => return None,
+        };
         let one_hour_ago = Instant::now() - Duration::from_secs(3600);
         
         let recent_count = history.iter()
@@ -347,7 +361,10 @@ impl ThreatDetector {
 
     /// Check for burst activity (many recipients)
     fn check_burst_activity(&self, wallet_id: &str) -> Option<ThreatIndicator> {
-        let history = self.tx_history.read().unwrap();
+        let history = match read_lock(&self.tx_history) {
+            Ok(h) => h,
+            Err(_) => return None,
+        };
         let one_hour_ago = Instant::now() - Duration::from_secs(3600);
         
         let unique_recipients: HashSet<_> = history.iter()
@@ -372,7 +389,10 @@ impl ThreatDetector {
 
     /// Check for duplicate transaction
     fn check_duplicate(&self, wallet_id: &str, recipient: &str, amount: u128) -> Option<ThreatIndicator> {
-        let history = self.tx_history.read().unwrap();
+        let history = match read_lock(&self.tx_history) {
+            Ok(h) => h,
+            Err(_) => return None,
+        };
         let recipient_normalized = normalize_address(recipient);
         
         for tx in history.iter().rev().take(10) {
