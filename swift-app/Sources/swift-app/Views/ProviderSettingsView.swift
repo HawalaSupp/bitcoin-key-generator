@@ -457,8 +457,10 @@ struct ProviderSettingsView: View {
                 helpText: "Optional • Increases rate limits",
                 value: $coinGeckoKeyInput,
                 onSave: {
-                    // TODO: Implement CoinGecko key storage
-                    ToastManager.shared.info("CoinGecko key support coming soon")
+                    if !coinGeckoKeyInput.isEmpty {
+                        APIKeys.setCoinGeckoKey(coinGeckoKeyInput)
+                        ToastManager.shared.success("CoinGecko API key saved")
+                    }
                     showCoinGeckoKeyEditor = false
                 }
             )

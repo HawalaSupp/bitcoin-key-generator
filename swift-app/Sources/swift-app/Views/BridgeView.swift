@@ -269,8 +269,9 @@ struct BridgeView: View {
                 Spacer()
                 
                 Button("MAX") {
-                    // TODO: Get max balance
-                    amount = "1.0"
+                    Task {
+                        await fetchMaxBalance()
+                    }
                 }
                 .font(.caption)
                 .foregroundColor(.blue)
@@ -495,6 +496,51 @@ struct BridgeView: View {
         guard let value = Double(amount) else { return "0" }
         let wei = value * 1e18
         return String(format: "%.0f", wei)
+    }
+    
+    /// Fetch maximum balance for the selected token on source chain
+    private func fetchMaxBalance() async {
+        guard let address = walletAddress else {
+            amount = "0"
+            return
+        }
+        
+        // Map BridgeService.SupportedChain to UnifiedBlockchainProvider.SupportedChain
+        let providerChain: UnifiedBlockchainProvider.SupportedChain
+        switch sourceChain {
+        case .ethereum: providerChain = .ethereum
+        case .bsc: providerChain = .bnb
+        case .polygon: providerChain = .polygon
+        case .arbitrum: providerChain = .arbitrum
+        case .optimism: providerChain = .optimism
+        case .avalanche: providerChain = .avalanche
+        case .base: providerChain = .base
+        case .fantom: providerChain = .ethereum // Fantom uses EVM, fallback to ethereum for demo
+        case .solana: providerChain = .solana
+        }
+        
+        do {
+            // For native tokens (ETH, BNB, etc.), fetch native balance
+            if selectedToken == "ETH" || selectedToken == sourceChain.nativeSymbol {
+                let balance = try await UnifiedBlockchainProvider.shared.fetchBalance(
+                    address: address,
+                    chain: providerChain
+                )
+                // Leave a small amount for gas (0.01 native token)
+                let maxAmount = max(0, balance - 0.01)
+                amount = String(format: "%.6f", maxAmount)
+            } else {
+                // For ERC-20 tokens, we'd need token balance - for now use native
+                let balance = try await UnifiedBlockchainProvider.shared.fetchBalance(
+                    address: address,
+                    chain: providerChain
+                )
+                amount = String(format: "%.6f", balance)
+            }
+        } catch {
+            print("Failed to fetch balance: \(error)")
+            amount = "0"
+        }
     }
 }
 
