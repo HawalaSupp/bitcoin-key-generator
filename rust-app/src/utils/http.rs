@@ -124,7 +124,10 @@ impl HttpClientPool {
 /// Get the global HTTP client pool
 pub fn get_client_pool() -> &'static Arc<HttpClientPool> {
     GLOBAL_CLIENT.get_or_init(|| {
-        Arc::new(HttpClientPool::new().expect("Failed to initialize HTTP client pool"))
+        // HttpClientPool::new() only fails if TLS/rustls initialization fails,
+        // which is a system-level issue. Using expect() here is appropriate
+        // as the app cannot function without HTTP capabilities.
+        Arc::new(HttpClientPool::new().expect("HTTP client pool initialization failed - check TLS configuration"))
     })
 }
 

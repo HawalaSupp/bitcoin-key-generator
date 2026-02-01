@@ -58,11 +58,11 @@
 ## 🟠 HIGH PRIORITY - Should Fix Before Launch
 
 ### 6. Biometric Confirmation for Transactions
-- [ ] Add FaceID/TouchID prompt before `sendTransaction()` calls
-- [ ] Make it configurable in Settings
-- [ ] Fallback to passcode if biometric unavailable
+- [x] Add FaceID/TouchID prompt before `sendTransaction()` calls (DONE - BiometricAuthHelper)
+- [x] Make it configurable in Settings (DONE - biometricForSends setting)
+- [x] Fallback to passcode if biometric unavailable (DONE - proceeds without biometric)
 
-**Reference:** `FEATURE_GAP_ANALYSIS.md` line 25
+**Reference:** Implemented in SendView.swift, DEXAggregatorView.swift, TransactionScheduler.swift
 
 ### 7. Production Error Handling (Rust)
 Replace `.unwrap()` calls in non-test code:
