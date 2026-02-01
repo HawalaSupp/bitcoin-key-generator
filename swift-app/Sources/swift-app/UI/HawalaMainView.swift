@@ -17,7 +17,7 @@ struct HawalaMainView: View {
     // Settings
     @AppStorage("showBalances") private var showBalances = true
     @AppStorage("showTestnets") private var showTestnets = false
-    @AppStorage("selectedBackgroundType") private var selectedBackgroundType = "none"
+    @AppStorage("selectedBackgroundType") private var selectedBackgroundType = "silk"
     @AppStorage("portfolioTestMode") private var portfolioTestMode = false
     
     // Demo mode editable amounts
@@ -184,14 +184,39 @@ struct HawalaMainView: View {
                 .zIndex(100)
             }
         }
+        .coachmarkOverlay()
         .ignoresSafeArea() // Ignore safe area to push content to very top
         .preferredColorScheme(.dark)
+        .onAppear {
+            // Show first-launch coachmarks after a short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                showFirstLaunchCoachmarks()
+            }
+        }
         .sheet(isPresented: $showSettingsPanel) {
             SettingsView()
                 .frame(minWidth: 500, minHeight: 700)
         }
         .sheet(item: $selectedTransaction) { transaction in
             TransactionDetailSheet(transaction: transaction)
+        }
+    }
+    
+    // MARK: - First Launch Coachmarks
+    private func showFirstLaunchCoachmarks() {
+        let coachmarkManager = CoachmarkManager.shared
+        
+        // Queue up first-launch coachmarks in order
+        let firstLaunchSequence: [CoachmarkManager.CoachmarkID] = [
+            .portfolioTotal,
+            .quickSend,
+            .assetDetail,
+            .settingsAccess
+        ]
+        
+        // Start the sequence
+        for id in firstLaunchSequence {
+            coachmarkManager.queue(id)
         }
     }
     
@@ -224,14 +249,18 @@ struct HawalaMainView: View {
                     speed: 1.0
                 )
             case .silk:
-                // ReactBits Silk flowing fabric effect
-                SilkBackground(
-                    speed: 5.0,
-                    scale: 1.0,
-                    color: "#7B7481",
-                    noiseIntensity: 1.5,
-                    rotation: 0.0
-                )
+                // ReactBits Silk flowing fabric effect - same as onboarding
+                ZStack {
+                    SilkBackground(
+                        speed: 5.0,
+                        scale: 1.0,
+                        color: "#7B7481",
+                        noiseIntensity: 1.5,
+                        rotation: 0.0
+                    )
+                    // Dark overlay for readability (matches onboarding)
+                    Color.black.opacity(0.4)
+                }
             }
         }
     }
@@ -337,6 +366,7 @@ struct HawalaMainView: View {
                 GlassIconButton(icon: "arrow.up.arrow.down", tooltip: "Send & Receive") {
                     showSendPicker = true
                 }
+                .coachmarkAnchor(.quickSend)
                 
                 GlassIconButton(icon: "qrcode", tooltip: "Receive Funds") {
                     showReceiveSheet = true
@@ -564,6 +594,7 @@ struct HawalaMainView: View {
                             onRefreshBalances()
                         }
                     )
+                    .coachmarkAnchor(.portfolioTotal)
                 }
             } else {
                 // No keys state

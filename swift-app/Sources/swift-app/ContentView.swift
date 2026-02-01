@@ -652,25 +652,44 @@ struct ContentView: View {
     }
 
     private var onboardingFlow: some View {
-        OnboardingFlowView(
-            step: $onboardingStep,
-            onSecurityAcknowledged: {
-                hasAcknowledgedSecurityNotice = true
-            },
-            onSetPasscode: { passcode in
-                storedPasscodeHash = hashPasscode(passcode)
-                isUnlocked = true
-            },
-            onSkipPasscode: {
-                storedPasscodeHash = nil
-                isUnlocked = true
-            },
-            onFinish: {
-                shouldAutoGenerateAfterOnboarding = true
-                completedOnboardingThisSession = true
-                onboardingCompleted = true
+        NewOnboardingFlowView { result in
+            Task {
+                await handleOnboardingComplete(result)
             }
-        )
+        }
+    }
+    
+    @MainActor
+    private func handleOnboardingComplete(_ result: WalletCreationResult) async {
+        // Set all the necessary flags
+        hasAcknowledgedSecurityNotice = true
+        isUnlocked = true
+        shouldAutoGenerateAfterOnboarding = false
+        completedOnboardingThisSession = true
+        
+        // Generate or import wallet based on method
+        switch result.method {
+        case .create, .importSeed:
+            // Use the Rust backend to generate keys
+            await runGenerator()
+            
+        case .ledger, .trezor, .keystone:
+            // Hardware wallet - just mark complete, actual connection handled separately
+            break
+            
+        case .watchOnly:
+            // Watch-only mode - no keys to generate
+            break
+        }
+        
+        // Enable biometrics if user opted in
+        if result.hasBiometrics {
+            // Store biometric preference
+            UserDefaults.standard.set(true, forKey: "hawala.biometricsEnabled")
+        }
+        
+        // Mark onboarding as complete
+        onboardingCompleted = true
     }
 
     // MARK: - Privacy Blur Overlay
@@ -9158,6 +9177,7 @@ private struct SettingsPanelView: View {
     let onCurrencyChanged: () -> Void
     @Environment(\.dismiss) private var dismiss
     @StateObject private var localization = LocalizationManager.shared
+    @ObservedObject private var feedbackManager = FeedbackManager.shared
 
     var body: some View {
         NavigationStack {
@@ -9170,6 +9190,10 @@ private struct SettingsPanelView: View {
                     currencySection
                     
                     Divider()
+                    
+                    feedbackSection
+                    
+                    Divider()
 
                     keysButton
                     securityButton
@@ -9179,7 +9203,7 @@ private struct SettingsPanelView: View {
                 }
                 .padding()
             }
-            .frame(width: 380, height: 450)
+            .frame(width: 380, height: 520)
             .navigationTitle("settings.title".localized)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -9190,6 +9214,50 @@ private struct SettingsPanelView: View {
     }
     
     @State private var selectedLanguage: LocalizationManager.Language = .english
+    
+    private var feedbackSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Feedback")
+                .font(.headline)
+            
+            Toggle(isOn: Binding(
+                get: { feedbackManager.isSoundEnabled },
+                set: { feedbackManager.isSoundEnabled = $0 }
+            )) {
+                HStack(spacing: 8) {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Sound Effects")
+                            .font(.body)
+                        Text("Play sounds for actions")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .toggleStyle(.switch)
+            
+            Toggle(isOn: Binding(
+                get: { feedbackManager.isHapticEnabled },
+                set: { feedbackManager.isHapticEnabled = $0 }
+            )) {
+                HStack(spacing: 8) {
+                    Image(systemName: "hand.tap.fill")
+                        .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Haptic Feedback")
+                            .font(.body)
+                        Text("Trackpad haptics for actions")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .toggleStyle(.switch)
+        }
+        .padding(.bottom, 8)
+    }
     
     private var languageSection: some View {
         VStack(alignment: .leading, spacing: 8) {

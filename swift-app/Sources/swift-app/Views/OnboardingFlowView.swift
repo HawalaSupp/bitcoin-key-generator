@@ -1,519 +1,741 @@
 import SwiftUI
+import LocalAuthentication
+#if canImport(AppKit)
+import AppKit
+#endif
 
-// MARK: - Redesigned Onboarding Flow
-// Matches the main app's visual style with dark theme, glass effects, and ClashGrotesk typography
+// MARK: - Onboarding Flow View
+/// A premium onboarding experience matching Hawala's main app design
+/// Features: Silk background, glass cards, keyboard PIN entry, smooth animations
 
 struct OnboardingFlowView: View {
-    @Binding var step: OnboardingStep
-    let onSecurityAcknowledged: () -> Void
-    let onSetPasscode: (String) -> Void
-    let onSkipPasscode: () -> Void
-    let onFinish: () -> Void
-
-    @State private var passcode = ""
-    @State private var confirmPasscode = ""
-    @State private var errorMessage: String?
-    @FocusState private var passcodeFieldFocused: Bool
-    @State private var isAnimating = false
-
-    private var totalSteps: Int { 4 }
-
+    @Binding var isOnboardingComplete: Bool
+    var onGenerateWallet: () async -> Void
+    
+    @AppStorage("hawala.onboardingCompleted") private var onboardingCompleted = false
+    @AppStorage("hawala.biometricsEnabled") private var biometricsEnabled = false
+    @AppStorage("hawala.passcode") private var storedPasscode = ""
+    
+    @State private var currentStep: OnboardingStep = .welcome
+    @State private var passcode: String = ""
+    @State private var confirmPasscode: String = ""
+    @State private var isConfirmingPasscode = false
+    @State private var showPasscodeError = false
+    @State private var errorMessage = ""
+    @State private var isCreatingWallet = false
+    @State private var showSuccess = false
+    @State private var animateContent = false
+    
+    enum OnboardingStep: Int, CaseIterable {
+        case welcome = 0
+        case security = 1
+        case passcode = 2
+        case biometrics = 3
+        case complete = 4
+    }
+    
     var body: some View {
         ZStack {
-            // Dark gradient background matching main app
-            LinearGradient(
-                colors: [
-                    Color(hex: "0D0D0D"),
-                    Color(hex: "1A1A1A"),
-                    Color(hex: "0D0D0D")
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+            // Silk background - same as main app
+            SilkBackground(
+                speed: 5.0,
+                scale: 1.0,
+                color: "#7B7481",
+                noiseIntensity: 1.5,
+                rotation: 0.0
             )
             .ignoresSafeArea()
             
-            // Subtle animated gradient orbs (like main view)
-            GeometryReader { geo in
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [HawalaTheme.Colors.accent.opacity(0.15), .clear],
-                            center: .center,
-                            startRadius: 0,
-                            endRadius: geo.size.width * 0.4
-                        )
-                    )
-                    .frame(width: geo.size.width * 0.6, height: geo.size.width * 0.6)
-                    .offset(x: geo.size.width * 0.5, y: -geo.size.height * 0.1)
-                    .blur(radius: 60)
-                
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [Color(hex: "32D74B").opacity(0.08), .clear],
-                            center: .center,
-                            startRadius: 0,
-                            endRadius: geo.size.width * 0.3
-                        )
-                    )
-                    .frame(width: geo.size.width * 0.5, height: geo.size.width * 0.5)
-                    .offset(x: -geo.size.width * 0.2, y: geo.size.height * 0.6)
-                    .blur(radius: 50)
-            }
+            // Dark overlay for readability
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
             
-            // Main content
             VStack(spacing: 0) {
-                // Header with logo and step indicator
-                onboardingHeader
-                    .padding(.top, 48)
-                    .padding(.bottom, 32)
+                // Step indicator
+                stepIndicator
+                    .padding(.top, 60)
+                    .padding(.bottom, 40)
                 
-                // Content card with glass effect
-                contentCard
-                    .padding(.horizontal, 48)
+                // Content
+                Group {
+                    switch currentStep {
+                    case .welcome:
+                        welcomeView
+                    case .security:
+                        securityView
+                    case .passcode:
+                        passcodeView
+                    case .biometrics:
+                        biometricsView
+                    case .complete:
+                        completeView
+                    }
+                }
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .center)),
+                    removal: .opacity.combined(with: .scale(scale: 1.02, anchor: .center))
+                ))
+                .animation(.easeInOut(duration: 0.45), value: currentStep)
                 
                 Spacer()
-                
-                // Bottom controls
-                controlsSection
-                    .padding(.horizontal, 48)
-                    .padding(.bottom, 48)
             }
         }
-        .frame(minWidth: 600, minHeight: 580)
-        .preferredColorScheme(.dark)
         .onAppear {
             withAnimation(.easeOut(duration: 0.6)) {
-                isAnimating = true
+                animateContent = true
             }
         }
     }
     
-    // MARK: - Header
-    private var onboardingHeader: some View {
-        VStack(spacing: 20) {
-            // App icon / logo
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [HawalaTheme.Colors.accent, HawalaTheme.Colors.accent.opacity(0.6)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 72, height: 72)
-                    .shadow(color: HawalaTheme.Colors.accent.opacity(0.4), radius: 20, x: 0, y: 10)
-                
-                Image(systemName: stepIcon)
-                    .font(.system(size: 32, weight: .medium))
-                    .foregroundColor(.white)
-            }
-            .scaleEffect(isAnimating ? 1 : 0.8)
-            .opacity(isAnimating ? 1 : 0)
-            
-            // Title
-            VStack(spacing: 8) {
-                Text(stepTitle)
-                    .font(.clashGroteskBold(size: 32))
-                    .foregroundColor(.white)
-                
-                Text(stepSubtitle)
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundColor(Color.white.opacity(0.6))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-            }
-            
-            // Step indicator
-            stepIndicator
-        }
-    }
-    
-    private var stepIcon: String {
-        switch step {
-        case .welcome: return "sparkles"
-        case .security: return "lock.shield.fill"
-        case .passcode: return "key.fill"
-        case .ready: return "checkmark.seal.fill"
-        }
-    }
-    
-    private var stepTitle: String {
-        switch step {
-        case .welcome: return "Welcome to Hawala"
-        case .security: return "Security First"
-        case .passcode: return "Protect Your Wallet"
-        case .ready: return "You're All Set"
-        }
-    }
-    
+    // MARK: - Step Indicator
     private var stepIndicator: some View {
         HStack(spacing: 8) {
-            ForEach(0..<totalSteps, id: \.self) { index in
-                Capsule()
-                    .fill(index <= step.rawValue ? HawalaTheme.Colors.accent : Color.white.opacity(0.2))
-                    .frame(width: index == step.rawValue ? 24 : 8, height: 8)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: step)
-            }
-        }
-        .padding(.top, 8)
-    }
-
-    // MARK: - Content Card
-    private var contentCard: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            contentBody
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(28)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white.opacity(0.05))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
-                )
-        )
-        .transition(.asymmetric(
-            insertion: .opacity.combined(with: .move(edge: .trailing)),
-            removal: .opacity.combined(with: .move(edge: .leading))
-        ))
-    }
-    
-    @ViewBuilder
-    private var contentBody: some View {
-        switch step {
-        case .welcome:
-            welcomeContent
-        case .security:
-            securityContent
-        case .passcode:
-            passcodeContent
-        case .ready:
-            readyContent
-        }
-    }
-    
-    private var welcomeContent: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Let's prepare your multi-chain vault with the right safeguards and workflows.")
-                .font(.system(size: 16, weight: .regular))
-                .foregroundColor(Color.white.opacity(0.8))
-                .lineSpacing(4)
-            
-            VStack(alignment: .leading, spacing: 14) {
-                onboardingFeatureRow(
-                    icon: "key.horizontal.fill",
-                    title: "Multi-Chain Keys",
-                    description: "Generate secure keys across 40+ blockchains"
-                )
-                onboardingFeatureRow(
-                    icon: "lock.shield.fill",
-                    title: "Encrypted Backups",
-                    description: "Keep your recovery data safe and portable"
-                )
-                onboardingFeatureRow(
-                    icon: "chart.line.uptrend.xyaxis",
-                    title: "Portfolio Tracking",
-                    description: "Monitor balances, prices, and history"
-                )
+            ForEach(0..<5) { index in
+                Circle()
+                    .fill(index <= currentStep.rawValue ? Color.white : Color.white.opacity(0.3))
+                    .frame(width: 8, height: 8)
+                    .scaleEffect(index == currentStep.rawValue ? 1.2 : 1.0)
+                    .animation(.spring(response: 0.3), value: currentStep)
             }
         }
     }
     
-    private var securityContent: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("This app handles private keys and recovery phrases. Please review these security essentials:")
-                .font(.system(size: 16, weight: .regular))
-                .foregroundColor(Color.white.opacity(0.8))
-                .lineSpacing(4)
+    // MARK: - Welcome View
+    private var welcomeView: some View {
+        VStack(spacing: 32) {
+            Spacer()
             
-            VStack(alignment: .leading, spacing: 12) {
-                securityBullet("Never screenshot or paste keys into untrusted apps", icon: "camera.fill", color: .red)
-                securityBullet("Store exports encrypted and offline when possible", icon: "externaldrive.fill", color: .orange)
-                securityBullet("Lock the app before leaving your device unattended", icon: "lock.fill", color: .yellow)
-                securityBullet("Consider hardware wallets for long-term storage", icon: "cpu.fill", color: .green)
-            }
-        }
-    }
-    
-    private var passcodeContent: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Add a passcode to protect your wallet. You can change this anytime in Settings.")
-                .font(.system(size: 16, weight: .regular))
-                .foregroundColor(Color.white.opacity(0.8))
-                .lineSpacing(4)
-            
-            VStack(spacing: 16) {
-                styledSecureField("Enter passcode", text: $passcode, isFocused: true)
-                styledSecureField("Confirm passcode", text: $confirmPasscode, isFocused: false)
+            VStack(spacing: 12) {
+                Text("WELCOME TO HAWALA")
+                    .font(.custom("ClashGrotesk-Bold", size: 36))
+                    .foregroundColor(.white)
+                    .tracking(2)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
                 
-                if let errorMessage {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundColor(HawalaTheme.Colors.error)
-                        Text(errorMessage)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(HawalaTheme.Colors.error)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(HawalaTheme.Colors.error.opacity(0.15))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Text("Your gateway to digital assets")
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+            .opacity(animateContent ? 1 : 0)
+            .offset(y: animateContent ? 0 : 20)
+            .animation(.easeOut(duration: 0.6).delay(0.2), value: animateContent)
+            
+            Spacer()
+            
+            // Continue button
+            primaryButton("Get Started") {
+                withAnimation(.easeInOut(duration: 0.45)) {
+                    currentStep = .security
                 }
             }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 50)
+            .opacity(animateContent ? 1 : 0)
+            .animation(.easeOut(duration: 0.6).delay(0.4), value: animateContent)
         }
     }
     
-    private var readyContent: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Your security preferences are saved. You're ready to start using Hawala!")
-                .font(.system(size: 16, weight: .regular))
-                .foregroundColor(Color.white.opacity(0.8))
-                .lineSpacing(4)
-            
-            VStack(alignment: .leading, spacing: 14) {
-                readyCheckmark("Generate and manage keys for 40+ chains")
-                readyCheckmark("Send and receive cryptocurrency securely")
-                readyCheckmark("Export encrypted backups anytime")
-                readyCheckmark("Customize security settings as needed")
-            }
-        }
-    }
-    
-    // MARK: - Helper Views
-    private func onboardingFeatureRow(icon: String, title: String, description: String) -> some View {
-        HStack(spacing: 14) {
+    private func featureRow(icon: String, title: String, subtitle: String) -> some View {
+        HStack(spacing: 16) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(HawalaTheme.Colors.accent.opacity(0.15))
-                    .frame(width: 40, height: 40)
+                Circle()
+                    .fill(Color.white.opacity(0.05))
+                    .frame(width: 44, height: 44)
                 
                 Image(systemName: icon)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(HawalaTheme.Colors.accent)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(.white.opacity(0.8))
             }
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.white)
-                Text(description)
+                
+                Text(subtitle)
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(Color.white.opacity(0.5))
+                    .foregroundColor(.white.opacity(0.5))
             }
+            
+            Spacer()
         }
     }
     
-    private func securityBullet(_ text: String, icon: String, color: Color) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(color.opacity(0.8))
-                .frame(width: 20)
+    // MARK: - Security View
+    private var securityView: some View {
+        VStack(spacing: 32) {
+            Spacer()
             
-            Text(text)
-                .font(.system(size: 14, weight: .regular))
-                .foregroundColor(Color.white.opacity(0.8))
-                .lineSpacing(2)
-        }
-    }
-    
-    private func readyCheckmark(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(HawalaTheme.Colors.success)
-            
-            Text(text)
-                .font(.system(size: 14, weight: .regular))
-                .foregroundColor(Color.white.opacity(0.8))
-        }
-    }
-    
-    private func styledSecureField(_ placeholder: String, text: Binding<String>, isFocused: Bool) -> some View {
-        HStack {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 14))
-                .foregroundColor(Color.white.opacity(0.4))
-            
-            SecureField(placeholder, text: text)
-                .textContentType(.password)
-                .font(.system(size: 15))
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(Color.white.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
-        )
-    }
-
-    // MARK: - Controls
-    private var controlsSection: some View {
-        HStack(spacing: 12) {
-            if step != .welcome {
-                Button(action: goBack) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text("Back")
-                    }
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(Color.white.opacity(0.7))
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .background(Color.white.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
+            VStack(spacing: 10) {
+                Text("Security, owned by you")
+                    .font(.custom("ClashGrotesk-Bold", size: 28))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                
+                Text("Your wallet is created locally and protected by device-level security. We never see or store your keys.")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundColor(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                    .padding(.horizontal, 24)
             }
             
             Spacer()
             
-            if step == .passcode {
-                Button(action: skipPasscode) {
-                    Text("Skip for now")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(Color.white.opacity(0.6))
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
-                }
-                .buttonStyle(.plain)
+            VStack(spacing: 14) {
+                securityInfoCard(
+                    title: "Device-secured access",
+                    detail: "Unlock with your passcode or biometrics. Your data stays on this Mac."
+                )
+                
+                securityInfoCard(
+                    title: "Private by default",
+                    detail: "No accounts, no tracking, and no data shared with third parties."
+                )
+                
+                securityInfoCard(
+                    title: "Recoverability matters",
+                    detail: "You control recovery. Backups are never uploaded automatically."
+                )
             }
+            .padding(.horizontal, 24)
             
-            primaryButton
+            Spacer()
+            
+            primaryButton("I Understand") {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                    currentStep = .passcode
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 50)
         }
     }
     
-    private var primaryButton: some View {
-        Button(action: primaryAction) {
-            HStack(spacing: 8) {
-                Text(primaryButtonText)
-                if step == .ready {
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 12, weight: .semibold))
+    private func securityRow(icon: String, text: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
+                .frame(width: 24)
+            
+            Text(text)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white.opacity(0.9))
+            
+            Spacer()
+            
+            Image(systemName: "checkmark")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(Color(hex: "#32D74B"))
+        }
+    }
+
+    private func securityInfoCard(title: String, detail: String) -> some View {
+        glassCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                
+                Text(detail)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.white.opacity(0.6))
+                    .lineSpacing(3)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(18)
+        }
+    }
+    
+    // MARK: - Passcode View
+    private var passcodeView: some View {
+        VStack(spacing: 32) {
+            Spacer()
+            
+            VStack(spacing: 12) {
+                Text(isConfirmingPasscode ? "Confirm Passcode" : "Create Passcode")
+                    .font(.custom("ClashGrotesk-Bold", size: 28))
+                    .foregroundColor(.white)
+                
+                Text(isConfirmingPasscode ? "Enter your passcode again" : "Type 6 digits on your keyboard")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+            
+            // PIN dots display
+            HStack(spacing: 16) {
+                ForEach(0..<6) { index in
+                    let currentPasscode = isConfirmingPasscode ? confirmPasscode : passcode
+                    let isFilled = index < currentPasscode.count
+                    
+                    ZStack {
+                        Circle()
+                            .stroke(showPasscodeError ? Color.red.opacity(0.5) : Color.white.opacity(0.2), lineWidth: 2)
+                            .frame(width: 20, height: 20)
+                        
+                        if isFilled {
+                            Circle()
+                                .fill(showPasscodeError ? Color.red : Color.white)
+                                .frame(width: 20, height: 20)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                    .animation(.spring(response: 0.2), value: isFilled)
+                    .modifier(ShakeEffect(shakes: showPasscodeError ? 3.0 : 0.0))
                 }
             }
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundColor(.white)
+            .padding(.vertical, 32)
+            
+            // Error message
+            if showPasscodeError {
+                Text(errorMessage)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.red)
+                    .transition(.opacity)
+            }
+            
+            Spacer()
+            
+            // Keyboard hint
+            glassCard {
+                HStack(spacing: 12) {
+                    Image(systemName: "keyboard")
+                        .font(.system(size: 20))
+                        .foregroundColor(.white.opacity(0.6))
+                    
+                    Text("Press number keys 0-9 to enter PIN")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
+                }
+                .padding(16)
+            }
+            .padding(.horizontal, 40)
+            
+            Spacer()
+            
+
+            // Keyboard handling - Hidden view that accepts focus
+            KeyboardInputView(isActive: currentStep == .passcode) { event in
+                handleKeyEvent(event)
+            }
+            .frame(width: 1, height: 1)
+            .opacity(0)
+            
+            HStack(spacing: 16) {
+                // Back button
+                secondaryButton("Back") {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        if isConfirmingPasscode {
+                            isConfirmingPasscode = false
+                            confirmPasscode = ""
+                        } else {
+                            currentStep = .security
+                        }
+                    }
+                }
+                
+                // Clear button
+                secondaryButton("Clear") {
+                    withAnimation {
+                        if isConfirmingPasscode {
+                            confirmPasscode = ""
+                        } else {
+                            passcode = ""
+                        }
+                        showPasscodeError = false
+                    }
+                }
+            }
             .padding(.horizontal, 24)
-            .padding(.vertical, 14)
+            .padding(.bottom, 50)
+        }
+    }
+    
+    @discardableResult
+    private func handleKeyEvent(_ event: NSEvent) -> Bool {
+        guard currentStep == .passcode else {
+            return false
+        }
+        let chars = event.charactersIgnoringModifiers ?? ""
+        
+        // Handle backspace/delete
+        if event.keyCode == 51 { // Delete key
+            withAnimation(.spring(response: 0.2)) {
+                if isConfirmingPasscode {
+                    if !confirmPasscode.isEmpty {
+                        confirmPasscode.removeLast()
+                    }
+                } else {
+                    if !passcode.isEmpty {
+                        passcode.removeLast()
+                    }
+                }
+                showPasscodeError = false
+            }
+            return true
+        }
+        
+        // Handle number keys
+        if let char = chars.first, char.isNumber {
+            withAnimation(.spring(response: 0.2)) {
+                if isConfirmingPasscode {
+                    if confirmPasscode.count < 6 {
+                        confirmPasscode.append(char)
+                        if confirmPasscode.count == 6 {
+                            validateConfirmPasscode()
+                        }
+                    }
+                } else {
+                    if passcode.count < 6 {
+                        passcode.append(char)
+                        if passcode.count == 6 {
+                            // Move to confirm after brief delay
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                                    isConfirmingPasscode = true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return true
+        }
+        
+        // Not a key we handle
+        return false
+    }
+    
+    private func handlePasscodeChange(_ newValue: String, isConfirm: Bool) {
+        // Filter to only digits
+        let filtered = newValue.filter { $0.isNumber }
+        
+        if isConfirm {
+            if filtered.count <= 6 {
+                confirmPasscode = filtered
+            } else {
+                confirmPasscode = String(filtered.prefix(6))
+            }
+            
+            if confirmPasscode.count == 6 {
+                validateConfirmPasscode()
+            }
+        } else {
+            if filtered.count <= 6 {
+                passcode = filtered
+            } else {
+                passcode = String(filtered.prefix(6))
+            }
+            
+            if passcode.count == 6 {
+                // Move to confirm
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        isConfirmingPasscode = true
+                    }
+                }
+            }
+        }
+        
+        showPasscodeError = false
+    }
+    
+    private func validateConfirmPasscode() {
+        if confirmPasscode == passcode {
+            storedPasscode = passcode
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                currentStep = .biometrics
+            }
+        } else {
+            withAnimation {
+                showPasscodeError = true
+                errorMessage = "Passcodes don't match"
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                withAnimation {
+                    confirmPasscode = ""
+                    showPasscodeError = false
+                }
+            }
+        }
+    }
+    
+    // MARK: - Biometrics View
+    private var biometricsView: some View {
+        VStack(spacing: 32) {
+            Spacer()
+            
+            // Face ID / Touch ID icon
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(0.05))
+                    .frame(width: 100, height: 100)
+                
+                Circle()
+                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                    .frame(width: 100, height: 100)
+                
+                Image(systemName: biometricType == .faceID ? "faceid" : "touchid")
+                    .font(.system(size: 44, weight: .light))
+                    .foregroundColor(.white)
+            }
+            
+            VStack(spacing: 12) {
+                Text("Enable \(biometricType == .faceID ? "Face ID" : "Touch ID")")
+                    .font(.custom("ClashGrotesk-Bold", size: 28))
+                    .foregroundColor(.white)
+                
+                Text("Quickly access your wallet with biometric authentication")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundColor(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+            
+            Spacer()
+            
+            glassCard {
+                VStack(spacing: 16) {
+                    HStack {
+                        Image(systemName: "lock.open.fill")
+                            .foregroundColor(.white.opacity(0.8))
+                        Text("Faster access to your wallet")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white.opacity(0.9))
+                        Spacer()
+                    }
+                    
+                    HStack {
+                        Image(systemName: "hand.raised.fill")
+                            .foregroundColor(.white.opacity(0.8))
+                        Text("Passcode remains as backup")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white.opacity(0.9))
+                        Spacer()
+                    }
+                }
+                .padding(20)
+            }
+            .padding(.horizontal, 24)
+            
+            Spacer()
+            
+            VStack(spacing: 12) {
+                primaryButton("Enable \(biometricType == .faceID ? "Face ID" : "Touch ID")") {
+                    biometricsEnabled = true
+                    createWallet()
+                }
+                
+                Button(action: {
+                    biometricsEnabled = false
+                    createWallet()
+                }) {
+                    Text("Skip for now")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 50)
+        }
+    }
+    
+    private var biometricType: LABiometryType {
+        let context = LAContext()
+        _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        return context.biometryType
+    }
+    
+    // MARK: - Complete View
+    private var completeView: some View {
+        VStack(spacing: 32) {
+            Spacer()
+            
+            if isCreatingWallet {
+                // Loading state
+                VStack(spacing: 24) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .tint(.white)
+                    
+                    Text("Creating your wallet...")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundColor(.white.opacity(0.8))
+                }
+            } else if showSuccess {
+                // Success state
+                ZStack {
+                    Circle()
+                        .fill(Color(hex: "#32D74B").opacity(0.2))
+                        .frame(width: 120, height: 120)
+                    
+                    Circle()
+                        .stroke(Color(hex: "#32D74B").opacity(0.5), lineWidth: 2)
+                        .frame(width: 120, height: 120)
+                    
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 48, weight: .medium))
+                        .foregroundColor(Color(hex: "#32D74B"))
+                }
+                .transition(.scale.combined(with: .opacity))
+                
+                VStack(spacing: 12) {
+                    Text("You're All Set!")
+                        .font(.custom("ClashGrotesk-Bold", size: 32))
+                        .foregroundColor(.white)
+                    
+                    Text("Your wallet is ready. Welcome to Hawala.")
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundColor(.white.opacity(0.6))
+                }
+                .transition(.opacity)
+                
+                Spacer()
+                
+                primaryButton("Enter Hawala") {
+                    onboardingCompleted = true
+                    isOnboardingComplete = true
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 50)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            
+            Spacer()
+        }
+    }
+    
+    private func createWallet() {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            currentStep = .complete
+            isCreatingWallet = true
+        }
+        
+        Task {
+            await onGenerateWallet()
+            
+            await MainActor.run {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                    isCreatingWallet = false
+                    showSuccess = true
+                }
+            }
+        }
+    }
+    
+    // MARK: - UI Components
+    
+    private func glassCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
             .background(
-                LinearGradient(
-                    colors: [HawalaTheme.Colors.accent, HawalaTheme.Colors.accent.opacity(0.8)],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.white.opacity(0.05))
             )
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .shadow(color: HawalaTheme.Colors.accent.opacity(0.4), radius: 12, x: 0, y: 6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
+    }
+    
+    private func primaryButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color.white.opacity(0.15))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                )
         }
         .buttonStyle(.plain)
     }
     
-    private var primaryButtonText: String {
-        switch step {
-        case .welcome: return "Get Started"
-        case .security: return "I Understand"
-        case .passcode: return "Save Passcode"
-        case .ready: return "Enter Hawala"
+    private func secondaryButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white.opacity(0.05))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
         }
-    }
-    
-    private func primaryAction() {
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            switch step {
-            case .welcome:
-                step = .security
-            case .security:
-                onSecurityAcknowledged()
-                step = .passcode
-            case .passcode:
-                handlePasscodeSave()
-            case .ready:
-                onFinish()
-            }
-        }
-    }
-    
-    private func goBack() {
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            switch step {
-            case .welcome: break
-            case .security: step = .welcome
-            case .passcode: step = .security
-            case .ready: step = .passcode
-            }
-        }
-    }
-    
-    private func skipPasscode() {
-        passcode = ""
-        confirmPasscode = ""
-        errorMessage = nil
-        onSkipPasscode()
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            step = .ready
-        }
-    }
-
-    private var stepSubtitle: String {
-        switch step {
-        case .welcome:
-            return "Configure your secure workspace before generating keys."
-        case .security:
-            return "Understand the responsibilities of handling private keys."
-        case .passcode:
-            return "Add session protection to keep your keys secure."
-        case .ready:
-            return "Everything is in place—let's launch your dashboard."
-        }
-    }
-
-    private func handlePasscodeSave() {
-        let trimmed = passcode.trimmingCharacters(in: .whitespacesAndNewlines)
-        let confirmation = confirmPasscode.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard trimmed.count >= 6 else {
-            errorMessage = "Choose at least 6 characters."
-            passcodeFieldFocused = true
-            return
-        }
-
-        guard trimmed == confirmation else {
-            errorMessage = "Passcodes do not match."
-            confirmPasscode = ""
-            passcodeFieldFocused = true
-            return
-        }
-
-        errorMessage = nil
-        onSetPasscode(trimmed)
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            step = .ready
-        }
+        .buttonStyle(.plain)
     }
 }
 
-// MARK: - Preview
-#if DEBUG
-struct OnboardingFlowView_Previews: PreviewProvider {
-    static var previews: some View {
-        OnboardingFlowView(
-            step: .constant(.welcome),
-            onSecurityAcknowledged: {},
-            onSetPasscode: { _ in },
-            onSkipPasscode: {},
-            onFinish: {}
-        )
+// Note: ShakeEffect is defined in PasscodeLockScreen.swift
+// Note: Preview uses the existing ShakeEffect from there
+
+// MARK: - Keyboard Input Helper
+#if os(macOS)
+struct KeyboardInputView: NSViewRepresentable {
+    var isActive: Bool
+    var onKeyDown: (NSEvent) -> Bool
+    
+    func makeNSView(context: Context) -> KeyInputNSView {
+        let view = KeyInputNSView()
+        view.onKeyDown = onKeyDown
+        view.isActive = isActive
+        view.focusIfNeeded()
+        return view
+    }
+    
+    func updateNSView(_ nsView: KeyInputNSView, context: Context) {
+        nsView.onKeyDown = onKeyDown
+        nsView.isActive = isActive
+        nsView.focusIfNeeded()
+    }
+}
+
+class KeyInputNSView: NSView {
+    var onKeyDown: ((NSEvent) -> Bool)?
+    var isActive: Bool = false
+    
+    override var acceptsFirstResponder: Bool { isActive }
+    
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        focusIfNeeded()
+    }
+    
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        focusIfNeeded()
+    }
+    
+    func focusIfNeeded() {
+        guard isActive, let window = window else { return }
+        if window.firstResponder !== self {
+            window.makeFirstResponder(self)
+        }
+    }
+    
+    override func keyDown(with event: NSEvent) {
+        guard isActive else {
+            super.keyDown(with: event)
+            return
+        }
+        if let onKeyDown = onKeyDown, onKeyDown(event) {
+            return
+        }
+        super.keyDown(with: event)
     }
 }
 #endif

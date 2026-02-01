@@ -1,5 +1,8 @@
 import SwiftUI
 import LocalAuthentication
+#if canImport(AppKit)
+import AppKit
+#endif
 
 // MARK: - Passcode Lock Screen
 
@@ -148,6 +151,14 @@ struct PasscodeLockScreen: View {
                     }
                 }
                 .padding(.horizontal, HawalaTheme.Spacing.xl)
+
+#if os(macOS)
+                PasscodeKeyboardInputView(isActive: true) { event in
+                    handleKeyEvent(event)
+                }
+                .frame(width: 1, height: 1)
+                .opacity(0)
+#endif
                 
                 Spacer()
                     .frame(height: 40)
@@ -331,6 +342,24 @@ struct PasscodeLockScreen: View {
             }
         }
     }
+
+    @discardableResult
+    private func handleKeyEvent(_ event: NSEvent) -> Bool {
+        guard !isLockedOut else { return false }
+
+        if event.keyCode == 51 { // Delete key
+            deleteDigit()
+            return true
+        }
+
+        let chars = event.charactersIgnoringModifiers ?? ""
+        if let char = chars.first, char.isNumber {
+            appendDigit(String(char))
+            return true
+        }
+
+        return false
+    }
 }
 
 // MARK: - Passcode Setup Screen
@@ -485,6 +514,14 @@ struct PasscodeSetupScreen: View {
                     }
                 }
                 .padding(.horizontal, HawalaTheme.Spacing.xl)
+
+#if os(macOS)
+                PasscodeKeyboardInputView(isActive: true) { event in
+                    handleKeyEvent(event)
+                }
+                .frame(width: 1, height: 1)
+                .opacity(0)
+#endif
                 
                 // Skip text (only on create step)
                 if step == .create {
@@ -561,7 +598,80 @@ struct PasscodeSetupScreen: View {
             }
         }
     }
+
+    @discardableResult
+    private func handleKeyEvent(_ event: NSEvent) -> Bool {
+        if event.keyCode == 51 { // Delete key
+            deleteDigit()
+            return true
+        }
+
+        let chars = event.charactersIgnoringModifiers ?? ""
+        if let char = chars.first, char.isNumber {
+            appendDigit(String(char))
+            return true
+        }
+
+        return false
+    }
 }
+
+// MARK: - Keyboard Input Helper
+#if os(macOS)
+struct PasscodeKeyboardInputView: NSViewRepresentable {
+    var isActive: Bool
+    var onKeyDown: (NSEvent) -> Bool
+
+    func makeNSView(context: Context) -> PasscodeKeyInputNSView {
+        let view = PasscodeKeyInputNSView()
+        view.onKeyDown = onKeyDown
+        view.isActive = isActive
+        view.focusIfNeeded()
+        return view
+    }
+
+    func updateNSView(_ nsView: PasscodeKeyInputNSView, context: Context) {
+        nsView.onKeyDown = onKeyDown
+        nsView.isActive = isActive
+        nsView.focusIfNeeded()
+    }
+}
+
+final class PasscodeKeyInputNSView: NSView {
+    var onKeyDown: ((NSEvent) -> Bool)?
+    var isActive: Bool = false
+
+    override var acceptsFirstResponder: Bool { isActive }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        focusIfNeeded()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        focusIfNeeded()
+    }
+
+    func focusIfNeeded() {
+        guard isActive, let window = window else { return }
+        if window.firstResponder !== self {
+            window.makeFirstResponder(self)
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard isActive else {
+            super.keyDown(with: event)
+            return
+        }
+        if let onKeyDown = onKeyDown, onKeyDown(event) {
+            return
+        }
+        super.keyDown(with: event)
+    }
+}
+#endif
 
 // MARK: - Passcode Button
 
