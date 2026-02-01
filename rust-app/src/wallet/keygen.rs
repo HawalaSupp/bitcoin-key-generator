@@ -40,11 +40,18 @@ pub fn create_wallet_from_entropy() -> HawalaResult<(String, AllKeys)> {
 /// 
 /// SECURITY: Seed is securely zeroized after key derivation
 pub fn restore_wallet(mnemonic_phrase: &str) -> HawalaResult<AllKeys> {
+    restore_wallet_with_passphrase(mnemonic_phrase, "")
+}
+
+/// Restore wallet from mnemonic phrase with optional passphrase (BIP-39)
+/// 
+/// SECURITY: Seed is securely zeroized after key derivation
+pub fn restore_wallet_with_passphrase(mnemonic_phrase: &str, passphrase: &str) -> HawalaResult<AllKeys> {
     let mnemonic = Mnemonic::parse(mnemonic_phrase)
         .map_err(|e| HawalaError::new(crate::error::ErrorCode::InvalidMnemonic, format!("Invalid mnemonic: {}", e)))?;
     
     // Wrap seed in Zeroizing for automatic cleanup
-    let seed = Zeroizing::new(mnemonic.to_seed(""));
+    let seed = Zeroizing::new(mnemonic.to_seed(passphrase));
     derivation::derive_all_keys(seed.as_ref())
 }
 

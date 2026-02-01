@@ -38,6 +38,11 @@ pub fn restore_from_mnemonic(mnemonic: &str) -> HawalaResult<AllKeys> {
     keygen::restore_wallet(mnemonic)
 }
 
+/// Restore wallet from mnemonic phrase with optional BIP-39 passphrase
+pub fn restore_from_mnemonic_with_passphrase(mnemonic: &str, passphrase: &str) -> HawalaResult<AllKeys> {
+    keygen::restore_wallet_with_passphrase(mnemonic, passphrase)
+}
+
 /// Validate a mnemonic phrase
 pub fn validate_mnemonic(mnemonic: &str) -> bool {
     validation::is_valid_mnemonic(mnemonic)

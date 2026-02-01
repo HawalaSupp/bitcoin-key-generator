@@ -107,7 +107,7 @@ pub extern "C" fn hawala_generate_wallet() -> *mut c_char {
 /// 
 /// # Input
 /// ```json
-/// { "mnemonic": "word1 word2 ..." }
+/// { "mnemonic": "word1 word2 ...", "passphrase": "" }
 /// ```
 /// 
 /// # Output
@@ -127,6 +127,8 @@ pub extern "C" fn hawala_restore_wallet(input: *const c_char) -> *mut c_char {
     #[derive(serde::Deserialize)]
     struct RestoreRequest {
         mnemonic: String,
+        #[serde(default)]
+        passphrase: String,
     }
 
     let request: RestoreRequest = match serde_json::from_str(json_str) {
@@ -134,7 +136,7 @@ pub extern "C" fn hawala_restore_wallet(input: *const c_char) -> *mut c_char {
         Err(e) => return error_response(HawalaError::parse_error(format!("Invalid JSON: {}", e))),
     };
 
-    match wallet::restore_from_mnemonic(&request.mnemonic) {
+    match wallet::restore_from_mnemonic_with_passphrase(&request.mnemonic, &request.passphrase) {
         Ok(keys) => success_response(keys),
         Err(e) => error_response(e),
     }

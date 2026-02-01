@@ -57,10 +57,9 @@ final class KeyDerivationService: ObservableObject {
         
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                // Note: The Rust backend currently doesn't support passphrase
-                // TODO: Add passphrase support to Rust backend
                 let normalizedMnemonic = MnemonicValidator.normalizePhrase(mnemonic).joined(separator: " ")
-                let result = RustService.shared.restoreWallet(mnemonic: normalizedMnemonic)
+                // Pass passphrase to Rust backend (BIP-39 passphrase support)
+                let result = RustService.shared.restoreWallet(mnemonic: normalizedMnemonic, passphrase: passphrase)
                 
                 guard !result.isEmpty, result != "{}" else {
                     continuation.resume(throwing: KeyDerivationError.restorationFailed)

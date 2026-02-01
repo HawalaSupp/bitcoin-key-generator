@@ -77,17 +77,36 @@ final class RustService: @unchecked Sendable {
         return swiftString
     }
     
-    func restoreWallet(mnemonic: String) -> String {
-        guard let inputCString = mnemonic.cString(using: .utf8) else {
+    func restoreWallet(mnemonic: String, passphrase: String = "") -> String {
+        // Build JSON request with mnemonic and passphrase
+        let request: [String: String] = [
+            "mnemonic": mnemonic,
+            "passphrase": passphrase
+        ]
+        
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: request),
+              let jsonString = String(data: jsonData, encoding: .utf8),
+              let inputCString = jsonString.cString(using: .utf8) else {
             return "{}"
         }
         
-        guard let outputCString = restore_wallet_ffi(inputCString) else {
+        guard let outputCString = hawala_restore_wallet(inputCString) else {
             return "{}"
         }
         
         let swiftString = String(cString: outputCString)
         free_string(UnsafeMutablePointer(mutating: outputCString))
+        
+        // Parse API response to extract data
+        if let data = swiftString.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let success = json["success"] as? Bool, success,
+           let dataObj = json["data"] {
+            if let dataJson = try? JSONSerialization.data(withJSONObject: dataObj),
+               let dataString = String(data: dataJson, encoding: .utf8) {
+                return dataString
+            }
+        }
         
         return swiftString
     }
