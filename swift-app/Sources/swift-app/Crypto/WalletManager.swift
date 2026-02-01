@@ -259,6 +259,35 @@ final class WalletManager: ObservableObject {
         activeHDWallet = nil
     }
     
+    /// Restore an imported account from backup
+    /// - Parameters:
+    ///   - account: The account to restore
+    ///   - privateKey: The private key for the account
+    func restoreImportedAccount(
+        _ account: ImportedAccount,
+        privateKey: String
+    ) async throws {
+        // Check if account already exists
+        guard !importedAccounts.contains(where: { $0.id == account.id }) else {
+            throw WalletManagerError.walletAlreadyExists
+        }
+        
+        // Store private key securely
+        if let keyData = privateKey.data(using: .utf8) {
+            try await secureStorage.save(
+                keyData,
+                forKey: SecureStorageKey.privateKey(accountId: account.id),
+                requireBiometric: true
+            )
+        }
+        
+        // Save account metadata
+        try await walletStore.saveImportedAccount(account)
+        
+        // Update state
+        importedAccounts.append(account)
+    }
+    
     // MARK: - Imported Accounts
     
     /// Import a standalone account from private key

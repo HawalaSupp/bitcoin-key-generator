@@ -182,7 +182,32 @@ final class BackupManager: @unchecked Sendable {
             }
         }
         
-        // TODO: Import imported accounts
+        // Import imported accounts
+        for accountBackup in contents.importedAccounts {
+            do {
+                // Check if account already exists
+                if walletManager.importedAccounts.contains(where: { $0.id == accountBackup.id }) {
+                    skipped += 1
+                    continue
+                }
+                
+                // Create the account from backup
+                let account = ImportedAccount(
+                    id: accountBackup.id,
+                    chainId: accountBackup.chainId,
+                    address: accountBackup.address,
+                    name: accountBackup.name,
+                    createdAt: accountBackup.createdAt,
+                    importMethod: accountBackup.importMethod
+                )
+                
+                // Restore account with private key
+                try await walletManager.restoreImportedAccount(account, privateKey: accountBackup.privateKey)
+                imported += 1
+            } catch {
+                errors.append("Failed to import account '\(accountBackup.name)': \(error.localizedDescription)")
+            }
+        }
         
         return ImportResult(
             imported: imported,

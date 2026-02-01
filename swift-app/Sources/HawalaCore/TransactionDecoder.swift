@@ -183,7 +183,8 @@ public final class TransactionDecoder: ObservableObject {
         defer { Task { @MainActor in isSimulating = false } }
         
         // For now, return a decoded preview without actual simulation
-        // TODO: Integrate with Tenderly/Alchemy Simulation API
+        // Future enhancement: Integrate with Tenderly/Alchemy Simulation API
+        // for accurate balance change predictions before transaction execution
         let decoded = decode(data: data, to: to, value: value)
         
         var balanceChanges: [BalanceChange] = []

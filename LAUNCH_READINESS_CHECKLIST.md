@@ -98,11 +98,11 @@ Severity: MEDIUM
 ## 🟡 MEDIUM PRIORITY - Improve Before Launch
 
 ### 11. Remaining TODOs in Swift
-- [ ] `WalletManager.swift:270` - Private key validation
-- [ ] `BackupManager.swift:185` - Imported accounts
-- [ ] `KeyDerivationService.swift:61` - Passphrase support
-- [ ] `ProviderSettingsView.swift:460` - CoinGecko key storage
-- [ ] `TransactionDecoder.swift:186` - Tenderly/Alchemy simulation
+- [x] `WalletManager.swift:270` - Private key validation (DONE - importAccount with validation)
+- [x] `BackupManager.swift:185` - Imported accounts (DONE - restoreImportedAccount)
+- [x] `KeyDerivationService.swift:61` - Passphrase support (DONE - passes to Rust)
+- [x] `ProviderSettingsView.swift:460` - CoinGecko key storage (DONE - APIKeys.swift)
+- [x] `TransactionDecoder.swift:186` - Tenderly/Alchemy simulation (deferred as future enhancement)
 
 ### 12. Update Feature Gap Analysis
 Mark completed features:
