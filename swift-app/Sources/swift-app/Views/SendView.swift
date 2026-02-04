@@ -257,6 +257,74 @@ struct SendView: View {
         .sheet(isPresented: $showingReview, content: reviewSheet)
         .sheet(isPresented: $showingSuccessSheet, content: successSheet)
         .sheet(isPresented: $showingSecurityCheck, content: securityCheckSheet)
+        .sheet(isPresented: $showBackupRequiredSheet, content: backupRequiredSheet)
+    }
+    
+    // MARK: - Backup Required Sheet (ROADMAP-02)
+    
+    @ViewBuilder
+    private func backupRequiredSheet() -> some View {
+        VStack(spacing: 24) {
+            // Warning icon
+            Image(systemName: "exclamationmark.shield.fill")
+                .font(.system(size: 48))
+                .foregroundColor(.orange)
+                .padding(.top, 32)
+            
+            // Title
+            Text("Backup verification required")
+                .font(.custom("ClashGrotesk-Bold", size: 24))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+            
+            // Explanation
+            VStack(alignment: .leading, spacing: 12) {
+                Text("To send more than $\(Int(BackupVerificationManager.shared.unverifiedSendLimitUSD)), you need to verify your recovery phrase backup.")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundColor(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                
+                Text("This ensures you can recover your funds if you lose access to this device.")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.white.opacity(0.5))
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 24)
+            
+            Spacer()
+            
+            // Buttons
+            VStack(spacing: 12) {
+                Button(action: {
+                    showBackupRequiredSheet = false
+                    // Navigate to settings -> security -> backup verification
+                    // For now just dismiss - in production would navigate
+                }) {
+                    Text("Verify backup in Settings")
+                        .font(.custom("ClashGrotesk-Semibold", size: 16))
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Color.white)
+                        .cornerRadius(12)
+                }
+                .buttonStyle(.plain)
+                
+                Button(action: {
+                    showBackupRequiredSheet = false
+                }) {
+                    Text("Send smaller amount instead")
+                        .font(.custom("ClashGrotesk-Medium", size: 14))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 32)
+        }
+        .frame(maxWidth: 450, maxHeight: 450)
+        .background(Color(hex: "#1A1A1A"))
+        .cornerRadius(20)
     }
     
     private func securityCheckSheet() -> some View {
@@ -1741,6 +1809,8 @@ struct SendView: View {
     
     // MARK: - Send Transaction
     
+    @State private var showBackupRequiredSheet = false
+    
     private func sendTransaction() {
         #if DEBUG
         print("[SendView] sendTransaction() called")
@@ -1748,6 +1818,16 @@ struct SendView: View {
         #if DEBUG
         print("[SendView] Sending \(amount) \(selectedChain.displayName) to \(recipientAddress)")
         #endif
+        
+        // ROADMAP-02: Check backup verification before large sends
+        if !BackupVerificationManager.shared.isVerified {
+            // Estimate USD value (simplified - in production use real price feed)
+            let estimatedUSD = estimateUSDValue()
+            if estimatedUSD > BackupVerificationManager.shared.unverifiedSendLimitUSD {
+                showBackupRequiredSheet = true
+                return
+            }
+        }
         
         // Check biometric authentication if enabled
         if BiometricAuthHelper.shouldRequireBiometric(settingEnabled: biometricForSends) {
@@ -2062,6 +2142,45 @@ struct SendView: View {
         case .xrpTestnet, .xrpMainnet: return keys.xrp.classicAddress
         case .monero: return keys.monero.address
         }
+    }
+    
+    // MARK: - Backup Verification (ROADMAP-02)
+    
+    /// Estimate the USD value of the current send amount
+    /// In production, this should use real-time price feeds
+    private func estimateUSDValue() -> Double {
+        guard let amountValue = Double(amount), amountValue > 0 else { return 0 }
+        
+        // Approximate USD prices (would come from price service in production)
+        let pricePerUnit: Double
+        switch selectedChain {
+        case .bitcoinTestnet:
+            pricePerUnit = 0 // Testnet has no value
+        case .bitcoinMainnet:
+            pricePerUnit = 95000 // ~$95k per BTC
+        case .litecoin:
+            pricePerUnit = 85 // ~$85 per LTC
+        case .ethereumSepolia:
+            pricePerUnit = 0 // Testnet has no value
+        case .ethereumMainnet:
+            pricePerUnit = 3200 // ~$3.2k per ETH
+        case .polygon:
+            pricePerUnit = 0.45 // ~$0.45 per MATIC
+        case .bnb:
+            pricePerUnit = 620 // ~$620 per BNB
+        case .solanaDevnet:
+            pricePerUnit = 0 // Testnet has no value
+        case .solanaMainnet:
+            pricePerUnit = 180 // ~$180 per SOL
+        case .xrpTestnet:
+            pricePerUnit = 0 // Testnet has no value
+        case .xrpMainnet:
+            pricePerUnit = 2.50 // ~$2.50 per XRP
+        case .monero:
+            pricePerUnit = 200 // ~$200 per XMR
+        }
+        
+        return amountValue * pricePerUnit
     }
 
     // MARK: - Loading Overlay

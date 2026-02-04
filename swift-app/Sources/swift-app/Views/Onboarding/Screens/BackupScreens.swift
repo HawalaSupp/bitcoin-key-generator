@@ -899,6 +899,422 @@ struct SecurityScoreScreen: View {
     }
 }
 
+// MARK: - Quick Verify Backup Screen
+/// Lightweight 2-word verification for Quick path (ROADMAP-02)
+struct QuickVerifyBackupScreen: View {
+    let words: [String]
+    
+    let onVerify: () -> Void
+    let onDoLater: () -> Void
+    let onBack: () -> Void
+    
+    @State private var animateContent = false
+    @State private var verificationIndices: [Int] = []
+    @State private var selections: [Int: String] = [:]
+    @State private var showError = false
+    @State private var attemptCount = 0
+    @State private var showDoLaterWarning = false
+    
+    private var allCorrect: Bool {
+        for index in verificationIndices {
+            guard let selected = selections[index],
+                  index > 0 && index <= words.count,
+                  selected == words[index - 1] else {
+                return false
+            }
+        }
+        return verificationIndices.count == 2
+    }
+    
+    private var allSelected: Bool {
+        verificationIndices.count == 2 && verificationIndices.allSatisfy { selections[$0] != nil }
+    }
+    
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            
+            // Title
+            VStack(spacing: 8) {
+                Text("Quick backup check")
+                    .font(.custom("ClashGrotesk-Bold", size: 28))
+                    .foregroundColor(.white)
+                
+                Text("Verify 2 words to confirm you saved your phrase")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundColor(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+            }
+            .opacity(animateContent ? 1 : 0)
+            
+            Spacer()
+                .frame(height: 10)
+            
+            // Word selectors
+            VStack(spacing: 20) {
+                ForEach(Array(verificationIndices.enumerated()), id: \.offset) { index, wordIndex in
+                    WordSelector(
+                        wordNumber: wordIndex,
+                        options: generateOptions(for: wordIndex),
+                        correctWord: words[wordIndex - 1],
+                        selectedWord: Binding(
+                            get: { selections[wordIndex] },
+                            set: { selections[wordIndex] = $0 }
+                        )
+                    )
+                    .opacity(animateContent ? 1 : 0)
+                    .offset(y: animateContent ? 0 : 10)
+                    .animation(.easeOut(duration: 0.4).delay(Double(index) * 0.1), value: animateContent)
+                }
+            }
+            .frame(maxWidth: 400)
+            .padding(.horizontal, 24)
+            
+            // Success or error indicator
+            if allSelected {
+                if allCorrect {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(Color(hex: "#32D74B"))
+                        Text("Perfect! Backup verified.")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Color(hex: "#32D74B"))
+                    }
+                    .transition(.opacity)
+                } else if showError {
+                    HStack(spacing: 8) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.red)
+                        Text("Incorrect. Check your backup and try again.")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.red)
+                    }
+                    .transition(.opacity)
+                }
+            }
+            
+            Spacer()
+            
+            // Buttons
+            VStack(spacing: 12) {
+                OnboardingPrimaryButton(
+                    title: "Verify",
+                    action: handleVerify,
+                    isDisabled: !allSelected,
+                    style: .glass
+                )
+                
+                HStack(spacing: 16) {
+                    OnboardingSecondaryButton(title: "Back", icon: "chevron.left", action: onBack)
+                    
+                    Button(action: { showDoLaterWarning = true }) {
+                        Text("Do later")
+                            .font(.custom("ClashGrotesk-Medium", size: 14))
+                            .foregroundColor(.orange.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 50)
+            .opacity(animateContent ? 1 : 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            generateRandomIndices()
+            withAnimation(.easeOut(duration: 0.5)) {
+                animateContent = true
+            }
+        }
+        .sheet(isPresented: $showDoLaterWarning) {
+            DoLaterWarningSheet(
+                onConfirm: {
+                    showDoLaterWarning = false
+                    onDoLater()
+                },
+                onCancel: {
+                    showDoLaterWarning = false
+                }
+            )
+        }
+    }
+    
+    private func generateRandomIndices() {
+        // Generate 2 random unique indices (1-based, within word count)
+        var indices = Set<Int>()
+        while indices.count < 2 {
+            let randomIndex = Int.random(in: 1...words.count)
+            indices.insert(randomIndex)
+        }
+        verificationIndices = Array(indices).sorted()
+    }
+    
+    private func generateOptions(for wordIndex: Int) -> [String] {
+        guard wordIndex > 0 && wordIndex <= words.count else { return [] }
+        let correctWord = words[wordIndex - 1]
+        
+        // Get 2 random wrong words from the phrase
+        let wrongWords = words.filter { $0 != correctWord }.shuffled().prefix(2)
+        
+        // Create options array and shuffle
+        var options = [correctWord] + Array(wrongWords)
+        options.shuffle()
+        
+        return options
+    }
+    
+    private func handleVerify() {
+        attemptCount += 1
+        
+        if allCorrect {
+            // Mark backup as verified
+            BackupVerificationManager.shared.markVerified()
+            onVerify()
+        } else {
+            withAnimation {
+                showError = true
+            }
+            
+            // Reset selections after delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                withAnimation {
+                    showError = false
+                    selections = [:]
+                }
+                
+                // After 3 failed attempts, offer to show phrase again
+                if attemptCount >= 3 {
+                    // Could navigate back to phrase display
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Do Later Warning Sheet
+/// Modal warning when user tries to skip verification
+struct DoLaterWarningSheet: View {
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 24) {
+            // Warning icon
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 48))
+                .foregroundColor(.orange)
+                .padding(.top, 32)
+            
+            // Title
+            Text("Skip backup verification?")
+                .font(.custom("ClashGrotesk-Bold", size: 24))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+            
+            // Consequences
+            VStack(alignment: .leading, spacing: 16) {
+                Text("If you skip, these limits apply:")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
+                
+                VStack(alignment: .leading, spacing: 12) {
+                    LimitRow(icon: "dollarsign.circle", text: "Send limit: $100 per transaction")
+                    LimitRow(icon: "bell.badge", text: "Reminder banner on home screen")
+                    LimitRow(icon: "shield.slash", text: "Lower security score")
+                }
+            }
+            .padding(20)
+            .background(Color.white.opacity(0.05))
+            .cornerRadius(12)
+            .padding(.horizontal, 24)
+            
+            Text("You can verify your backup anytime in Settings → Security")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundColor(.white.opacity(0.5))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            
+            Spacer()
+            
+            // Buttons
+            VStack(spacing: 12) {
+                Button(action: onCancel) {
+                    Text("Go back and verify")
+                        .font(.custom("ClashGrotesk-Semibold", size: 16))
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Color.white)
+                        .cornerRadius(12)
+                }
+                .buttonStyle(.plain)
+                
+                Button(action: onConfirm) {
+                    Text("Skip anyway")
+                        .font(.custom("ClashGrotesk-Medium", size: 14))
+                        .foregroundColor(.orange.opacity(0.8))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 32)
+        }
+        .frame(maxWidth: 450, maxHeight: 550)
+        .background(Color(hex: "#1A1A1A"))
+        .cornerRadius(20)
+    }
+}
+
+struct LimitRow: View {
+    let icon: String
+    let text: String
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundColor(.orange)
+                .frame(width: 24)
+            
+            Text(text)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundColor(.white.opacity(0.8))
+        }
+    }
+}
+
+// MARK: - Backup Verification Manager
+/// Persists backup verification status and enforces limits (ROADMAP-02)
+@MainActor
+final class BackupVerificationManager: ObservableObject {
+    static let shared = BackupVerificationManager()
+    
+    private let verifiedKey = "hawala.backup.verified"
+    private let skippedKey = "hawala.backup.skipped"
+    private let skippedDateKey = "hawala.backup.skippedDate"
+    
+    @Published private(set) var isVerified: Bool = false
+    @Published private(set) var wasSkipped: Bool = false
+    @Published private(set) var skippedDate: Date? = nil
+    
+    /// Maximum send amount in USD when backup is not verified
+    let unverifiedSendLimitUSD: Double = 100.0
+    
+    private init() {
+        loadState()
+    }
+    
+    private func loadState() {
+        isVerified = UserDefaults.standard.bool(forKey: verifiedKey)
+        wasSkipped = UserDefaults.standard.bool(forKey: skippedKey)
+        if let timestamp = UserDefaults.standard.object(forKey: skippedDateKey) as? Date {
+            skippedDate = timestamp
+        }
+    }
+    
+    func markVerified() {
+        isVerified = true
+        wasSkipped = false
+        UserDefaults.standard.set(true, forKey: verifiedKey)
+        UserDefaults.standard.set(false, forKey: skippedKey)
+        
+        // Update security score
+        SecurityScoreManager.shared.complete(.backupVerified)
+    }
+    
+    func markSkipped() {
+        wasSkipped = true
+        skippedDate = Date()
+        UserDefaults.standard.set(true, forKey: skippedKey)
+        UserDefaults.standard.set(Date(), forKey: skippedDateKey)
+    }
+    
+    /// Check if a send amount is allowed given verification status
+    func canSend(amountUSD: Double) -> Bool {
+        if isVerified {
+            return true
+        }
+        return amountUSD <= unverifiedSendLimitUSD
+    }
+    
+    /// Returns whether to show the "backup required" banner
+    var shouldShowBanner: Bool {
+        return !isVerified && wasSkipped
+    }
+    
+    /// Days since user skipped verification
+    var daysSinceSkipped: Int? {
+        guard let date = skippedDate else { return nil }
+        return Calendar.current.dateComponents([.day], from: date, to: Date()).day
+    }
+    
+    func reset() {
+        isVerified = false
+        wasSkipped = false
+        skippedDate = nil
+        UserDefaults.standard.removeObject(forKey: verifiedKey)
+        UserDefaults.standard.removeObject(forKey: skippedKey)
+        UserDefaults.standard.removeObject(forKey: skippedDateKey)
+    }
+}
+
+// MARK: - Backup Verification Banner (ROADMAP-02)
+/// Persistent orange banner shown when backup is not verified
+struct BackupVerificationBanner: View {
+    let onDismiss: () -> Void
+    let onVerify: () -> Void
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.shield.fill")
+                .font(.system(size: 16))
+                .foregroundColor(.white)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Backup not verified")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+                
+                Text("Sends limited to $100. Verify to unlock full access.")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(.white.opacity(0.8))
+            }
+            
+            Spacer()
+            
+            Button(action: onVerify) {
+                Text("Verify")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.orange)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.white.opacity(0.15))
+                    .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+            
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            LinearGradient(
+                colors: [Color.orange.opacity(0.9), Color.orange.opacity(0.7)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        )
+        .cornerRadius(8)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
+}
+
 // MARK: - Preview
 #if DEBUG
 struct BackupScreens_Previews: PreviewProvider {

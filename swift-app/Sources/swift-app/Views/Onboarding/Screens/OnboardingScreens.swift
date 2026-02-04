@@ -152,7 +152,7 @@ struct PathSelectionScreen: View {
             
             Spacer()
             
-            // Quick/Guided toggle
+            // Quick/Guided toggle with time estimates (ROADMAP-02)
             VStack(spacing: 16) {
                 Divider()
                     .background(Color.white.opacity(0.1))
@@ -162,6 +162,7 @@ struct PathSelectionScreen: View {
                     SetupModeButton(
                         title: "Quick Setup",
                         subtitle: "Skip education, fast setup",
+                        timeEstimate: "~60s",
                         isSelected: useQuickSetup
                     ) {
                         withAnimation(.spring(response: 0.3)) {
@@ -172,6 +173,7 @@ struct PathSelectionScreen: View {
                     SetupModeButton(
                         title: "Guided Setup",
                         subtitle: "Full walkthrough",
+                        timeEstimate: "~3 min",
                         isSelected: !useQuickSetup
                     ) {
                         withAnimation(.spring(response: 0.3)) {
@@ -198,6 +200,7 @@ struct PathSelectionScreen: View {
 struct SetupModeButton: View {
     let title: String
     let subtitle: String
+    var timeEstimate: String? = nil  // ROADMAP-02: Optional time estimate
     let isSelected: Bool
     let action: () -> Void
     
@@ -218,6 +221,17 @@ struct SetupModeButton: View {
                     Text(title)
                         .font(.custom("ClashGrotesk-Semibold", size: 14))
                         .foregroundColor(.white)
+                    
+                    // Time estimate badge (ROADMAP-02)
+                    if let time = timeEstimate {
+                        Text(time)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.white.opacity(0.7))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(4)
+                    }
                 }
                 
                 Text(subtitle)

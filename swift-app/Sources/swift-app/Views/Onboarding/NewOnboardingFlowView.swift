@@ -192,7 +192,8 @@ struct NewOnboardingFlowView: View {
                 iCloudBackupEnabled: $state.iCloudBackupEnabled,
                 onContinue: {
                     if state.selectedPath == .quick {
-                        state.navigateTo(.securitySetup)
+                        // Quick path: Go to 2-word verification (ROADMAP-02)
+                        state.navigateTo(.quickVerifyBackup)
                     } else {
                         state.navigateTo(.verifyBackup)
                     }
@@ -200,6 +201,27 @@ struct NewOnboardingFlowView: View {
                 onSaveToiCloud: {
                     state.iCloudBackupEnabled = true
                     // TODO: Implement iCloud Keychain save
+                    // Still require verification even after iCloud
+                    if state.selectedPath == .quick {
+                        state.navigateTo(.quickVerifyBackup)
+                    } else {
+                        state.navigateTo(.verifyBackup)
+                    }
+                },
+                onBack: { state.goBack() }
+            )
+        
+        case .quickVerifyBackup:
+            // Quick path 2-word verification (ROADMAP-02)
+            QuickVerifyBackupScreen(
+                words: state.generatedRecoveryPhrase,
+                onVerify: {
+                    state.securityScore.complete(.backupVerified)
+                    state.navigateTo(.securitySetup)
+                },
+                onDoLater: {
+                    // Mark as skipped with limits
+                    BackupVerificationManager.shared.markSkipped()
                     state.navigateTo(.securitySetup)
                 },
                 onBack: { state.goBack() }

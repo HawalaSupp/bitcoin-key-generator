@@ -38,6 +38,7 @@ enum NewOnboardingStep: String, CaseIterable, Identifiable, Equatable {
     case recoveryPhraseDisplay
     case recoveryPhraseInput
     case verifyBackup
+    case quickVerifyBackup  // Quick path 2-word verification (ROADMAP-02)
     case guardianSetup
     case practiceMode
     case securitySetup

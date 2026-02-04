@@ -134,14 +134,29 @@ struct HawalaMainView: View {
         }
     }
     
+    // Backup verification banner state (ROADMAP-02)
+    @ObservedObject private var backupManager = BackupVerificationManager.shared
+    @State private var bannerDismissedThisSession = false
+    
     var body: some View {
         ZStack(alignment: .top) {
             // Background - Animated or Simple Gradient
             backgroundView
             
             // Main content (full width now)
-            mainContentView
-                .padding(.top, 46) // Space for floating nav bar
+            VStack(spacing: 0) {
+                // Backup verification warning banner (ROADMAP-02)
+                if backupManager.shouldShowBanner && !bannerDismissedThisSession {
+                    BackupVerificationBanner(
+                        onDismiss: { bannerDismissedThisSession = true },
+                        onVerify: { showSettingsPanel = true }
+                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+                
+                mainContentView
+            }
+            .padding(.top, 46) // Space for floating nav bar
             
             // Traffic light buttons (close, minimize, zoom) integrated into app - positioned at very top left
             TrafficLightButtons()
