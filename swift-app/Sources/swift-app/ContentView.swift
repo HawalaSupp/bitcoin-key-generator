@@ -55,6 +55,7 @@ struct ContentView: View {
     @State private var priceUpdateTask: Task<Void, Never>?
     @StateObject private var sparklineCache = SparklineCache.shared
     @StateObject private var assetCache = AssetCache.shared
+    @StateObject private var transactionHistoryService = TransactionHistoryService.shared
     @State private var showAllPrivateKeysSheet = false
     @State private var showSettingsPanel = false
     @State private var showContactsSheet = false
@@ -354,6 +355,7 @@ struct ContentView: View {
         // ROADMAP-03: Keyboard shortcuts help sheet
         .sheet(isPresented: $showKeyboardShortcutsHelp) {
             KeyboardShortcutsHelpView()
+                .hawalaModal(allowSwipeDismiss: true) // OK to swipe-dismiss help
         }
         // ROADMAP-03: Setup keyboard shortcut callbacks
         .onAppear {
@@ -362,6 +364,7 @@ struct ContentView: View {
         .sheet(isPresented: $showAllPrivateKeysSheet) {
             if let keys {
                 AllPrivateKeysSheet(chains: keys.chainInfos, onCopy: copySensitiveToClipboard)
+                    .hawalaModal() // Prevent accidental dismiss of sensitive info
             } else {
                 NoKeysPlaceholderView()
             }
@@ -370,6 +373,7 @@ struct ContentView: View {
             if let keys {
                 ReceiveViewModern(chains: keys.chainInfos, onCopy: copyToClipboard)
                     .frame(minWidth: 500, minHeight: 650)
+                    .hawalaModal(allowSwipeDismiss: true) // OK to swipe-dismiss receive
             } else {
                 NoKeysPlaceholderView()
             }
@@ -379,6 +383,7 @@ struct ContentView: View {
                 SendView(keys: keys, initialChain: mapToChain(chain.id), onSuccess: { result in
                     handleTransactionSuccess(result)
                 })
+                .hawalaModal() // CRITICAL: Prevent accidental dismiss during transaction
             } else {
                 Text("Keys not available")
             }
@@ -406,13 +411,16 @@ struct ContentView: View {
             SeedPhraseSheet(onCopy: { value in
                 copyToClipboard(value)
             })
+            .hawalaModal() // CRITICAL: Prevent accidental dismiss of seed phrase
         }
         .sheet(isPresented: $showTransactionHistorySheet) {
             TransactionHistoryView()
                 .frame(minWidth: 500, minHeight: 600)
+                .hawalaModal(allowSwipeDismiss: true) // OK to swipe-dismiss history
         }
         .sheet(item: $selectedTransactionForDetail) { transaction in
             TransactionDetailSheet(transaction: transaction)
+                .hawalaModal(allowSwipeDismiss: true) // OK to swipe-dismiss detail
         }
         .sheet(item: $speedUpTransaction) { tx in
             if let keys {
@@ -429,6 +437,7 @@ struct ContentView: View {
                         Task { await refreshPendingTransactions() }
                     }
                 )
+                .hawalaModal() // CRITICAL: Prevent accidental dismiss during speed-up
             }
         }
         .sheet(item: $cancelTransaction) { tx in
@@ -446,6 +455,7 @@ struct ContentView: View {
                         Task { await refreshPendingTransactions() }
                     }
                 )
+                .hawalaModal() // CRITICAL: Prevent accidental dismiss during cancel
             }
         }
         .sheet(isPresented: $showContactsSheet) {
@@ -2144,10 +2154,20 @@ struct ContentView: View {
         historyError = nil
         isHistoryLoading = true
 
-        let targets = historyTargets(from: keys)
+        // Convert to service's HistoryTarget format
+        let targets = historyTargets(from: keys).map { target in
+            HistoryTarget(
+                chainId: target.id,
+                address: target.address,
+                displayName: target.displayName,
+                symbol: target.symbol
+            )
+        }
+        
         #if DEBUG
-        print("📜 History targets: \(targets.map { "\($0.id): \($0.address.prefix(10))..." })")
+        print("📜 History targets: \(targets.map { "\($0.chainId): \($0.address.prefix(10))..." })")
         #endif
+        
         if targets.isEmpty {
             isHistoryLoading = false
             historyEntries = []
@@ -2155,70 +2175,17 @@ struct ContentView: View {
         }
 
         historyFetchTask = Task {
-            let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
-
-            var aggregated: [HawalaTransactionEntry] = []
-            var successCount = 0
-            var networkErrorCount = 0
-
-            for target in targets {
-                if Task.isCancelled { return }
-
-                switch target.id {
-                case "ethereum", "ethereum-sepolia":
-                    let entries = await fetchEthereumHistoryEntries(for: target)
-                    // Empty is OK - means no transactions for this address
-                    #if DEBUG
-                    print("📜 [\(target.id)] \(entries.isEmpty ? "No transactions found" : "Fetched \(entries.count) transactions")")
-                    #endif
-                    successCount += 1
-                    aggregated.append(contentsOf: entries)
-                case "bnb":
-                    let entries = await fetchBNBHistoryEntries(for: target)
-                    #if DEBUG
-                    print("📜 [\(target.id)] \(entries.isEmpty ? "No transactions found" : "Fetched \(entries.count) transactions")")
-                    #endif
-                    successCount += 1
-                    aggregated.append(contentsOf: entries)
-                case "solana", "solana-devnet":
-                    let entries = await fetchSolanaHistoryEntries(for: target)
-                    #if DEBUG
-                    print("📜 [\(target.id)] \(entries.isEmpty ? "No transactions found" : "Fetched \(entries.count) transactions")")
-                    #endif
-                    successCount += 1
-                    aggregated.append(contentsOf: entries)
-                case "xrp", "xrp-testnet":
-                    let entries = await fetchXRPHistoryEntries(for: target)
-                    #if DEBUG
-                    print("📜 [\(target.id)] \(entries.isEmpty ? "No transactions found" : "Fetched \(entries.count) transactions")")
-                    #endif
-                    successCount += 1
-                    aggregated.append(contentsOf: entries)
-                default:
-                    // Bitcoin/Litecoin via direct API
-                    let entries = await fetchBitcoinHistoryEntries(for: target)
-                    #if DEBUG
-                    print("📜 [\(target.id)] \(entries.isEmpty ? "No transactions found" : "Fetched \(entries.count) transactions")")
-                    #endif
-                    successCount += 1
-                    aggregated.append(contentsOf: entries)
-                }
-            }
-
-            #if DEBUG
-            print("📜 History fetch complete: \(successCount) chains queried, \(aggregated.count) total transactions")
-            #endif
+            let entries = await transactionHistoryService.fetchAllHistoryAsHawala(targets: targets, force: force)
             
-            aggregated.sort { ($0.sortTimestamp ?? 0) > ($1.sortTimestamp ?? 0) }
-
             await MainActor.run {
                 guard !Task.isCancelled else { return }
-                self.historyEntries = aggregated
+                self.historyEntries = entries
                 self.isHistoryLoading = false
-                // Only show error if we couldn't reach ANY chain (network issue)
-                self.historyError = successCount == 0 ? "Check your connection and try again." : nil
+                self.historyError = transactionHistoryService.error
                 self.historyFetchTask = nil
+                #if DEBUG
+                print("📜 History fetch complete: \(entries.count) total transactions")
+                #endif
             }
         }
     }
@@ -2248,886 +2215,6 @@ struct ContentView: View {
         appendTarget(id: "xrp-testnet", address: keys.xrp.classicAddress, displayName: "XRP Testnet", symbol: "XRP")
 
         return targets
-    }
-
-    private static func makeHistoryEntry(from item: BitcoinHistoryItem, target: HistoryChainTarget) -> HawalaTransactionEntry {
-        let isReceive = item.amountSats >= 0
-        let direction = isReceive ? "Receive" : "Send"
-        let amount = formatBitcoinAmount(abs(item.amountSats), symbol: target.symbol)
-        let prefix = isReceive ? "+" : "-"
-        let timestamp = timestampString(for: item.timestamp)
-        
-        // Format fee if available
-        let feeString: String? = item.feeSats.map { sats in
-            let feeValue = Double(sats) / 100_000_000.0
-            return String(format: "%.8f", feeValue).trimmingCharacters(in: ["0"]).trimmingCharacters(in: ["."]) + " \(target.symbol)"
-        }
-
-        return HawalaTransactionEntry(
-            id: "\(target.id)-\(item.txid)",
-            type: direction,
-            asset: target.displayName,
-            amountDisplay: "\(prefix)\(amount)",
-            status: item.confirmed ? "Confirmed" : "Pending",
-            timestamp: timestamp,
-            sortTimestamp: item.timestamp.map { TimeInterval($0) },
-            txHash: item.txid,
-            chainId: target.id,
-            fee: feeString,
-            blockNumber: item.height.map { Int($0) }
-        )
-    }
-
-    private static func formatBitcoinAmount(_ sats: Int64, symbol: String) -> String {
-        let value = Double(sats) / 100_000_000.0
-        var string = String(format: "%.8f", value)
-
-        if string.contains(".") {
-            while string.last == "0" {
-                string.removeLast()
-            }
-            if string.last == "." {
-                string.removeLast()
-            }
-        }
-
-        if string.isEmpty {
-            string = "0"
-        }
-
-        return "\(string) \(symbol)"
-    }
-
-    private static func timestampString(for epoch: UInt64?) -> String {
-        guard let epoch else { return "Pending" }
-        let date = Date(timeIntervalSince1970: TimeInterval(epoch))
-        return historyDateFormatter.string(from: date)
-    }
-
-    // MARK: - Bitcoin/Litecoin History Fetching (Blockstream/Litecoinspace API)
-    
-    private struct BlockstreamTransaction: Decodable {
-        let txid: String
-        let status: BlockstreamStatus
-        let vin: [BlockstreamInput]
-        let vout: [BlockstreamOutput]
-        let fee: Int?
-    }
-    
-    private struct BlockstreamStatus: Decodable {
-        let confirmed: Bool
-        let block_height: Int?
-        let block_time: Int?
-    }
-    
-    private struct BlockstreamInput: Decodable {
-        let prevout: BlockstreamPrevout?
-    }
-    
-    private struct BlockstreamPrevout: Decodable {
-        let scriptpubkey_address: String?
-        let value: Int
-    }
-    
-    private struct BlockstreamOutput: Decodable {
-        let scriptpubkey_address: String?
-        let value: Int
-    }
-    
-    private func fetchBitcoinHistoryEntries(for target: HistoryChainTarget) async -> [HawalaTransactionEntry] {
-        let baseURL: String
-        switch target.id {
-        case "bitcoin-testnet":
-            baseURL = "https://blockstream.info/testnet/api/address/\(target.address)/txs"
-        case "litecoin":
-            baseURL = "https://litecoinspace.org/api/address/\(target.address)/txs"
-        default:
-            baseURL = "https://blockstream.info/api/address/\(target.address)/txs"
-        }
-        
-        guard let url = URL(string: baseURL) else {
-            #if DEBUG
-            print("[\(target.id)] Invalid URL: \(baseURL)")
-            #endif
-            return []
-        }
-        
-        do {
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
-            request.timeoutInterval = 15
-            
-            let (data, response) = try await URLSession.shared.data(for: request)
-            
-            // Check for rate limiting
-            if let httpResponse = response as? HTTPURLResponse {
-                if httpResponse.statusCode == 429 {
-                    #if DEBUG
-                    print("[\(target.id)] Rate limited")
-                    #endif
-                    return []
-                }
-                if httpResponse.statusCode != 200 {
-                    #if DEBUG
-                    print("[\(target.id)] HTTP error: \(httpResponse.statusCode)")
-                    #endif
-                    return []
-                }
-            }
-            
-            let transactions = try JSONDecoder().decode([BlockstreamTransaction].self, from: data)
-            
-            return transactions.prefix(50).compactMap { tx -> HawalaTransactionEntry? in
-                // Calculate net amount for this address
-                var inputSum: Int64 = 0
-                var outputSum: Int64 = 0
-                
-                for vin in tx.vin {
-                    if let prevout = vin.prevout, prevout.scriptpubkey_address == target.address {
-                        inputSum += Int64(prevout.value)
-                    }
-                }
-                
-                for vout in tx.vout {
-                    if vout.scriptpubkey_address == target.address {
-                        outputSum += Int64(vout.value)
-                    }
-                }
-                
-                let netSats = outputSum - inputSum
-                let isReceive = netSats > 0
-                let direction = isReceive ? "Receive" : "Send"
-                let prefix = isReceive ? "+" : "-"
-                
-                // Format amount
-                let amountValue = Double(abs(netSats)) / 100_000_000.0
-                let formattedAmount = formatCryptoAmount(amountValue, symbol: target.symbol)
-                
-                // Timestamp
-                let timestamp: String
-                let sortTimestamp: TimeInterval?
-                if let blockTime = tx.status.block_time {
-                    let date = Date(timeIntervalSince1970: TimeInterval(blockTime))
-                    timestamp = Self.historyDateFormatter.string(from: date)
-                    sortTimestamp = TimeInterval(blockTime)
-                } else {
-                    timestamp = "Pending"
-                    sortTimestamp = Date().timeIntervalSince1970 // Sort pending at top
-                }
-                
-                // Status
-                let status = tx.status.confirmed ? "Confirmed" : "Pending"
-                
-                // Fee
-                var feeString: String? = nil
-                if let fee = tx.fee {
-                    let feeBTC = Double(fee) / 100_000_000.0
-                    feeString = String(format: "%.8f \(target.symbol)", feeBTC)
-                        .replacingOccurrences(of: "0+$", with: "", options: .regularExpression)
-                        .replacingOccurrences(of: "\\.$", with: "", options: .regularExpression)
-                }
-                
-                return HawalaTransactionEntry(
-                    id: "\(target.id)-\(tx.txid)",
-                    type: direction,
-                    asset: target.displayName,
-                    amountDisplay: "\(prefix)\(formattedAmount)",
-                    status: status,
-                    timestamp: timestamp,
-                    sortTimestamp: sortTimestamp,
-                    txHash: tx.txid,
-                    chainId: target.id,
-                    fee: feeString,
-                    blockNumber: tx.status.block_height
-                )
-            }
-        } catch {
-            #if DEBUG
-            print("[\(target.id)] History fetch error: \(error.localizedDescription)")
-            #endif
-            return []
-        }
-    }
-    
-    private func formatCryptoAmount(_ value: Double, symbol: String) -> String {
-        var formatted: String
-        if value < 0.00001 {
-            formatted = String(format: "%.8f", value)
-        } else if value < 0.01 {
-            formatted = String(format: "%.6f", value)
-        } else if value < 1 {
-            formatted = String(format: "%.4f", value)
-        } else {
-            formatted = String(format: "%.2f", value)
-        }
-        
-        // Remove trailing zeros after decimal
-        if formatted.contains(".") {
-            while formatted.last == "0" {
-                formatted.removeLast()
-            }
-            if formatted.last == "." {
-                formatted.removeLast()
-            }
-        }
-        
-        return "\(formatted) \(symbol)"
-    }
-
-    // MARK: - Ethereum History Fetching
-
-    private struct EtherscanTxListResponse: Decodable {
-        let status: String
-        let message: String?
-        let result: [EtherscanTx]?
-        
-        enum CodingKeys: String, CodingKey {
-            case status, message, result
-        }
-        
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            status = try container.decode(String.self, forKey: .status)
-            message = try container.decodeIfPresent(String.self, forKey: .message)
-            
-            // Handle result being either an array or a string (error message)
-            if let txArray = try? container.decode([EtherscanTx].self, forKey: .result) {
-                result = txArray
-            } else {
-                // Result is a string (error message) - treat as no results
-                result = nil
-            }
-        }
-    }
-
-    private struct EtherscanTx: Decodable {
-        let hash: String
-        let from: String
-        let to: String
-        let value: String
-        let timeStamp: String
-        let confirmations: String
-        let isError: String?
-        let gasUsed: String?
-        let gasPrice: String?
-        let blockNumber: String?
-    }
-
-    private func fetchEthereumHistoryEntries(for target: HistoryChainTarget) async -> [HawalaTransactionEntry] {
-        // Use Blockscout API (no API key required) or Etherscan as fallback
-        let entries = await fetchEthereumFromBlockscout(for: target)
-        if !entries.isEmpty {
-            return entries
-        }
-        
-        // Fallback to Etherscan (works without key but rate limited)
-        return await fetchEthereumFromEtherscan(for: target)
-    }
-    
-    private func fetchEthereumFromBlockscout(for target: HistoryChainTarget) async -> [HawalaTransactionEntry] {
-        let baseURL: String
-        if target.id == "ethereum-sepolia" {
-            baseURL = "https://eth-sepolia.blockscout.com/api/v2/addresses/\(target.address)/transactions"
-        } else {
-            baseURL = "https://eth.blockscout.com/api/v2/addresses/\(target.address)/transactions"
-        }
-        
-        guard let url = URL(string: baseURL) else {
-            return []
-        }
-        
-        do {
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-            request.timeoutInterval = 15
-            
-            let (data, response) = try await URLSession.shared.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                return []
-            }
-            
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let items = json["items"] as? [[String: Any]] else {
-                return []
-            }
-            
-            return items.prefix(50).compactMap { tx -> HawalaTransactionEntry? in
-                guard let hash = tx["hash"] as? String,
-                      let to = tx["to"] as? [String: Any],
-                      let toHash = to["hash"] as? String else {
-                    return nil
-                }
-                
-                let _ = tx["from"] as? [String: Any]
-                
-                let isReceive = toHash.lowercased() == target.address.lowercased()
-                let direction = isReceive ? "Receive" : "Send"
-                let prefix = isReceive ? "+" : "-"
-                
-                // Parse value (in wei)
-                let valueString = tx["value"] as? String ?? "0"
-                let weiValue = Decimal(string: valueString) ?? 0
-                let ethValue = weiValue / Decimal(string: "1000000000000000000")!
-                let amount = NSDecimalNumber(decimal: ethValue).doubleValue
-                let formattedAmount = formatCryptoAmount(amount, symbol: target.symbol)
-                
-                // Parse timestamp
-                let timestampStr = tx["timestamp"] as? String ?? ""
-                let timestamp: String
-                let sortTimestamp: TimeInterval?
-                if let date = ISO8601DateFormatter().date(from: timestampStr) {
-                    timestamp = Self.historyDateFormatter.string(from: date)
-                    sortTimestamp = date.timeIntervalSince1970
-                } else {
-                    timestamp = "Unknown"
-                    sortTimestamp = nil
-                }
-                
-                let status = (tx["status"] as? String) == "ok" ? "Confirmed" : "Pending"
-                
-                // Fee
-                var feeString: String? = nil
-                if let fee = tx["fee"] as? [String: Any],
-                   let feeValue = fee["value"] as? String {
-                    let feeWei = Decimal(string: feeValue) ?? 0
-                    let feeEth = feeWei / Decimal(string: "1000000000000000000")!
-                    let feeAmount = NSDecimalNumber(decimal: feeEth).doubleValue
-                    feeString = String(format: "%.6f ETH", feeAmount)
-                }
-                
-                let blockNum = tx["block"] as? Int
-                
-                return HawalaTransactionEntry(
-                    id: "\(target.id)-\(hash)",
-                    type: direction,
-                    asset: target.displayName,
-                    amountDisplay: "\(prefix)\(formattedAmount)",
-                    status: status,
-                    timestamp: timestamp,
-                    sortTimestamp: sortTimestamp,
-                    txHash: hash,
-                    chainId: target.id,
-                    fee: feeString,
-                    blockNumber: blockNum
-                )
-            }
-        } catch {
-            #if DEBUG
-            print("[\(target.id)] Blockscout fetch error: \(error.localizedDescription)")
-            #endif
-            return []
-        }
-    }
-    
-    private func fetchEthereumFromEtherscan(for target: HistoryChainTarget) async -> [HawalaTransactionEntry] {
-        let baseURL: String
-        if target.id == "ethereum-sepolia" {
-            baseURL = "https://api-sepolia.etherscan.io/api"
-        } else {
-            baseURL = "https://api.etherscan.io/api"
-        }
-
-        // Note: Works without API key but heavily rate limited
-        guard let url = URL(string: "\(baseURL)?module=account&action=txlist&address=\(target.address)&startblock=0&endblock=99999999&sort=desc") else {
-            return []
-        }
-
-        do {
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
-            request.timeoutInterval = 15
-
-            let (data, _) = try await URLSession.shared.data(for: request)
-            let response = try JSONDecoder().decode(EtherscanTxListResponse.self, from: data)
-
-            guard let txs = response.result, !txs.isEmpty else { return [] }
-
-            return txs.prefix(50).compactMap { tx -> HawalaTransactionEntry? in
-                let isReceive = tx.to.lowercased() == target.address.lowercased()
-                let direction = isReceive ? "Receive" : "Send"
-                let prefix = isReceive ? "+" : "-"
-
-                let weiValue = Decimal(string: tx.value) ?? 0
-                let ethValue = weiValue / Decimal(string: "1000000000000000000")!
-                let formattedAmount = String(format: "%.6f", NSDecimalNumber(decimal: ethValue).doubleValue)
-
-                let timestamp: String
-                if let epochInt = UInt64(tx.timeStamp) {
-                    let date = Date(timeIntervalSince1970: TimeInterval(epochInt))
-                    timestamp = Self.historyDateFormatter.string(from: date)
-                } else {
-                    timestamp = "Unknown"
-                }
-
-                let confirmations = Int(tx.confirmations) ?? 0
-                let status = confirmations > 0 ? "Confirmed" : "Pending"
-                
-                // Calculate fee: gasUsed * gasPrice in ETH
-                var feeString: String? = nil
-                if let gasUsed = tx.gasUsed, let gasPrice = tx.gasPrice,
-                   let gasUsedDecimal = Decimal(string: gasUsed),
-                   let gasPriceDecimal = Decimal(string: gasPrice) {
-                    let feeWei = gasUsedDecimal * gasPriceDecimal
-                    let feeEth = feeWei / Decimal(string: "1000000000000000000")!
-                    let feeValue = NSDecimalNumber(decimal: feeEth).doubleValue
-                    feeString = String(format: "%.6f ETH", feeValue)
-                }
-                
-                let blockNum = tx.blockNumber.flatMap { Int($0) }
-
-                return HawalaTransactionEntry(
-                    id: "\(target.id)-\(tx.hash)",
-                    type: direction,
-                    asset: target.displayName,
-                    amountDisplay: "\(prefix)\(formattedAmount) \(target.symbol)",
-                    status: status,
-                    timestamp: timestamp,
-                    sortTimestamp: UInt64(tx.timeStamp).map { TimeInterval($0) },
-                    txHash: tx.hash,
-                    chainId: target.id,
-                    confirmations: confirmations,
-                    fee: feeString,
-                    blockNumber: blockNum
-                )
-            }
-        } catch {
-            #if DEBUG
-            print("Ethereum history fetch error: \(error)")
-            #endif
-            return []
-        }
-    }
-
-    // MARK: - Solana History Fetching
-
-    private struct SolanaSignaturesResponse: Decodable {
-        let result: [SolanaSignatureInfo]?
-    }
-
-    private struct SolanaSignatureInfo: Decodable {
-        let signature: String
-        let blockTime: Int?
-        let confirmationStatus: String?
-        let err: AnyCodable?
-    }
-
-    private struct AnyCodable: Decodable {
-        init(from decoder: Decoder) throws {
-            _ = try decoder.singleValueContainer()
-        }
-    }
-
-    private func fetchSolanaHistoryEntries(for target: HistoryChainTarget) async -> [HawalaTransactionEntry] {
-        // Use devnet or mainnet RPC based on target id
-        let isDevnet = target.id == "solana-devnet"
-        let rpcURL = isDevnet ? "https://api.devnet.solana.com" : "https://api.mainnet-beta.solana.com"
-
-        guard let url = URL(string: rpcURL) else { return [] }
-
-        let payload: [String: Any] = [
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "getSignaturesForAddress",
-            "params": [target.address, ["limit": 50]]
-        ]
-
-        do {
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-
-            let (data, _) = try await URLSession.shared.data(for: request)
-            let response = try JSONDecoder().decode(SolanaSignaturesResponse.self, from: data)
-
-            guard let signatures = response.result, !signatures.isEmpty else { return [] }
-
-            return signatures.compactMap { sig -> HawalaTransactionEntry? in
-                let timestamp: String
-                if let blockTime = sig.blockTime {
-                    let date = Date(timeIntervalSince1970: TimeInterval(blockTime))
-                    timestamp = Self.historyDateFormatter.string(from: date)
-                } else {
-                    timestamp = "Pending"
-                }
-
-                let status: String
-                if sig.err != nil {
-                    status = "Failed"
-                } else if sig.confirmationStatus == "finalized" {
-                    status = "Confirmed"
-                } else {
-                    status = sig.confirmationStatus?.capitalized ?? "Pending"
-                }
-
-                return HawalaTransactionEntry(
-                    id: "\(target.id)-\(sig.signature)",
-                    type: "Transaction",
-                    asset: target.displayName,
-                    amountDisplay: "View details",
-                    status: status,
-                    timestamp: timestamp,
-                    sortTimestamp: sig.blockTime.map { TimeInterval($0) },
-                    txHash: sig.signature,
-                    chainId: target.id
-                )
-            }
-        } catch {
-            #if DEBUG
-            print("Solana history fetch error: \(error)")
-            #endif
-            return []
-        }
-    }
-    
-    // MARK: - BNB (BSC) History Fetching
-    
-    private struct BscScanTxListResponse: Decodable {
-        let status: String
-        let message: String?
-        let result: [BscScanTx]?
-        
-        enum CodingKeys: String, CodingKey {
-            case status, message, result
-        }
-        
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            status = try container.decode(String.self, forKey: .status)
-            message = try container.decodeIfPresent(String.self, forKey: .message)
-            
-            // Handle result being either an array or a string (error message)
-            if let txArray = try? container.decode([BscScanTx].self, forKey: .result) {
-                result = txArray
-            } else {
-                result = nil
-            }
-        }
-    }
-    
-    private struct BscScanTx: Decodable {
-        let hash: String
-        let from: String
-        let to: String
-        let value: String
-        let timeStamp: String
-        let confirmations: String
-        let isError: String?
-        let gasUsed: String?
-        let gasPrice: String?
-        let blockNumber: String?
-    }
-    
-    private func fetchBNBHistoryEntries(for target: HistoryChainTarget) async -> [HawalaTransactionEntry] {
-        // Try Blockscout for BSC first (no API key required)
-        let blockscoutEntries = await fetchBNBFromBlockscout(for: target)
-        if !blockscoutEntries.isEmpty {
-            return blockscoutEntries
-        }
-        
-        // Fallback to BscScan (works without key but rate limited)
-        guard let url = URL(string: "https://api.bscscan.com/api?module=account&action=txlist&address=\(target.address)&startblock=0&endblock=99999999&sort=desc") else {
-            return []
-        }
-        
-        do {
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
-            request.timeoutInterval = 15
-            
-            let (data, _) = try await URLSession.shared.data(for: request)
-            let response = try JSONDecoder().decode(BscScanTxListResponse.self, from: data)
-            
-            guard let txs = response.result, !txs.isEmpty else { return [] }
-            
-            return txs.prefix(50).compactMap { tx -> HawalaTransactionEntry? in
-                let isReceive = tx.to.lowercased() == target.address.lowercased()
-                let direction = isReceive ? "Receive" : "Send"
-                let prefix = isReceive ? "+" : "-"
-                
-                let weiValue = Decimal(string: tx.value) ?? 0
-                let bnbValue = weiValue / Decimal(string: "1000000000000000000")!
-                let formattedAmount = String(format: "%.6f", NSDecimalNumber(decimal: bnbValue).doubleValue)
-                
-                let timestamp: String
-                if let epochInt = UInt64(tx.timeStamp) {
-                    let date = Date(timeIntervalSince1970: TimeInterval(epochInt))
-                    timestamp = Self.historyDateFormatter.string(from: date)
-                } else {
-                    timestamp = "Unknown"
-                }
-                
-                let confirmations = Int(tx.confirmations) ?? 0
-                let status = confirmations > 0 ? "Confirmed" : "Pending"
-                
-                // Calculate fee: gasUsed * gasPrice in BNB
-                var feeString: String? = nil
-                if let gasUsed = tx.gasUsed, let gasPrice = tx.gasPrice,
-                   let gasUsedDecimal = Decimal(string: gasUsed),
-                   let gasPriceDecimal = Decimal(string: gasPrice) {
-                    let feeWei = gasUsedDecimal * gasPriceDecimal
-                    let feeBnb = feeWei / Decimal(string: "1000000000000000000")!
-                    let feeValue = NSDecimalNumber(decimal: feeBnb).doubleValue
-                    feeString = String(format: "%.6f BNB", feeValue)
-                }
-                
-                let blockNum = tx.blockNumber.flatMap { Int($0) }
-                
-                return HawalaTransactionEntry(
-                    id: "\(target.id)-\(tx.hash)",
-                    type: direction,
-                    asset: target.displayName,
-                    amountDisplay: "\(prefix)\(formattedAmount) \(target.symbol)",
-                    status: status,
-                    timestamp: timestamp,
-                    sortTimestamp: UInt64(tx.timeStamp).map { TimeInterval($0) },
-                    txHash: tx.hash,
-                    chainId: target.id,
-                    confirmations: confirmations,
-                    fee: feeString,
-                    blockNumber: blockNum
-                )
-            }
-        } catch {
-            #if DEBUG
-            print("BNB history fetch error: \(error)")
-            #endif
-            return []
-        }
-    }
-    
-    private func fetchBNBFromBlockscout(for target: HistoryChainTarget) async -> [HawalaTransactionEntry] {
-        guard let url = URL(string: "https://bsc.blockscout.com/api/v2/addresses/\(target.address)/transactions") else {
-            return []
-        }
-        
-        do {
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-            request.timeoutInterval = 15
-            
-            let (data, response) = try await URLSession.shared.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                return []
-            }
-            
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let items = json["items"] as? [[String: Any]] else {
-                return []
-            }
-            
-            return items.prefix(50).compactMap { tx -> HawalaTransactionEntry? in
-                guard let hash = tx["hash"] as? String,
-                      let to = tx["to"] as? [String: Any],
-                      let toHash = to["hash"] as? String else {
-                    return nil
-                }
-                
-                let isReceive = toHash.lowercased() == target.address.lowercased()
-                let direction = isReceive ? "Receive" : "Send"
-                let prefix = isReceive ? "+" : "-"
-                
-                let valueString = tx["value"] as? String ?? "0"
-                let weiValue = Decimal(string: valueString) ?? 0
-                let bnbValue = weiValue / Decimal(string: "1000000000000000000")!
-                let amount = NSDecimalNumber(decimal: bnbValue).doubleValue
-                let formattedAmount = formatCryptoAmount(amount, symbol: target.symbol)
-                
-                let timestampStr = tx["timestamp"] as? String ?? ""
-                let timestamp: String
-                let sortTimestamp: TimeInterval?
-                if let date = ISO8601DateFormatter().date(from: timestampStr) {
-                    timestamp = Self.historyDateFormatter.string(from: date)
-                    sortTimestamp = date.timeIntervalSince1970
-                } else {
-                    timestamp = "Unknown"
-                    sortTimestamp = nil
-                }
-                
-                let status = (tx["status"] as? String) == "ok" ? "Confirmed" : "Pending"
-                
-                var feeString: String? = nil
-                if let fee = tx["fee"] as? [String: Any],
-                   let feeValue = fee["value"] as? String {
-                    let feeWei = Decimal(string: feeValue) ?? 0
-                    let feeBnb = feeWei / Decimal(string: "1000000000000000000")!
-                    feeString = String(format: "%.6f BNB", NSDecimalNumber(decimal: feeBnb).doubleValue)
-                }
-                
-                return HawalaTransactionEntry(
-                    id: "\(target.id)-\(hash)",
-                    type: direction,
-                    asset: target.displayName,
-                    amountDisplay: "\(prefix)\(formattedAmount)",
-                    status: status,
-                    timestamp: timestamp,
-                    sortTimestamp: sortTimestamp,
-                    txHash: hash,
-                    chainId: target.id,
-                    fee: feeString,
-                    blockNumber: tx["block"] as? Int
-                )
-            }
-        } catch {
-            #if DEBUG
-            print("[BNB Blockscout] Fetch error: \(error.localizedDescription)")
-            #endif
-            return []
-        }
-    }
-    
-    // MARK: - XRP History Fetching
-    
-    private struct XRPLAccountTxResponse: Decodable {
-        let result: XRPLAccountTxResult?
-    }
-    
-    private struct XRPLAccountTxResult: Decodable {
-        let transactions: [XRPLTransactionWrapper]?
-    }
-    
-    private struct XRPLTransactionWrapper: Decodable {
-        let tx: XRPLTransaction?
-        let meta: XRPLMeta?
-        let validated: Bool?
-    }
-    
-    private struct XRPLTransaction: Decodable {
-        let hash: String?
-        let Account: String?
-        let Destination: String?
-        let Amount: XRPLAmount?
-        let date: Int?
-        let TransactionType: String?
-        let Fee: String?
-        let ledger_index: Int?
-    }
-    
-    private enum XRPLAmount: Decodable {
-        case drops(String)
-        case token(XRPLTokenAmount)
-        
-        init(from decoder: Decoder) throws {
-            let container = try decoder.singleValueContainer()
-            if let drops = try? container.decode(String.self) {
-                self = .drops(drops)
-            } else if let token = try? container.decode(XRPLTokenAmount.self) {
-                self = .token(token)
-            } else {
-                self = .drops("0")
-            }
-        }
-        
-        var xrpValue: Double {
-            switch self {
-            case .drops(let drops):
-                return (Double(drops) ?? 0) / 1_000_000.0
-            case .token:
-                return 0 // Token transfers shown differently
-            }
-        }
-    }
-    
-    private struct XRPLTokenAmount: Decodable {
-        let value: String
-        let currency: String
-        let issuer: String?
-    }
-    
-    private struct XRPLMeta: Decodable {
-        let TransactionResult: String?
-    }
-    
-    private func fetchXRPHistoryEntries(for target: HistoryChainTarget) async -> [HawalaTransactionEntry] {
-        // XRPL JSON-RPC - use testnet or mainnet based on target id
-        let isTestnet = target.id == "xrp-testnet"
-        let rpcURL = isTestnet ? "https://s.altnet.rippletest.net:51234/" : "https://xrplcluster.com/"
-        guard let url = URL(string: rpcURL) else { return [] }
-        
-        let payload: [String: Any] = [
-            "method": "account_tx",
-            "params": [[
-                "account": target.address,
-                "ledger_index_min": -1,
-                "ledger_index_max": -1,
-                "limit": 50
-            ]]
-        ]
-        
-        do {
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-            
-            let (data, _) = try await URLSession.shared.data(for: request)
-            let response = try JSONDecoder().decode(XRPLAccountTxResponse.self, from: data)
-            
-            guard let transactions = response.result?.transactions, !transactions.isEmpty else { return [] }
-            
-            return transactions.compactMap { wrapper -> HawalaTransactionEntry? in
-                guard let tx = wrapper.tx,
-                      let hash = tx.hash,
-                      tx.TransactionType == "Payment" else { return nil }
-                
-                let isReceive = tx.Destination?.lowercased() == target.address.lowercased()
-                let direction = isReceive ? "Receive" : "Send"
-                let prefix = isReceive ? "+" : "-"
-                
-                let xrpValue = tx.Amount?.xrpValue ?? 0
-                let formattedAmount = String(format: "%.6f", xrpValue)
-                
-                // XRP ledger epoch starts at 2000-01-01 00:00:00 UTC (946684800 seconds after Unix epoch)
-                let timestamp: String
-                if let rippleTime = tx.date {
-                    let unixTime = TimeInterval(rippleTime) + 946684800
-                    let date = Date(timeIntervalSince1970: unixTime)
-                    timestamp = Self.historyDateFormatter.string(from: date)
-                } else {
-                    timestamp = "Unknown"
-                }
-                
-                let status: String
-                if let result = wrapper.meta?.TransactionResult, result == "tesSUCCESS" {
-                    status = wrapper.validated == true ? "Confirmed" : "Pending"
-                } else {
-                    status = "Failed"
-                }
-                
-                // XRP fee is in drops (1 XRP = 1,000,000 drops)
-                var feeString: String? = nil
-                if let feeDrops = tx.Fee, let feeValue = Double(feeDrops) {
-                    let feeXRP = feeValue / 1_000_000.0
-                    feeString = String(format: "%.6f XRP", feeXRP)
-                }
-                
-                return HawalaTransactionEntry(
-                    id: "\(target.id)-\(hash)",
-                    type: direction,
-                    asset: target.displayName,
-                    amountDisplay: "\(prefix)\(formattedAmount) \(target.symbol)",
-                    status: status,
-                    timestamp: timestamp,
-                    sortTimestamp: tx.date.map { TimeInterval($0) + 946684800 },
-                    txHash: hash,
-                    chainId: target.id,
-                    fee: feeString,
-                    blockNumber: tx.ledger_index
-                )
-            }
-        } catch {
-            #if DEBUG
-            print("XRP history fetch error: \(error)")
-            #endif
-            return []
-        }
     }
     
     // MARK: - WalletConnect Helpers

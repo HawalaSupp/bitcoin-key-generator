@@ -582,6 +582,71 @@ final class TransactionHistoryService: ObservableObject {
             entries = cached
         }
     }
+    
+    // MARK: - Conversion to HawalaTransactionEntry
+    
+    /// Convert internal TransactionEntry to HawalaTransactionEntry for UI display
+    var hawalaEntries: [HawalaTransactionEntry] {
+        entries.map { $0.toHawalaEntry() }
+    }
+    
+    /// Fetch and return as HawalaTransactionEntry array
+    func fetchAllHistoryAsHawala(targets: [HistoryTarget], force: Bool = false) async -> [HawalaTransactionEntry] {
+        await fetchAllHistory(targets: targets, force: force)
+        return hawalaEntries
+    }
+}
+
+// MARK: - TransactionEntry -> HawalaTransactionEntry Conversion
+
+extension TransactionEntry {
+    /// Convert to HawalaTransactionEntry for UI display
+    func toHawalaEntry() -> HawalaTransactionEntry {
+        let typeString: String
+        switch type {
+        case .send: typeString = "Send"
+        case .receive: typeString = "Receive"
+        case .swap: typeString = "Swap"
+        case .stake: typeString = "Stake"
+        case .unstake: typeString = "Unstake"
+        case .unknown: typeString = "Transaction"
+        }
+        
+        let statusString: String
+        switch status {
+        case .confirmed: statusString = "Confirmed"
+        case .pending: statusString = "Pending"
+        case .failed: statusString = "Failed"
+        }
+        
+        // Format asset name from chainId
+        let assetName: String
+        switch chainId {
+        case "bitcoin", "bitcoin-testnet": assetName = "Bitcoin"
+        case "litecoin": assetName = "Litecoin"
+        case "ethereum", "ethereum-sepolia": assetName = "Ethereum"
+        case "bnb": assetName = "BNB"
+        case "solana": assetName = "Solana"
+        case "xrp": assetName = "XRP"
+        default: assetName = symbol.uppercased()
+        }
+        
+        return HawalaTransactionEntry(
+            id: id,
+            type: typeString,
+            asset: assetName,
+            amountDisplay: formattedAmount,
+            status: statusString,
+            timestamp: formattedTimestamp,
+            sortTimestamp: timestamp?.timeIntervalSince1970,
+            txHash: txHash,
+            chainId: chainId,
+            confirmations: confirmations,
+            fee: formattedFee,
+            blockNumber: blockNumber,
+            counterparty: nil
+        )
+    }
 }
 
 // MARK: - Models
