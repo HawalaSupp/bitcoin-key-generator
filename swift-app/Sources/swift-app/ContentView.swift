@@ -263,6 +263,8 @@ struct ContentView: View {
         }
     }
 
+    @State private var showKeyboardShortcutsHelp = false  // ROADMAP-03: Keyboard shortcuts help sheet
+    
     private var mainAppStage: some View {
         ZStack {
             // New modern UI
@@ -349,6 +351,14 @@ struct ContentView: View {
         .frame(minWidth: 900, minHeight: 600)
         .background(HawalaTheme.Colors.background)
         .preferredColorScheme(.dark)
+        // ROADMAP-03: Keyboard shortcuts help sheet
+        .sheet(isPresented: $showKeyboardShortcutsHelp) {
+            KeyboardShortcutsHelpView()
+        }
+        // ROADMAP-03: Setup keyboard shortcut callbacks
+        .onAppear {
+            setupKeyboardShortcutCallbacks()
+        }
         .sheet(isPresented: $showAllPrivateKeysSheet) {
             if let keys {
                 AllPrivateKeysSheet(chains: keys.chainInfos, onCopy: copySensitiveToClipboard)
@@ -3971,6 +3981,51 @@ struct ContentView: View {
             completedOnboardingThisSession = false
         } else if !isUnlocked {
             showUnlockSheet = true
+        }
+    }
+    
+    // MARK: - Keyboard Shortcuts Setup (ROADMAP-03)
+    
+    @MainActor
+    private func setupKeyboardShortcutCallbacks() {
+        let commands = NavigationCommandsManager.shared
+        
+        // ⌘, - Open Settings
+        commands.onOpenSettings = { [self] in
+            showSettingsPanel = true
+        }
+        
+        // ⌘R - Refresh data
+        commands.onRefresh = { [self] in
+            if let keys = keys {
+                startBalanceFetch(for: keys)
+                refreshTransactionHistory(force: true)
+                sparklineCache.fetchAllSparklines()
+            }
+        }
+        
+        // ⌘N - New transaction (Send)
+        commands.onNewTransaction = { [self] in
+            if keys != nil {
+                showSendPicker = true
+            }
+        }
+        
+        // ⌘? - Show help/shortcuts
+        commands.onShowHelp = { [self] in
+            showKeyboardShortcutsHelp = true
+        }
+        
+        // ⌘⇧R - Receive
+        commands.onReceive = { [self] in
+            if keys != nil {
+                showReceiveSheet = true
+            }
+        }
+        
+        // ⌘H - Toggle history
+        commands.onToggleHistory = { [self] in
+            showTransactionHistorySheet.toggle()
         }
     }
 

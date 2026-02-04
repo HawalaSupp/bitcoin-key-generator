@@ -4,6 +4,7 @@ import SwiftUI
 struct KeyGeneratorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var passcodeManager = PasscodeManager.shared
+    @StateObject private var navigationCommands = NavigationCommandsManager.shared
     
     init() {
         print("Hawala Wallet Starting...")
@@ -15,9 +16,79 @@ struct KeyGeneratorApp: App {
         WindowGroup {
             AppRootView()
                 .environmentObject(passcodeManager)
+                .environmentObject(navigationCommands)
                 .withTheme()  // Apply theme settings (dark/light/system)
         }
         .windowStyle(.hiddenTitleBar) // Hide the gray title bar
+        .commands {
+            // ROADMAP-03: Global keyboard shortcuts
+            HawalaCommands(navigationCommands: navigationCommands)
+        }
+    }
+}
+
+// MARK: - Hawala Menu Commands (ROADMAP-03)
+/// Custom menu commands with keyboard shortcuts
+struct HawalaCommands: Commands {
+    @ObservedObject var navigationCommands: NavigationCommandsManager
+    
+    var body: some Commands {
+        // Replace the standard Preferences menu item
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings...") {
+                navigationCommands.openSettings()
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        }
+        
+        // File menu additions
+        CommandGroup(after: .newItem) {
+            Button("New Transaction") {
+                navigationCommands.newTransaction()
+            }
+            .keyboardShortcut("n", modifiers: .command)
+            
+            Button("Receive") {
+                navigationCommands.receive()
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            
+            Divider()
+        }
+        
+        // View menu additions
+        CommandGroup(after: .toolbar) {
+            Button("Refresh") {
+                navigationCommands.refresh()
+            }
+            .keyboardShortcut("r", modifiers: .command)
+            
+            Button("Toggle History") {
+                navigationCommands.toggleHistory()
+            }
+            .keyboardShortcut("h", modifiers: .command)
+            
+            Divider()
+        }
+        
+        // Help menu additions
+        CommandGroup(replacing: .help) {
+            Button("Keyboard Shortcuts") {
+                navigationCommands.showHelp()
+            }
+            .keyboardShortcut("/", modifiers: [.command, .shift])
+            
+            Divider()
+            
+            Button("Hawala Help") {
+                // Open help documentation
+                if let url = URL(string: "https://hawala.wallet/help") {
+                    #if os(macOS)
+                    NSWorkspace.shared.open(url)
+                    #endif
+                }
+            }
+        }
     }
 }
 
