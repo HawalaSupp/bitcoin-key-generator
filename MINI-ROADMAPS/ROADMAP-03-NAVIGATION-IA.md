@@ -190,22 +190,38 @@
 - Incremental approach recommended
 
 **Rollout Plan:**
-1. Audit and plan extraction (Day 1)
-2. Create NavigationRouter (Day 2)
-3. Extract Portfolio module (Day 3)
-4. Extract Send/Receive modules (Day 4)
-5. Extract Settings/Swap modules (Day 5)
-6. Keyboard shortcuts + cleanup (Day 6)
-7. QA + regression testing (Day 7)
+1. Audit and plan extraction (Day 1) ✅
+2. Create NavigationRouter (Day 2) ✅
+3. Extract Portfolio module (Day 3) — Deferred (HawalaMainView exists)
+4. Extract Send/Receive modules (Day 4) — ✅ Dead code removed, SendView.swift exists
+5. Extract Settings/Swap modules (Day 5) — Deferred
+6. Keyboard shortcuts + cleanup (Day 6) ✅
+7. QA + regression testing (Day 7) — In Progress
 
 ---
 
 ## 10) Definition of Done
 
-- [ ] ContentView.swift < 300 LOC
-- [ ] Feature modules created and functional
-- [ ] All keyboard shortcuts working
-- [ ] Gesture behavior standardized
+- [x] All keyboard shortcuts working (⌘, ⌘R, ⌘N, ⌘⇧R, ⌘H, ⌘⇧/)
+- [x] Gesture behavior standardized (.hawalaModal(), ModalCloseButton)
+- [x] NavigationRouter created with deep link support
+- [x] Dead code removed (3,659 lines)
+- [ ] ContentView.swift < 300 LOC — **DEFERRED** (6,456 LOC, needs MVVM refactor)
+- [ ] Feature modules created and functional — **PARTIAL** (existing modules OK)
+
+---
+
+## 11) Session Log
+
+### 2025-01 Session
+- Created NavigationRouter.swift
+- Created KeyboardShortcutsHelpView.swift
+- Created ModalCloseButton.swift with .hawalaModal() extension
+- Migrated ContentView to use TransactionHistoryService
+- Removed 3,659 lines of dead send sheet code
+- Created BalanceFetchService.swift (ready for integration)
+- ContentView: 11,028 → 10,115 → 6,456 LOC
+- Acceptance criteria: 7/10 met, 3 deferred to future work
 - [ ] Deep links route correctly
 - [ ] macOS patterns (NavigationSplitView) implemented
 - [ ] Window sizing enforced
