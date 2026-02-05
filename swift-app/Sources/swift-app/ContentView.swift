@@ -47,6 +47,7 @@ struct ContentView: View {
     @StateObject private var navigationVM = NavigationViewModel()
     @StateObject private var securityVM = SecurityViewModel()
     @StateObject private var walletVM = WalletViewModel()
+    @StateObject private var balanceService = BalanceService.shared
     // Phase 3 Feature Sheets
     // Phase 4 Feature Sheets (ERC-4337 Account Abstraction)
     @State private var historyEntries: [HawalaTransactionEntry] = []
