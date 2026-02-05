@@ -261,7 +261,7 @@ struct ContentView: View {
                     },
                     onRefreshBalances: {
                         if let keys = keys {
-                            startBalanceFetch(for: keys)
+                            balanceService.startBalanceFetch(for: keys)
                         }
                     },
                     onRefreshHistory: {
@@ -1000,7 +1000,7 @@ struct ContentView: View {
             let priceState = priceStates[chain.id] ?? defaultPriceState(for: chain.id)
 
             guard
-                let balance = extractNumericAmount(from: balanceState),
+                let balance = balanceService.extractNumericAmount(from: balanceState),
                 let price = extractFiatPrice(from: priceState)
             else { continue }
 
@@ -1112,24 +1112,11 @@ struct ContentView: View {
             return
         }
 
-        startBalanceFetch(for: keys)
+        balanceService.startBalanceFetch(for: keys)
         refreshTransactionHistory(force: true)
         showStatus("Refreshing balances…", tone: .info)
     }
 
-    private func extractNumericAmount(from state: ChainBalanceState) -> Double? {
-        let value: String
-        switch state {
-        case .loaded(let loadedValue, _), .refreshing(let loadedValue, _), .stale(let loadedValue, _, _):
-            value = loadedValue
-        default:
-            return nil
-        }
-
-        let raw = value.split(separator: " ").first.map(String.init) ?? value
-        let cleaned = raw.replacingOccurrences(of: ",", with: "")
-        return Double(cleaned)
-    }
 
     private func extractFiatPrice(from state: ChainPriceState) -> Double? {
         let value: String
@@ -2119,7 +2106,7 @@ struct ContentView: View {
                             #endif
                         }
                         
-                        self.startBalanceFetch(for: loadedKeys)
+                        self.balanceService.startBalanceFetch(for: loadedKeys)
                         self.startPriceUpdatesIfNeeded()
                         self.refreshTransactionHistory(force: true)
                     } else {
@@ -2234,7 +2221,7 @@ struct ContentView: View {
                 statusMessage = summary
                 statusColor = .green
                 
-                startBalanceFetch(for: result)
+                balanceService.startBalanceFetch(for: result)
                 startPriceUpdatesIfNeeded()
                 refreshTransactionHistory(force: true)
             }
@@ -2396,7 +2383,7 @@ struct ContentView: View {
             }
             
             primeStateCaches(for: importedKeys)
-            startBalanceFetch(for: importedKeys)
+            balanceService.startBalanceFetch(for: importedKeys)
             startPriceUpdatesIfNeeded()
             refreshTransactionHistory(force: true)
             navigationVM.pendingImportData = nil
@@ -2600,7 +2587,7 @@ struct ContentView: View {
     historyEntries = []
     historyError = nil
     isHistoryLoading = false
-        cancelBalanceFetchTasks()
+        balanceService.cancelBalanceFetchTasks()
         balanceStates.removeAll()
         cachedBalances.removeAll()
         balanceBackoff.removeAll()
@@ -2655,7 +2642,7 @@ struct ContentView: View {
         // ⌘R - Refresh data
         commands.onRefresh = { [self] in
             if let keys = keys {
-                startBalanceFetch(for: keys)
+                balanceService.startBalanceFetch(for: keys)
                 refreshTransactionHistory(force: true)
                 sparklineCache.fetchAllSparklines()
             }
@@ -2930,77 +2917,7 @@ struct ContentView: View {
 
     // MARK: - Sparkline data now handled by SparklineCache service
 
-    @MainActor
-    private func startBalanceFetch(for keys: AllKeys) {
-        cancelBalanceFetchTasks()
-        balanceBackoff.removeAll()
-        
-        // Group 1: BlockCypher (Rate limited, must be spaced out)
-        scheduleBalanceFetch(for: "bitcoin") {
-            try await fetchBitcoinBalance(address: keys.bitcoin.address)
-        }
 
-        scheduleBalanceFetch(for: "bitcoin-testnet", delay: 0.5) {
-            try await fetchBitcoinBalance(address: keys.bitcoinTestnet.address, isTestnet: true)
-        }
-
-        scheduleBalanceFetch(for: "litecoin", delay: 1.0) {
-            try await fetchLitecoinBalance(address: keys.litecoin.address)
-        }
-
-        // Group 2: Independent APIs (Can run in parallel immediately)
-        scheduleBalanceFetch(for: "solana") {
-            try await fetchSolanaBalance(address: keys.solana.publicKeyBase58)
-        }
-
-        scheduleBalanceFetch(for: "xrp") {
-            try await fetchXrpBalance(address: keys.xrp.classicAddress)
-        }
-
-        scheduleBalanceFetch(for: "bnb") {
-            try await fetchBnbBalance(address: keys.bnb.address)
-        }
-
-        startEthereumAndTokenBalanceFetch(address: keys.ethereum.address)
-    }
-
-    @MainActor
-    private func startEthereumAndTokenBalanceFetch(address: String) {
-        scheduleBalanceFetch(for: "ethereum") {
-            try await fetchEthereumBalanceViaInfura(address: address)
-        }
-
-        scheduleBalanceFetch(for: "ethereum-sepolia", delay: 0.3) {
-            try await fetchEthereumSepoliaBalance(address: address)
-        }
-
-        scheduleBalanceFetch(for: "usdt-erc20", delay: 0.7) {
-            try await fetchERC20Balance(
-                address: address,
-                contractAddress: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-                decimals: 6,
-                symbol: "USDT"
-            )
-        }
-
-        scheduleBalanceFetch(for: "usdc-erc20", delay: 1.4) {
-            try await fetchERC20Balance(
-                address: address,
-                contractAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-                decimals: 6,
-                symbol: "USDC"
-            )
-        }
-
-        scheduleBalanceFetch(for: "dai-erc20", delay: 2.1) {
-            try await fetchERC20Balance(
-                address: address,
-                contractAddress: "0x6B175474E89094C44Da98b954EedeAC495271d0F",
-                decimals: 18,
-                symbol: "DAI"
-            )
-        }
-    }
 
     @MainActor
     private func ensurePriceStateEntries() {
@@ -3084,750 +3001,38 @@ struct ContentView: View {
         }
     }
 
-    @MainActor
-    private func scheduleBalanceFetch(for chainId: String, delay: TimeInterval = 0, fetcher: @escaping () async throws -> String) {
-        applyLoadingState(for: chainId)
-        launchBalanceFetchTask(for: chainId, after: delay, fetcher: fetcher)
-    }
-
-    @MainActor
-    private func cancelBalanceFetchTasks() {
-        for task in balanceFetchTasks.values {
-            task.cancel()
-        }
-        balanceFetchTasks.removeAll()
-    }
-
-    @MainActor
-    private func launchBalanceFetchTask(for chainId: String, after delay: TimeInterval, fetcher: @escaping () async throws -> String) {
-        balanceFetchTasks[chainId]?.cancel()
-        let task = Task {
-            if delay > 0 {
-                let nanos = UInt64(delay * 1_000_000_000)
-                try? await Task.sleep(nanoseconds: nanos)
-            }
-            await runBalanceFetchLoop(chainId: chainId, fetcher: fetcher)
-        }
-        balanceFetchTasks[chainId] = task
-    }
-
-    private func runBalanceFetchLoop(chainId: String, fetcher: @escaping () async throws -> String) async {
-        while !Task.isCancelled {
-            let succeeded = await performBalanceFetch(chainId: chainId, fetcher: fetcher)
-            if succeeded || Task.isCancelled {
-                return
-            }
-
-            let pendingDelay = await MainActor.run {
-                balanceBackoff[chainId]?.remainingBackoff ?? minimumBalanceRetryDelay
-            }
-            let clampedDelay = max(pendingDelay, minimumBalanceRetryDelay)
-            let nanos = UInt64(clampedDelay * 1_000_000_000)
-            try? await Task.sleep(nanoseconds: nanos)
-        }
-    }
-
-    @MainActor
-    private func applyLoadingState(for chainId: String) {
-        if let cache = cachedBalances[chainId] {
-            balanceStates[chainId] = .refreshing(previous: cache.value, lastUpdated: cache.lastUpdated)
-        } else {
-            balanceStates[chainId] = .loading
-        }
-    }
-
-    private func performBalanceFetch(chainId: String, fetcher: @escaping () async throws -> String) async -> Bool {
-        if Task.isCancelled { return false }
-
-        var pendingDelay: TimeInterval = 0
-        await MainActor.run {
-            if let tracker = balanceBackoff[chainId], tracker.isInBackoff {
-                pendingDelay = tracker.remainingBackoff
-            }
-        }
-
-        if pendingDelay > 0 {
-            let nanos = UInt64(pendingDelay * 1_000_000_000)
-            try? await Task.sleep(nanoseconds: nanos)
-            if Task.isCancelled { return false }
-        }
-
-        do {
-            let displayValue = try await fetcher()
-            await MainActor.run {
-                let now = Date()
-                cachedBalances[chainId] = CachedBalance(value: displayValue, lastUpdated: now)
-                balanceStates[chainId] = .loaded(value: displayValue, lastUpdated: now)
-                balanceBackoff[chainId] = nil
-                // Save to persistent cache
-                saveBalanceToCache(chainId: chainId, balance: displayValue)
-            }
-            return true
-        } catch {
-            let friendlyMessage: String = await MainActor.run {
-                var tracker = balanceBackoff[chainId] ?? BackoffTracker()
-                let retryDelay = tracker.registerFailure()
-                balanceBackoff[chainId] = tracker
-                let message = friendlyBackoffMessage(for: error, retryDelay: retryDelay)
-                if let cache = cachedBalances[chainId] {
-                    balanceStates[chainId] = .stale(value: cache.value, lastUpdated: cache.lastUpdated, message: message)
-                } else {
-                    balanceStates[chainId] = .failed(message)
-                }
-                return message
-            }
-            let nextDelay = await MainActor.run {
-                balanceBackoff[chainId]?.remainingBackoff ?? minimumBalanceRetryDelay
-            }
-            let addressHint = chainId == "xrp" ? " (XRP address retry pending)" : ""
-            let formattedDelay = String(format: "%.1fs", max(nextDelay, minimumBalanceRetryDelay))
-            #if DEBUG
-            print("⚠️ Balance fetch error for \(chainId): \(friendlyMessage) – \(error.localizedDescription). Next retry in \(formattedDelay)\(addressHint)")
-            #endif
-            return false
-        }
-    }
-
-    private func friendlyBackoffMessage(for error: Error, retryDelay: TimeInterval) -> String {
-        var base: String
-        if let balanceError = error as? BalanceFetchError {
-            switch balanceError {
-            case .invalidStatus(let code) where code == 429:
-                base = "Temporarily rate limited"
-            case .invalidStatus(let code):
-                base = "Service returned status \(code)"
-            case .invalidRequest:
-                base = "Invalid request"
-            case .invalidResponse:
-                base = "Unexpected response"
-            case .invalidPayload:
-                base = "Unreadable data"
-            case .rateLimited:
-                base = "Rate limited - prices updating soon"
-            }
-        } else {
-            base = error.localizedDescription
-        }
-
-        if retryDelay > 0.1 {
-            return "\(base). Retrying in \(formatRetryDuration(retryDelay))…"
-        }
-        return base
-    }
-
-    private func formatRetryDuration(_ delay: TimeInterval) -> String {
-        if delay >= 10 {
-            return "\(Int(delay))s"
-        } else {
-            return String(format: "%.1fs", delay)
-        }
-    }
-
-    private func fetchBitcoinBalance(address: String, isTestnet: Bool = false) async throws -> String {
-        let symbol = isTestnet ? "tBTC" : "BTC"
-        
-        // Use MultiProviderAPI with automatic fallbacks
-        do {
-            let btc = try await MultiProviderAPI.shared.fetchBitcoinBalance(address: address, isTestnet: isTestnet)
-            return formatCryptoAmount(btc, symbol: symbol, maxFractionDigits: 8)
-        } catch {
-            #if DEBUG
-            print("⚠️ All Bitcoin balance providers failed: \(error.localizedDescription)")
-            #endif
-            throw error
-        }
-    }
-
-    private func fetchLitecoinBalance(address: String) async throws -> String {
-        guard let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "https://litecoinspace.org/api/address/\(encodedAddress)") else {
-            throw BalanceFetchError.invalidRequest
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.invalidResponse
-        }
-
-        if httpResponse.statusCode == 404 {
-            return "0.00000000 LTC"
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
-        }
-
-        let jsonObject = try JSONSerialization.jsonObject(with: data, options: [])
-        guard let dictionary = jsonObject as? [String: Any],
-              let chainStats = dictionary["chain_stats"] as? [String: Any] else {
-            throw BalanceFetchError.invalidPayload
-        }
-
-        let funded = (chainStats["funded_txo_sum"] as? NSNumber)?.doubleValue ?? 0
-        let spent = (chainStats["spent_txo_sum"] as? NSNumber)?.doubleValue ?? 0
-        let balanceInLitoshis = max(0, funded - spent)
-        let ltc = balanceInLitoshis / 100_000_000.0
-        return formatCryptoAmount(ltc, symbol: "LTC", maxFractionDigits: 8)
-    }
-
-    private func fetchSolanaBalance(address: String) async throws -> String {
-        // Try Alchemy FIRST if configured (most reliable)
-        if APIConfig.isAlchemyConfigured() {
-            do {
-                #if DEBUG
-                print("📡 Trying Alchemy for SOL balance...")
-                #endif
-                let sol = try await MultiProviderAPI.shared.fetchSolanaBalanceViaAlchemy(address: address)
-                return formatCryptoAmount(sol, symbol: "SOL", maxFractionDigits: 6)
-            } catch {
-                #if DEBUG
-                print("⚠️ Alchemy SOL failed: \(error.localizedDescription)")
-                #endif
-            }
-        }
-        
-        // Use MultiProviderAPI with automatic fallbacks across multiple RPC endpoints
-        do {
-            let sol = try await MultiProviderAPI.shared.fetchSolanaBalance(address: address)
-            return formatCryptoAmount(sol, symbol: "SOL", maxFractionDigits: 6)
-        } catch {
-            #if DEBUG
-            print("⚠️ All Solana balance providers failed: \(error.localizedDescription)")
-            #endif
-            throw error
-        }
-    }
-
-    private func fetchXrpBalanceViaRippleDataAPI(address: String) async throws -> String {
-        guard let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "https://data.ripple.com/v2/accounts/\(encodedAddress)/balances") else {
-            throw BalanceFetchError.invalidRequest
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.invalidResponse
-        }
-
-        if httpResponse.statusCode == 404 {
-            return formatCryptoAmount(0, symbol: "XRP", maxFractionDigits: 6)
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
-        }
-
-        let decoder = JSONDecoder()
-        let payload = try decoder.decode(RippleDataAccountBalanceResponse.self, from: data)
-
-        if payload.isAccountMissing {
-            return formatCryptoAmount(0, symbol: "XRP", maxFractionDigits: 6)
-        }
-
-        if let balanceDecimal = payload.xrpBalanceValue {
-            let xrp = NSDecimalNumber(decimal: balanceDecimal).doubleValue
-            return formatCryptoAmount(xrp, symbol: "XRP", maxFractionDigits: 6)
-        }
-
-        return formatCryptoAmount(0, symbol: "XRP", maxFractionDigits: 6)
-    }
-
-    private func fetchXrpBalance(address: String) async throws -> String {
-        let shortened = address.prefix(8)
-
-        do {
-            return try await fetchXrpBalanceViaRippleDataAPI(address: address)
-        } catch {
-            #if DEBUG
-            print("⚠️ Ripple Data API lookup failed for \(shortened)…: \(error.localizedDescription). Trying XRPSCAN next.")
-            #endif
-        }
-
-        do {
-            return try await fetchXrpBalanceViaXrpScan(address: address)
-        } catch {
-            #if DEBUG
-            print("⚠️ XRPSCAN lookup failed for \(shortened)…: \(error.localizedDescription). Falling back to XRPL RPC endpoints.")
-            #endif
-        }
-
-        return try await fetchXrpBalanceViaRippleRPC(address: address)
-    }
-
-    private func fetchXrpBalanceViaRippleRPC(address: String) async throws -> String {
-        var lastError: Error?
-        let shortened = address.prefix(8)
-
-        for endpoint in APIConfig.xrplEndpoints {
-            do {
-                return try await requestXrpBalance(address: address, endpoint: endpoint)
-            } catch {
-                #if DEBUG
-                print("⚠️ XRPL RPC \(endpoint) failed for \(shortened)…: \(error.localizedDescription)")
-                #endif
-                lastError = error
-                continue
-            }
-        }
-
-        #if DEBUG
-        print("❌ All XRPL RPC endpoints exhausted for \(shortened)…")
-        #endif
-        throw lastError ?? BalanceFetchError.invalidResponse
-    }
-
-    private func requestXrpBalance(address: String, endpoint: String) async throws -> String {
-        guard let url = URL(string: endpoint) else {
-            throw BalanceFetchError.invalidRequest
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
-        request.httpBody = try xrplAccountInfoPayload(address: address)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.invalidResponse
-        }
-
-        if httpResponse.statusCode == 404 {
-            return formatCryptoAmount(0, symbol: "XRP", maxFractionDigits: 6)
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
-        }
-
-        do {
-            let xrpDecimal = try BalanceResponseParser.parseXRPLBalance(from: data)
-            let xrp = NSDecimalNumber(decimal: xrpDecimal).doubleValue
-            return formatCryptoAmount(xrp, symbol: "XRP", maxFractionDigits: 6)
-        } catch {
-            if xrplResponseIndicatesUnfundedAccount(data) {
-                return formatCryptoAmount(0, symbol: "XRP", maxFractionDigits: 6)
-            }
-            throw error
-        }
-    }
-
-    private func fetchXrpBalanceViaXrpScan(address: String) async throws -> String {
-        guard let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "https://api.xrpscan.com/api/v1/account/\(encodedAddress)") else {
-            throw BalanceFetchError.invalidRequest
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.invalidResponse
-        }
-
-        if httpResponse.statusCode == 404 {
-            return formatCryptoAmount(0, symbol: "XRP", maxFractionDigits: 6)
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
-        }
-
-        let decoder = JSONDecoder()
-        let payload = try decoder.decode(XrpScanAccountResponse.self, from: data)
-
-        if let balanceString = payload.xrpBalance ?? payload.balance,
-           let balanceDecimal = Decimal(string: balanceString) {
-            let xrp = NSDecimalNumber(decimal: balanceDecimal).doubleValue
-            return formatCryptoAmount(xrp, symbol: "XRP", maxFractionDigits: 6)
-        }
-
-        return formatCryptoAmount(0, symbol: "XRP", maxFractionDigits: 6)
-    }
-
-    private func xrplAccountInfoPayload(address: String) throws -> Data {
-        let payload: [String: Any] = [
-            "jsonrpc": "2.0",
-            "method": "account_info",
-            "id": 1,
-            "params": [
-                [
-                    "account": address,
-                    "ledger_index": "validated",
-                    "queue": true
-                ]
-            ]
-        ]
-
-        return try JSONSerialization.data(withJSONObject: payload, options: [])
-    }
-
-    private func xrplResponseIndicatesUnfundedAccount(_ data: Data) -> Bool {
-        guard
-            let json = try? JSONSerialization.jsonObject(with: data, options: []),
-            let dictionary = json as? [String: Any],
-            let result = dictionary["result"] as? [String: Any]
-        else { return false }
-
-        if let errorCode = result["error"] as? String {
-            return errorCode == "actNotFound"
-        }
-
-        if let status = result["status"] as? String, status == "error",
-           let errorMessage = result["error_message"] as? String {
-            return errorMessage.lowercased().contains("not found")
-        }
-
-        return false
-    }
-
-    private func fetchBnbBalance(address: String) async throws -> String {
-        guard let url = URL(string: "https://bsc-dataseed.binance.org/") else {
-            throw BalanceFetchError.invalidRequest
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
-
-        let payload: [String: Any] = [
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "eth_getBalance",
-            "params": [address, "latest"]
-        ]
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.invalidResponse
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
-        }
-
-        let jsonObject = try JSONSerialization.jsonObject(with: data, options: [])
-        guard let dictionary = jsonObject as? [String: Any],
-              let result = dictionary["result"] as? String else {
-            throw BalanceFetchError.invalidPayload
-        }
-
-        let weiDecimal = decimalFromHex(result)
-        let divisor = Decimal(string: "1000000000000000000") ?? Decimal(1_000_000_000_000_000_000)
-        let bnbDecimal = weiDecimal / divisor
-        let bnb = NSDecimalNumber(decimal: bnbDecimal).doubleValue
-        return formatCryptoAmount(bnb, symbol: "BNB", maxFractionDigits: 6)
-    }
-
-    private func fetchEthereumBalanceViaInfura(address: String) async throws -> String {
-        // Try Alchemy FIRST if configured (most reliable)
-        if APIConfig.isAlchemyConfigured() {
-            do {
-                #if DEBUG
-                print("📡 Trying Alchemy for ETH balance...")
-                #endif
-                return try await fetchEthereumBalanceViaAlchemy(address: address)
-            } catch {
-                #if DEBUG
-                print("⚠️ Alchemy ETH failed: \(error.localizedDescription)")
-                #endif
-            }
-        }
-        
-        // Use MultiProviderAPI with automatic fallbacks across multiple RPC endpoints
-        do {
-            let eth = try await MultiProviderAPI.shared.fetchEthereumBalance(address: address)
-            return formatCryptoAmount(eth, symbol: "ETH", maxFractionDigits: 6)
-        } catch {
-            // If all providers fail, try Blockchair as last resort
-            return try await fetchEthereumBalanceViaBlockchair(address: address)
-        }
-    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     
-    private func fetchEthereumBalanceViaAlchemy(address: String) async throws -> String {
-        guard let url = URL(string: APIConfig.alchemyMainnetURL) else {
-            throw BalanceFetchError.invalidRequest
-        }
-        
-        let payload: [String: Any] = [
-            "jsonrpc": "2.0",
-            "method": "eth_getBalance",
-            "params": [address, "latest"],
-            "id": 1
-        ]
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        
-        let (responseData, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.invalidResponse
-        }
-        
-        guard httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
-        }
-        
-                let ethDecimal = try BalanceResponseParser.parseAlchemyETHBalance(from: responseData)
-                let eth = NSDecimalNumber(decimal: ethDecimal).doubleValue
-        return formatCryptoAmount(eth, symbol: "ETH", maxFractionDigits: 6)
-    }
     
-    private func fetchEthereumBalanceViaBlockchair(address: String) async throws -> String {
-        guard let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "https://api.blockchair.com/ethereum/dashboards/address/\(encodedAddress)") else {
-            throw BalanceFetchError.invalidRequest
-        }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.invalidResponse
-        }
-        
-        if httpResponse.statusCode == 404 {
-            return "0.00 ETH"
-        }
-        
-        guard httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
-        }
-
-        do {
-            let ethDecimal = try BalanceResponseParser.parseBlockchairETHBalance(from: data, address: address)
-            let eth = NSDecimalNumber(decimal: ethDecimal).doubleValue
-            return formatCryptoAmount(eth, symbol: "ETH", maxFractionDigits: 6)
-        } catch {
-            return "0.00 ETH"
-        }
-    }
-
-    private func fetchERC20Balance(address: String, contractAddress: String, decimals: Int, symbol: String) async throws -> String {
-        // Use Alchemy if configured, otherwise fallback to Blockchair
-        if APIConfig.isAlchemyConfigured() {
-            return try await fetchERC20BalanceViaAlchemy(address: address, contractAddress: contractAddress, decimals: decimals, symbol: symbol)
-        } else {
-            return try await fetchERC20BalanceViaBlockchair(address: address, contractAddress: contractAddress, decimals: decimals, symbol: symbol)
-        }
-    }
     
-    private func fetchERC20BalanceViaAlchemy(address: String, contractAddress: String, decimals: Int, symbol: String) async throws -> String {
-        guard let url = URL(string: APIConfig.alchemyMainnetURL) else {
-            throw BalanceFetchError.invalidRequest
-        }
-        
-        // balanceOf(address) function signature
-        let functionSelector = "0x70a08231"
-        let paddedAddress = String(address.dropFirst(2)).padding(toLength: 64, withPad: "0", startingAt: 0)
-        let data = functionSelector + paddedAddress
-        
-        let payload: [String: Any] = [
-            "jsonrpc": "2.0",
-            "method": "eth_call",
-            "params": [
-                [
-                    "to": contractAddress,
-                    "data": data
-                ],
-                "latest"
-            ],
-            "id": 1
-        ]
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        
-        let (responseData, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.invalidResponse
-        }
-        
-        guard httpResponse.statusCode == 200 else {
-            return "0 \(symbol)"
-        }
-        
-        do {
-            let tokenAmountDecimal = try BalanceResponseParser.parseAlchemyERC20Balance(from: responseData, decimals: decimals)
-            let amount = NSDecimalNumber(decimal: tokenAmountDecimal).doubleValue
-            return formatCryptoAmount(amount, symbol: symbol, maxFractionDigits: decimals >= 6 ? 6 : decimals)
-        } catch {
-            return "0 \(symbol)"
-        }
-    }
     
-    private func fetchERC20BalanceViaBlockchair(address: String, contractAddress: String, decimals: Int, symbol: String) async throws -> String {
-        // Use Blockchair API for ERC-20 tokens - better rate limits
-        guard let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "https://api.blockchair.com/ethereum/dashboards/address/\(encodedAddress)?erc_20=true") else {
-            throw BalanceFetchError.invalidRequest
-        }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.invalidResponse
-        }
-        
-        guard httpResponse.statusCode == 200 else {
-            return "0 \(symbol)"
-        }
 
-        let amountDecimal = try BalanceResponseParser.parseBlockchairERC20Balance(from: data, address: address, contractAddress: contractAddress, decimals: decimals)
-        let amount = NSDecimalNumber(decimal: amountDecimal).doubleValue
-        return formatCryptoAmount(amount, symbol: symbol, maxFractionDigits: decimals >= 6 ? 6 : decimals)
-    }
 
-    private func fetchEthplorerAccount(address: String) async throws -> EthplorerAddressResponse {
-        guard let encodedAddress = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "https://api.ethplorer.io/getAddressInfo/\(encodedAddress)?apiKey=freekey") else {
-            throw BalanceFetchError.invalidRequest
-        }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("HawalaApp/1.0", forHTTPHeaderField: "User-Agent")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.invalidResponse
-        }
 
-        if httpResponse.statusCode == 404 {
-            return EthplorerAddressResponse(eth: .init(balance: 0), tokens: [])
-        }
 
-        guard httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
-        }
-
-        let decoder = JSONDecoder()
-        return try decoder.decode(EthplorerAddressResponse.self, from: data)
-    }
-
-    private func tokenBalance(for symbol: String, decimalsHint: Int, in tokens: [EthplorerAddressResponse.TokenBalance]?) -> Double {
-        guard let tokens else { return 0 }
-        let match = tokens.first { entry in
-            guard let tokenSymbol = entry.tokenInfo?.symbol else { return false }
-            return tokenSymbol.caseInsensitiveCompare(symbol) == .orderedSame
-        }
-
-        if let balance = match?.balance {
-            return balance
-        }
-
-        if let rawBalance = match?.rawBalance,
-           let rawDecimal = Decimal(string: rawBalance) {
-            let decimals = match?.tokenInfo?.decimals.flatMap(Int.init) ?? decimalsHint
-            let adjusted = decimalDividingByPowerOfTen(rawDecimal, exponent: decimals)
-            return NSDecimalNumber(decimal: adjusted).doubleValue
-        }
-
-        return 0
-    }
-
-    private func decimalFromHex(_ hexString: String) -> Decimal {
-        let sanitized = hexString.lowercased().hasPrefix("0x") ? String(hexString.dropFirst(2)) : hexString
-        guard !sanitized.isEmpty else { return Decimal.zero }
-
-        var result = Decimal.zero
-        for character in sanitized {
-            result *= 16
-            if let digit = Int(String(character), radix: 16) {
-                result += Decimal(digit)
-            } else {
-                return Decimal.zero
-            }
-        }
-        return result
-    }
-
-    private func decimalDividingByPowerOfTen(_ value: Decimal, exponent: Int) -> Decimal {
-        var input = value
-        var result = Decimal()
-        let clampedExponent = Int16(clamping: exponent)
-        NSDecimalMultiplyByPowerOf10(&result, &input, -clampedExponent, .plain)
-        return result
-    }
-
-    private func normalizeAddressForCall(_ address: String) -> String {
-        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        let stripped = trimmed.hasPrefix("0x") || trimmed.hasPrefix("0X") ? String(trimmed.dropFirst(2)) : trimmed
-        let lowercased = stripped.lowercased()
-        let filtered = lowercased.filter { "0123456789abcdef".contains($0) }
-        let limited = filtered.count > 64 ? String(filtered.suffix(64)) : filtered
-        guard limited.count < 64 else { return limited }
-        return String(repeating: "0", count: 64 - limited.count) + limited
-    }
-
-    private func fetchEthereumBalance(address: String) async throws -> String {
-        let payload = try await fetchEthplorerAccount(address: address)
-        let balance = payload.eth.balance
-        return formatCryptoAmount(balance, symbol: "ETH", maxFractionDigits: 6)
-    }
-
-    private func fetchEthereumSepoliaBalance(address: String) async throws -> String {
-        guard let url = URL(string: APIConfig.alchemySepoliaURL) else {
-            throw BalanceFetchError.invalidRequest
-        }
-        
-        let payload: [String: Any] = [
-            "jsonrpc": "2.0",
-            "method": "eth_getBalance",
-            "params": [address, "latest"],
-            "id": 1
-        ]
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        
-        let (responseData, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.invalidResponse
-        }
-        
-        guard httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.invalidStatus(httpResponse.statusCode)
-        }
-        
-        let ethDecimal = try BalanceResponseParser.parseAlchemyETHBalance(from: responseData)
-        let eth = NSDecimalNumber(decimal: ethDecimal).doubleValue
-        return formatCryptoAmount(eth, symbol: "ETH", maxFractionDigits: 6)
-    }
-
-    private func formatCryptoAmount(_ amount: Double, symbol: String, maxFractionDigits: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = maxFractionDigits
-        let formatted = formatter.string(from: NSNumber(value: amount)) ?? String(format: "%.\(maxFractionDigits)f", amount)
-        return "\(formatted) \(symbol)"
-    }
 
     private var selectedFiatCurrency: FiatCurrency {
         FiatCurrency(rawValue: storedFiatCurrency) ?? .usd
