@@ -29,18 +29,12 @@ struct ContentView: View {
     @AppStorage("hawala.biometricForKeyReveal") private var biometricForKeyReveal = true
     @AppStorage("hawala.autoLockInterval") private var storedAutoLockInterval: Double = AutoLockIntervalOption.fiveMinutes.rawValue
     @AppStorage("hawala.selectedFiatCurrency") private var storedFiatCurrency = FiatCurrency.usd.rawValue
-    @State private var fxRates: [String: Double] = [:] // Currency code -> rate (relative to USD)
-    @State private var fxRatesFetchTask: Task<Void, Never>?
     @State private var isUnlocked = false
     @State private var hasResetOnboardingState = false
     @State private var balanceStates: [String: ChainBalanceState] = [:]
-    @State private var priceStates: [String: ChainPriceState] = [:]
     @State private var cachedBalances: [String: CachedBalance] = [:]
     @State private var balanceBackoff: [String: BackoffTracker] = [:]
     @State private var balanceFetchTasks: [String: Task<Void, Never>] = [:]
-    @State private var cachedPrices: [String: CachedPrice] = [:]
-    @State private var priceBackoffTracker = BackoffTracker()
-    @State private var priceUpdateTask: Task<Void, Never>?
     @StateObject private var sparklineCache = SparklineCache.shared
     @StateObject private var assetCache = AssetCache.shared
     @StateObject private var transactionHistoryService = TransactionHistoryService.shared
@@ -48,6 +42,7 @@ struct ContentView: View {
     @StateObject private var securityVM = SecurityViewModel()
     @StateObject private var walletVM = WalletViewModel()
     @StateObject private var balanceService = BalanceService.shared
+    @StateObject private var priceService = PriceService.shared
     // Phase 3 Feature Sheets
     // Phase 4 Feature Sheets (ERC-4337 Account Abstraction)
     @State private var historyEntries: [HawalaTransactionEntry] = []
@@ -65,19 +60,9 @@ struct ContentView: View {
     @State private var showPerformanceOverlay = false  // Disabled for screenshot
     #endif
     private let moneroBalancePlaceholder = "View-only · Open Monero GUI wallet for full access"
-    private let trackedPriceChainIDs = [
-        "bitcoin", "bitcoin-testnet", "ethereum", "ethereum-sepolia", "litecoin", "monero",
-        "solana", "xrp", "bnb", "usdt-erc20", "usdc-erc20", "dai-erc20"
-    ]
     private let sendEnabledChainIDs: Set<String> = [
         "bitcoin", "bitcoin-testnet", "litecoin", "ethereum", "ethereum-sepolia", "bnb", "solana"
     ]
-    // CoinGecko free API: ~10-30 calls/min without key, ~30 calls/min with demo key
-    // We poll prices every 2 minutes to stay well under limits
-    private let pricePollingInterval: TimeInterval = 120
-    // Optional: Set your CoinGecko Demo API key here for higher rate limits
-    // Get a free key at: https://www.coingecko.com/en/api/pricing (Demo tier is free)
-    private let coingeckoAPIKey: String? = nil // e.g. "CG-xxxxxxxxxxxxxxxxxxxx"
     private let minimumBalanceRetryDelay: TimeInterval = 0.5
     private static var cachedWorkspaceRoot: URL?
     private static let historyDateFormatter: DateFormatter = {
@@ -196,11 +181,9 @@ struct ContentView: View {
             navigationVM.onboardingStep = .welcome
             navigationVM.shouldAutoGenerateAfterOnboarding = false
             balanceStates.removeAll()
-            priceStates.removeAll()
+            priceService.resetState()
             cachedBalances.removeAll()
-            cachedPrices.removeAll()
             balanceBackoff.removeAll()
-            priceBackoffTracker = BackoffTracker()
             hasResetOnboardingState = true
             
             // Load cached asset data for instant display
@@ -229,7 +212,7 @@ struct ContentView: View {
                     keys: $keys,
                     selectedChain: $navigationVM.selectedChain,
                     balanceStates: $balanceStates,
-                    priceStates: $priceStates,
+                    priceStates: $priceService.priceStates,
                     sparklineCache: sparklineCache,
                     showSendPicker: $navigationVM.showSendPicker,
                     showReceiveSheet: $navigationVM.showReceiveSheet,
@@ -268,7 +251,7 @@ struct ContentView: View {
                         refreshTransactionHistory(force: true)
                     },
                     selectedFiatSymbol: selectedFiatCurrency.symbol,
-                    fxRates: fxRates,
+                    fxRates: priceService.fxRates,
                     selectedFiatCurrency: storedFiatCurrency,
                     isGenerating: isGenerating,
                     historyEntries: $historyEntries,
@@ -283,8 +266,8 @@ struct ContentView: View {
                         set: { balanceStates[chain.id] = $0 ?? .idle }
                     ),
                     priceState: Binding(
-                        get: { priceStates[chain.id] },
-                        set: { priceStates[chain.id] = $0 ?? .idle }
+                        get: { priceService.priceStates[chain.id] },
+                        set: { priceService.priceStates[chain.id] = $0 ?? .idle }
                     ),
                     sparklineData: sparklineCache.sparklines[chain.id] ?? [],
                     onSend: {
@@ -300,7 +283,7 @@ struct ContentView: View {
                         }
                     },
                     selectedFiatSymbol: selectedFiatCurrency.symbol,
-                    fxMultiplier: fxRates[storedFiatCurrency] ?? 1.0
+                    fxMultiplier: priceService.fxRates[storedFiatCurrency] ?? 1.0
                 )
             }
         }
@@ -493,9 +476,9 @@ struct ContentView: View {
                 selectedCurrency: $storedFiatCurrency,
                 onCurrencyChanged: {
                     // Refresh FX rates and prices when currency changes
-                    startFXRatesFetch()
+                    priceService.startFXRatesFetch()
                     Task {
-                        await fetchAndStorePrices()
+                        _ = await priceService.fetchAndStorePrices()
                     }
                 }
             )
@@ -601,7 +584,7 @@ struct ContentView: View {
         .onAppear {
             prepareSecurityState()
             triggerAutoGenerationIfNeeded()
-            startPriceUpdatesIfNeeded()
+            priceService.startPriceUpdatesIfNeeded(sparklineCache: sparklineCache)
             securityVM.refreshBiometricAvailability()
             securityVM.startActivityMonitoringIfNeeded()
             securityVM.recordActivity()
@@ -619,9 +602,9 @@ struct ContentView: View {
         }
         .onChange(of: onboardingCompleted) { completed in
             if completed {
-                startPriceUpdatesIfNeeded()
+                priceService.startPriceUpdatesIfNeeded(sparklineCache: sparklineCache)
             } else {
-                stopPriceUpdates()
+                priceService.stopPriceUpdates()
             }
         }
     }
@@ -756,8 +739,8 @@ struct ContentView: View {
                                     }
                                     navigationVM.selectedChain = chain
                                 } label: {
-                                    let balance = balanceStates[chain.id] ?? defaultBalanceState(for: chain.id)
-                                    let price = priceStates[chain.id] ?? defaultPriceState(for: chain.id)
+                                    let balance = balanceStates[chain.id] ?? balanceService.defaultBalanceState(for: chain.id)
+                                    let price = priceService.priceStates[chain.id] ?? priceService.defaultPriceState(for: chain.id)
                                     let sparkline = sparklineCache.sparklines[chain.id] ?? []
                                     ChainCard(
                                         chain: chain,
@@ -839,7 +822,7 @@ struct ContentView: View {
     }
 
     private var priceAnimationToken: Int {
-        priceStates.reduce(0) { partial, entry in
+        priceService.priceStates.reduce(0) { partial, entry in
             var hasher = Hasher()
             hasher.combine(entry.key)
             hasher.combine(String(describing: entry.value))
@@ -937,28 +920,28 @@ struct ContentView: View {
         guard let total = result.total, result.hasData else {
             return "—"
         }
-        return formatFiatAmountInSelectedCurrency(total)
+        return priceService.formatFiatAmountInSelectedCurrency(total, storedFiatCurrency: storedFiatCurrency)
     }
 
     private var priceStatusLine: String {
-        if priceStates.isEmpty {
+        if priceService.priceStates.isEmpty {
             return "Fetching live prices…"
         }
 
-        if priceStates.values.contains(where: { state in
+        if priceService.priceStates.values.contains(where: { state in
             if case .loading = state { return true }
             return false
         }) {
             return "Fetching live prices…"
         }
-        if priceStates.values.contains(where: { state in
+        if priceService.priceStates.values.contains(where: { state in
             if case .refreshing = state { return true }
             return false
         }) {
             return "Refreshing live prices…"
         }
 
-        if priceStates.values.contains(where: { state in
+        if priceService.priceStates.values.contains(where: { state in
             if case .stale = state { return true }
             return false
         }) {
@@ -976,7 +959,7 @@ struct ContentView: View {
     }
 
     private var latestPriceUpdate: Date? {
-        priceStates.values.compactMap { state in
+        priceService.priceStates.values.compactMap { state in
             switch state {
             case .loaded(_, let timestamp):
                 return timestamp
@@ -996,8 +979,8 @@ struct ContentView: View {
         var hasValue = false
 
         for chain in keys.chainInfos {
-            let balanceState = balanceStates[chain.id] ?? defaultBalanceState(for: chain.id)
-            let priceState = priceStates[chain.id] ?? defaultPriceState(for: chain.id)
+            let balanceState = balanceStates[chain.id] ?? balanceService.defaultBalanceState(for: chain.id)
+            let priceState = priceService.priceStates[chain.id] ?? priceService.defaultPriceState(for: chain.id)
 
             guard
                 let balance = balanceService.extractNumericAmount(from: balanceState),
@@ -2092,7 +2075,7 @@ struct ContentView: View {
                         if let encoded = try? JSONEncoder().encode(loadedKeys) {
                             self.rawJSON = self.prettyPrintedJSON(from: encoded)
                         }
-                        self.primeStateCaches(for: loadedKeys)
+                        self.priceService.primeStateCaches(for: loadedKeys, balanceService: self.balanceService, storedFiatCurrency: self.storedFiatCurrency)
                         #if DEBUG
                         print("✅ Loaded keys from Keychain")
                         print("🔑 Bitcoin Testnet Address: \(loadedKeys.bitcoinTestnet.address)")
@@ -2107,7 +2090,7 @@ struct ContentView: View {
                         }
                         
                         self.balanceService.startBalanceFetch(for: loadedKeys)
-                        self.startPriceUpdatesIfNeeded()
+                        self.priceService.startPriceUpdatesIfNeeded(sparklineCache: self.sparklineCache)
                         self.refreshTransactionHistory(force: true)
                     } else {
                         #if DEBUG
@@ -2143,11 +2126,11 @@ struct ContentView: View {
         for (chainId, cached) in assetCache.cachedPrices {
             let age = Date().timeIntervalSince(cached.lastUpdated)
             if age < 300 {
-                cachedPrices[chainId] = CachedPrice(value: cached.price, lastUpdated: cached.lastUpdated)
-                priceStates[chainId] = .loaded(value: cached.price, lastUpdated: cached.lastUpdated)
+                priceService.cachedPrices[chainId] = CachedPrice(value: cached.price, lastUpdated: cached.lastUpdated)
+                priceService.priceStates[chainId] = .loaded(value: cached.price, lastUpdated: cached.lastUpdated)
             } else {
-                cachedPrices[chainId] = CachedPrice(value: cached.price, lastUpdated: cached.lastUpdated)
-                priceStates[chainId] = .stale(value: cached.price, lastUpdated: cached.lastUpdated, message: "Updating...")
+                priceService.cachedPrices[chainId] = CachedPrice(value: cached.price, lastUpdated: cached.lastUpdated)
+                priceService.priceStates[chainId] = .stale(value: cached.price, lastUpdated: cached.lastUpdated, message: "Updating...")
             }
         }
         
@@ -2190,7 +2173,7 @@ struct ContentView: View {
             let (result, jsonString) = try await runRustKeyGenerator()
             await MainActor.run {
                 // Prime states BEFORE setting keys to avoid race condition
-                primeStateCaches(for: result)
+                priceService.primeStateCaches(for: result, balanceService: balanceService, storedFiatCurrency: storedFiatCurrency)
                 keys = result
                 rawJSON = jsonString
                 isGenerating = false
@@ -2222,7 +2205,7 @@ struct ContentView: View {
                 statusColor = .green
                 
                 balanceService.startBalanceFetch(for: result)
-                startPriceUpdatesIfNeeded()
+                priceService.startPriceUpdatesIfNeeded(sparklineCache: sparklineCache)
                 refreshTransactionHistory(force: true)
             }
         } catch {
@@ -2382,9 +2365,9 @@ struct ContentView: View {
                 #endif
             }
             
-            primeStateCaches(for: importedKeys)
+            priceService.primeStateCaches(for: importedKeys, balanceService: balanceService, storedFiatCurrency: storedFiatCurrency)
             balanceService.startBalanceFetch(for: importedKeys)
-            startPriceUpdatesIfNeeded()
+            priceService.startPriceUpdatesIfNeeded(sparklineCache: sparklineCache)
             refreshTransactionHistory(force: true)
             navigationVM.pendingImportData = nil
             showStatus("Encrypted backup imported successfully. Keys loaded.", tone: .success)
@@ -2591,10 +2574,8 @@ struct ContentView: View {
         balanceStates.removeAll()
         cachedBalances.removeAll()
         balanceBackoff.removeAll()
-        cachedPrices.removeAll()
-        priceStates.removeAll()
-        priceBackoffTracker = BackoffTracker()
-        stopPriceUpdates()
+        priceService.resetState()
+        priceService.stopPriceUpdates()
 
         do {
             try KeychainHelper.deleteKeys()
@@ -2687,400 +2668,9 @@ struct ContentView: View {
         }
     }
 
-    @MainActor
-    private func startPriceUpdatesIfNeeded() {
-        guard onboardingCompleted else { return }
-        ensurePriceStateEntries()
-        // Also fetch FX rates and sparklines when starting price updates
-        startFXRatesFetch()
-        sparklineCache.apiKey = coingeckoAPIKey
-        sparklineCache.fetchAllSparklines()
-        if priceUpdateTask == nil {
-            markPriceStatesLoading()
-            priceUpdateTask = Task {
-                await priceUpdateLoop()
-            }
-        } else {
-            Task {
-                await fetchAndStorePrices()
-            }
-        }
-    }
-
-    @MainActor
-    private func stopPriceUpdates() {
-        priceUpdateTask?.cancel()
-        priceUpdateTask = nil
-        priceBackoffTracker = BackoffTracker()
-    }
-
-    @MainActor
-    private func markPriceStatesLoading() {
-        for id in trackedPriceChainIDs {
-            applyPriceLoadingState(for: id)
-        }
-    }
-
-    private func priceUpdateLoop() async {
-        while !Task.isCancelled {
-            let (succeeded, wasRateLimited) = await fetchAndStorePrices()
-            let delay = await MainActor.run { () -> TimeInterval in
-                if succeeded {
-                    priceBackoffTracker.registerSuccess()
-                    return pricePollingInterval
-                } else if wasRateLimited {
-                    // On rate limit, wait longer (minimum 3 minutes)
-                    let backoff = priceBackoffTracker.registerFailure()
-                    return max(180, backoff)
-                } else {
-                    return priceBackoffTracker.registerFailure()
-                }
-            }
-
-            let clampedDelay = max(30, delay) // Minimum 30 seconds between retries
-            let nanos = UInt64(clampedDelay * 1_000_000_000)
-            try? await Task.sleep(nanoseconds: nanos)
-        }
-    }
-
-    private func fetchAndStorePrices() async -> (success: Bool, rateLimited: Bool) {
-        do {
-            let snapshot = try await fetchPriceSnapshot()
-            let now = Date()
-            await MainActor.run {
-                updatePriceStates(with: snapshot, timestamp: now)
-            }
-            return (true, false)
-        } catch BalanceFetchError.rateLimited {
-            // On rate limit, keep cached prices but mark as stale
-            await MainActor.run {
-                applyPriceStaleState(message: "Rate limited - retrying soon")
-            }
-            return (false, true)
-        } catch {
-            await MainActor.run {
-                applyPriceFailureState(message: error.localizedDescription)
-            }
-            return (false, false)
-        }
-    }
-
-    @MainActor
-    private func applyPriceStaleState(message: String) {
-        for chainId in trackedPriceChainIDs {
-            if let cache = cachedPrices[chainId] {
-                priceStates[chainId] = .stale(value: cache.value, lastUpdated: cache.lastUpdated, message: message)
-            }
-        }
-    }
-
-    @MainActor
-    private func updatePriceStates(with snapshot: [String: Double], timestamp: Date) {
-        for chainId in trackedPriceChainIDs {
-            if let staticDisplay = staticPriceDisplay(for: chainId) {
-                cachedPrices[chainId] = CachedPrice(value: staticDisplay, lastUpdated: timestamp)
-                priceStates[chainId] = .loaded(value: staticDisplay, lastUpdated: timestamp)
-                // Save static prices to persistent cache
-                savePriceToCache(chainId: chainId, price: staticDisplay, numericValue: 0)
-                continue
-            }
-
-            guard let identifiers = priceIdentifiers(for: chainId) else { continue }
-            guard let priceValue = identifiers.compactMap({ snapshot[$0] }).first else {
-                if let cache = cachedPrices[chainId] {
-                    priceStates[chainId] = .stale(value: cache.value, lastUpdated: cache.lastUpdated, message: "Price unavailable.")
-                } else {
-                    priceStates[chainId] = .failed("Price unavailable.")
-                }
-                continue
-            }
-
-            let display = formatFiatAmountInSelectedCurrency(priceValue)
-            cachedPrices[chainId] = CachedPrice(value: display, lastUpdated: timestamp)
-            priceStates[chainId] = .loaded(value: display, lastUpdated: timestamp)
-            // Save to persistent cache
-            savePriceToCache(chainId: chainId, price: display, numericValue: priceValue)
-        }
-    }
-
-    private func priceIdentifiers(for chainId: String) -> [String]? {
-        switch chainId {
-        case "bitcoin":
-            return ["bitcoin"]
-        case "ethereum":
-            return ["ethereum"]
-        case "litecoin":
-            return ["litecoin"]
-        case "monero":
-            return ["monero"]
-        case "solana":
-            return ["solana"]
-        case "xrp":
-            return ["ripple", "xrp"]
-        case "bnb":
-            return ["binancecoin", "bnb"]
-        case "bitcoin-testnet", "ethereum-sepolia", "usdt-erc20", "usdc-erc20", "dai-erc20":
-            return nil
-        default:
-            return nil
-        }
-    }
-
-    private func fetchPriceSnapshot() async throws -> [String: Double] {
-        // Use MultiProviderAPI with automatic fallbacks (CoinCap -> CryptoCompare -> CoinGecko)
-        do {
-            return try await MultiProviderAPI.shared.fetchPrices()
-        } catch {
-            // If all providers fail, throw rate limited error to trigger retry
-            throw BalanceFetchError.rateLimited
-        }
-    }
-
-    /// Fetches FX rates relative to USD from CoinGecko Exchange Rates API
-    private func fetchFXRates() async throws -> [String: Double] {
-        // CoinGecko provides exchange rates for many currencies relative to BTC
-        // We use USD as base (rate = 1.0) and calculate other rates
-        let baseURL: String
-        if let apiKey = coingeckoAPIKey, !apiKey.isEmpty {
-            baseURL = "https://pro-api.coingecko.com/api/v3/exchange_rates?x_cg_pro_api_key=\(apiKey)"
-        } else {
-            baseURL = "https://api.coingecko.com/api/v3/exchange_rates"
-        }
-        
-        guard let url = URL(string: baseURL) else {
-            throw BalanceFetchError.invalidRequest
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("HawalaApp/\(AppVersion.displayVersion)", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 15
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.invalidResponse
-        }
-        
-        // Handle rate limiting
-        if httpResponse.statusCode == 429 {
-            throw BalanceFetchError.rateLimited
-        }
-        
-        guard httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.invalidResponse
-        }
-
-        let object = try JSONSerialization.jsonObject(with: data, options: [])
-        guard let dictionary = object as? [String: Any],
-              let rates = dictionary["rates"] as? [String: Any] else {
-            throw BalanceFetchError.invalidPayload
-        }
-
-        // Get USD value (base)
-        guard let usdInfo = rates["usd"] as? [String: Any],
-              let usdValue = usdInfo["value"] as? Double else {
-            return ["USD": 1.0]
-        }
-
-        var fxRates: [String: Double] = ["USD": 1.0]
-        
-        // Calculate rates relative to USD
-        let currencyCodes = ["EUR": "eur", "GBP": "gbp", "JPY": "jpy", "CAD": "cad", 
-                            "AUD": "aud", "CHF": "chf", "CNY": "cny", "INR": "inr", "PLN": "pln"]
-        
-        for (code, apiKey) in currencyCodes {
-            if let info = rates[apiKey] as? [String: Any],
-               let value = info["value"] as? Double {
-                // Rate relative to USD: how many units of currency per 1 USD
-                fxRates[code] = value / usdValue
-            }
-        }
-
-        return fxRates
-    }
-
-    @MainActor
-    private func startFXRatesFetch() {
-        fxRatesFetchTask?.cancel()
-        fxRatesFetchTask = Task {
-            do {
-                let rates = try await fetchFXRates()
-                self.fxRates = rates
-            } catch {
-                #if DEBUG
-                print("Failed to fetch FX rates: \(error)")
-                #endif
-                // Keep existing rates if fetch fails
-            }
-        }
-    }
-
-    // MARK: - Sparkline data now handled by SparklineCache service
-
-
-
-    @MainActor
-    private func ensurePriceStateEntries() {
-        for id in trackedPriceChainIDs where priceStates[id] == nil {
-            applyPriceLoadingState(for: id)
-        }
-    }
-
-    @MainActor
-    private func primeStateCaches(for keys: AllKeys) {
-        let chains = keys.chainInfos
-        for chain in chains {
-            let balanceDefault = defaultBalanceState(for: chain.id)
-            let priceDefault = defaultPriceState(for: chain.id)
-            balanceStates[chain.id] = balanceDefault
-            priceStates[chain.id] = priceDefault
-        }
-    }
-
-    @MainActor
-    private func defaultBalanceState(for chainID: String) -> ChainBalanceState {
-        switch chainID {
-        case "bitcoin-testnet":
-            return .loading
-        case "ethereum-sepolia":
-            return .loaded(value: "Use Sepolia faucet for funds", lastUpdated: Date())
-        case "monero":
-            return .loaded(value: moneroBalancePlaceholder, lastUpdated: Date())
-        default:
-            return .loading
-        }
-    }
-
-    @MainActor
-    private func defaultPriceState(for chainID: String) -> ChainPriceState {
-        if let staticDisplay = staticPriceDisplay(for: chainID) {
-            return .loaded(value: staticDisplay, lastUpdated: Date())
-        }
-        return .loading
-    }
-
-    private func staticPriceDisplay(for chainID: String) -> String? {
-        switch chainID {
-        case "usdt-erc20", "usdc-erc20", "dai-erc20":
-            return formatFiatAmountInSelectedCurrency(1.0)
-        case "bitcoin-testnet", "ethereum-sepolia":
-            return "Testnet asset"
-        default:
-            return nil
-        }
-    }
-
-    @MainActor
-    private func applyPriceLoadingState(for chainId: String) {
-        let now = Date()
-        let state = PriceStateReducer.loadingState(
-            cache: cachedPrices[chainId],
-            staticDisplay: staticPriceDisplay(for: chainId),
-            now: now
-        )
-        if case .loaded(let value, let timestamp) = state {
-            cachedPrices[chainId] = CachedPrice(value: value, lastUpdated: timestamp)
-        }
-        priceStates[chainId] = state
-    }
-
-    @MainActor
-    private func applyPriceFailureState(message: String) {
-        let now = Date()
-        for id in trackedPriceChainIDs {
-            let state = PriceStateReducer.failureState(
-                cache: cachedPrices[id],
-                staticDisplay: staticPriceDisplay(for: id),
-                message: message,
-                now: now
-            )
-            if case .loaded(let value, let timestamp) = state {
-                cachedPrices[id] = CachedPrice(value: value, lastUpdated: timestamp)
-            }
-            priceStates[id] = state
-        }
-    }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-    
-
-    
-    
-
-
-
-
-
-
-
-
-
     private var selectedFiatCurrency: FiatCurrency {
         FiatCurrency(rawValue: storedFiatCurrency) ?? .usd
     }
-
-    /// Formats amount in the user's selected fiat currency
-    /// - Parameters:
-    ///   - amountInUSD: The amount in USD (as provided by CoinGecko)
-    ///   - useSelectedCurrency: If true, converts to user's selected currency. If false, formats as USD.
-    private func formatFiatAmountInSelectedCurrency(_ amountInUSD: Double, useSelectedCurrency: Bool = true) -> String {
-        let currency = useSelectedCurrency ? selectedFiatCurrency : .usd
-        let rate = fxRates[currency.rawValue] ?? 1.0
-        let convertedAmount = amountInUSD * rate
-        
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = currency.rawValue
-        
-        // Use appropriate locale for currency formatting
-        switch currency {
-        case .eur: formatter.locale = Locale(identifier: "de_DE")
-        case .gbp: formatter.locale = Locale(identifier: "en_GB")
-        case .jpy: formatter.locale = Locale(identifier: "ja_JP")
-        case .cad: formatter.locale = Locale(identifier: "en_CA")
-        case .aud: formatter.locale = Locale(identifier: "en_AU")
-        case .chf: formatter.locale = Locale(identifier: "de_CH")
-        case .cny: formatter.locale = Locale(identifier: "zh_CN")
-        case .inr: formatter.locale = Locale(identifier: "en_IN")
-        case .pln: formatter.locale = Locale(identifier: "pl_PL")
-        case .usd: formatter.locale = Locale(identifier: "en_US")
-        }
-        
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        
-        return formatter.string(from: NSNumber(value: convertedAmount)) ?? "\(currency.symbol)\(String(format: "%.2f", convertedAmount))"
-    }
-
-    private func formatFiatAmount(_ amount: Double, currencyCode: String) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = currencyCode
-        formatter.locale = Locale(identifier: "en_US")
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        return formatter.string(from: NSNumber(value: amount)) ?? "$\(String(format: "%.2f", amount))"
-    }
-
 
     @MainActor
     private func handleScenePhase(_ phase: ScenePhase) {
@@ -3090,14 +2680,14 @@ struct ContentView: View {
         // App-specific phase handling
         switch phase {
         case .active:
-            startPriceUpdatesIfNeeded()
+            priceService.startPriceUpdatesIfNeeded(sparklineCache: sparklineCache)
             if storedPasscodeHash != nil && !isUnlocked {
                 navigationVM.showUnlockSheet = true
             }
         case .inactive:
             break
         case .background:
-            stopPriceUpdates()
+            priceService.stopPriceUpdates()
             clearSensitiveData()
             if storedPasscodeHash != nil {
                 isUnlocked = false
