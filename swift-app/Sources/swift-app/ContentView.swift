@@ -56,6 +56,9 @@ struct ContentView: View {
     @StateObject private var sparklineCache = SparklineCache.shared
     @StateObject private var assetCache = AssetCache.shared
     @StateObject private var transactionHistoryService = TransactionHistoryService.shared
+    @StateObject private var navigationVM = NavigationViewModel()
+    @StateObject private var securityVM = SecurityViewModel()
+    @StateObject private var walletVM = WalletViewModel()
     @State private var showAllPrivateKeysSheet = false
     @State private var showSettingsPanel = false
     @State private var showContactsSheet = false
