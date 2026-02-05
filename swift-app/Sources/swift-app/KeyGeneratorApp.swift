@@ -164,6 +164,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
+    // ROADMAP-03: Deep link URL handling
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            if url.scheme == "hawala" {
+                Task { @MainActor in
+                    NavigationRouter.shared.handleDeepLink(url)
+                }
+            }
+        }
+    }
+    
     func applicationWillTerminate(_ notification: Notification) {
         // Clean up network services
         Task { @MainActor in
