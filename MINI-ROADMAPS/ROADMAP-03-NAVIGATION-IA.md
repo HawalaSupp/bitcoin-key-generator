@@ -108,16 +108,23 @@
 
 ## 5) Acceptance Criteria
 
-- [ ] ContentView.swift reduced to < 300 LOC
-- [ ] Feature modules each < 500 LOC
-- [ ] ⌘,  opens Settings from any screen
-- [ ] ⌘R refreshes data in context
-- [ ] ⌘?  shows keyboard shortcuts
-- [ ] Swipe right = back (never closes modals)
-- [ ] × button = close modal (consistent placement)
-- [ ] Deep links route correctly without breaking state
-- [ ] NavigationSplitView used on macOS
-- [ ] Minimum window size enforced (900×600)
+- [x] ⌘, opens Settings from any screen ✅ (KeyboardShortcutRouter)
+- [x] ⌘R refreshes data in context ✅ (KeyboardShortcutRouter)
+- [x] ⌘? shows keyboard shortcuts ✅ (⌘⇧/ → KeyboardShortcutsHelpView)
+- [x] Swipe right = back (never closes modals) ✅ (.hawalaModal())
+- [x] × button = close modal (consistent placement) ✅ (ModalCloseButton)
+- [x] Deep links route correctly without breaking state ✅ (NavigationRouter)
+- [x] Minimum window size enforced (900×600) ✅ (.frame(minWidth:minHeight:))
+- [ ] ContentView.swift reduced to < 300 LOC — **PARTIAL: 10,115 → 6,456 LOC (-36%)**
+- [ ] Feature modules each < 500 LOC — **PARTIAL: Some modules compliant**
+- [ ] NavigationSplitView used on macOS — **DEFERRED: Requires major refactor**
+
+### Progress Notes (Session 2025-01)
+- Removed 3,659 lines of dead send sheet code
+- Created BalanceFetchService (not yet integrated)
+- TransactionHistoryService migrated
+- Gesture standardization complete
+- Keyboard shortcuts fully implemented
 
 ---
 
