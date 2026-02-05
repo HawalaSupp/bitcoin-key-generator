@@ -25,9 +25,14 @@ final class SecurityViewModel: ObservableObject {
     @AppStorage("hawala.biometricForKeyReveal") var biometricForKeyReveal = true
     @AppStorage("hawala.autoLockInterval") var storedAutoLockInterval: Double = AutoLockIntervalOption.fiveMinutes.rawValue
     
-    // MARK: - Private State
-    private var lastActivityTimestamp = Date()
-    private var autoLockTask: Task<Void, Never>?
+    // MARK: - Internal State (accessible to ContentView during migration)
+    var lastActivityTimestamp = Date()
+    var autoLockTask: Task<Void, Never>?
+    
+    // MARK: - Public Methods for Auto-Lock Control
+    func cancelAutoLock() {
+        autoLockTask?.cancel()
+    }
     
     #if canImport(AppKit)
     private var activityMonitor: UserActivityMonitor?

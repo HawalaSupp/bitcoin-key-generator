@@ -13,7 +13,6 @@ import UIKit
 // Types are defined in Models/AppTypes.swift and Models/ChainKeys.swift
 
 struct ContentView: View {
-    @State private var showSplashScreen = true
     @State private var keys: AllKeys?
     @State private var rawJSON: String = ""
     @State private var isGenerating = false
@@ -21,7 +20,6 @@ struct ContentView: View {
     @State private var statusMessage: String?
     @State private var statusColor: Color = .green
     @State private var statusTask: Task<Void, Never>?
-    @State private var selectedChain: ChainInfo?
     @AppStorage("hawala.securityAcknowledged") private var hasAcknowledgedSecurityNotice = false
     @AppStorage("hawala.passcodeHash") private var storedPasscodeHash: String?
     @AppStorage("hawala.onboardingCompleted") private var onboardingCompleted = false
@@ -34,16 +32,6 @@ struct ContentView: View {
     @State private var fxRates: [String: Double] = [:] // Currency code -> rate (relative to USD)
     @State private var fxRatesFetchTask: Task<Void, Never>?
     @State private var isUnlocked = false
-    @State private var showSecurityNotice = false
-    @State private var showSecuritySettings = false
-    @State private var showUnlockSheet = false
-    @State private var showExportPasswordPrompt = false
-    @State private var showImportPasswordPrompt = false
-    @State private var pendingImportData: Data?
-    @State private var showImportPrivateKeySheet = false
-    @State private var onboardingStep: OnboardingStep = .welcome
-    @State private var completedOnboardingThisSession = false
-    @State private var shouldAutoGenerateAfterOnboarding = false
     @State private var hasResetOnboardingState = false
     @State private var balanceStates: [String: ChainBalanceState] = [:]
     @State private var priceStates: [String: ChainPriceState] = [:]
@@ -59,33 +47,8 @@ struct ContentView: View {
     @StateObject private var navigationVM = NavigationViewModel()
     @StateObject private var securityVM = SecurityViewModel()
     @StateObject private var walletVM = WalletViewModel()
-    @State private var showAllPrivateKeysSheet = false
-    @State private var showSettingsPanel = false
-    @State private var showContactsSheet = false
-    @State private var showStakingSheet = false
-    @State private var showNotificationsSheet = false
-    @State private var showMultisigSheet = false
-    @State private var showHardwareWalletSheet = false
-    @State private var showWatchOnlySheet = false
-    @State private var showWalletConnectSheet = false
-    @State private var showReceiveSheet = false
-    @State private var showSendPicker = false
-    @State private var showBatchTransactionSheet = false
     // Phase 3 Feature Sheets
-    @State private var showL2AggregatorSheet = false
-    @State private var showPaymentLinksSheet = false
-    @State private var showTransactionNotesSheet = false
-    @State private var showSellCryptoSheet = false
-    @State private var showPriceAlertsSheet = false
     // Phase 4 Feature Sheets (ERC-4337 Account Abstraction)
-    @State private var showSmartAccountSheet = false
-    @State private var showGasAccountSheet = false
-    @State private var showPasskeyAuthSheet = false
-    @State private var showGaslessTxSheet = false
-    @State private var sendChainContext: ChainInfo?
-    @State private var pendingSendChain: ChainInfo?
-    @State private var showSeedPhraseSheet = false
-    @State private var showTransactionHistorySheet = false
     @State private var historyEntries: [HawalaTransactionEntry] = []
     @State private var historyError: String?
     @State private var isHistoryLoading = false
@@ -94,16 +57,8 @@ struct ContentView: View {
     @State private var historySearchText: String = ""
     @State private var historyFilterChain: String? = nil
     @State private var historyFilterType: String? = nil
-    @State private var selectedTransactionForDetail: HawalaTransactionEntry?
     @State private var pendingTransactions: [PendingTransactionManager.PendingTransaction] = []
     @State private var pendingTxRefreshTask: Task<Void, Never>?
-    @State private var speedUpTransaction: PendingTransactionManager.PendingTransaction?
-    @State private var cancelTransaction: PendingTransactionManager.PendingTransaction?
-    @State private var viewportWidth: CGFloat = 900
-    @State private var biometricState: BiometricState = .unknown
-    @State private var lastActivityTimestamp = Date()
-    @State private var autoLockTask: Task<Void, Never>?
-    @State private var showPrivacyBlur = false
     // Debug: Show FPS performance overlay in DEBUG builds
     #if DEBUG
     @State private var showPerformanceOverlay = false  // Disabled for screenshot
@@ -181,7 +136,7 @@ struct ContentView: View {
     }
 
     private var biometricDisplayInfo: (label: String, icon: String) {
-        if case .available(let kind) = biometricState {
+        if case .available(let kind) = securityVM.biometricState {
             return (kind.displayName, kind.iconName)
         }
         return ("Biometrics", "lock.circle")
@@ -190,8 +145,8 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             // Splash screen overlay
-            if showSplashScreen {
-                HawalaSplashView(isShowingSplash: $showSplashScreen)
+            if navigationVM.showSplashScreen {
+                HawalaSplashView(isShowingSplash: $navigationVM.showSplashScreen)
                     .zIndex(100)
                     .transition(.opacity)
             }
@@ -223,7 +178,7 @@ struct ContentView: View {
                 }
                 #endif
             }
-            .opacity(showSplashScreen ? 0 : 1)
+            .opacity(navigationVM.showSplashScreen ? 0 : 1)
         }
         #if DEBUG
         .onAppear {
@@ -233,15 +188,15 @@ struct ContentView: View {
             }
         }
         #endif
-        .animation(.easeInOut(duration: 0.3), value: showSplashScreen)
+        .animation(.easeInOut(duration: 0.3), value: navigationVM.showSplashScreen)
         .animation(.easeInOut(duration: 0.3), value: onboardingCompleted)
-        .animation(.easeInOut(duration: 0.3), value: onboardingStep)
+        .animation(.easeInOut(duration: 0.3), value: navigationVM.onboardingStep)
         .preferredColorScheme(appearanceMode.colorScheme)
         .onAppear {
             guard !hasResetOnboardingState else { return }
             onboardingCompleted = false
-            onboardingStep = .welcome
-            shouldAutoGenerateAfterOnboarding = false
+            navigationVM.onboardingStep = .welcome
+            navigationVM.shouldAutoGenerateAfterOnboarding = false
             balanceStates.removeAll()
             priceStates.removeAll()
             cachedBalances.removeAll()
@@ -267,42 +222,41 @@ struct ContentView: View {
         }
     }
 
-    @State private var showKeyboardShortcutsHelp = false  // ROADMAP-03: Keyboard shortcuts help sheet
     
     private var mainAppStage: some View {
         ZStack {
             // New modern UI
-            if selectedChain == nil {
+            if navigationVM.selectedChain == nil {
                 HawalaMainView(
                     keys: $keys,
-                    selectedChain: $selectedChain,
+                    selectedChain: $navigationVM.selectedChain,
                     balanceStates: $balanceStates,
                     priceStates: $priceStates,
                     sparklineCache: sparklineCache,
-                    showSendPicker: $showSendPicker,
-                    showReceiveSheet: $showReceiveSheet,
-                    showSettingsPanel: $showSettingsPanel,
-                    showStakingSheet: $showStakingSheet,
-                    showNotificationsSheet: $showNotificationsSheet,
-                    showContactsSheet: $showContactsSheet,
-                    showWalletConnectSheet: $showWalletConnectSheet,
-                    showL2AggregatorSheet: $showL2AggregatorSheet,
-                    showPaymentLinksSheet: $showPaymentLinksSheet,
-                    showTransactionNotesSheet: $showTransactionNotesSheet,
-                    showSellCryptoSheet: $showSellCryptoSheet,
-                    showPriceAlertsSheet: $showPriceAlertsSheet,
+                    showSendPicker: $navigationVM.showSendPicker,
+                    showReceiveSheet: $navigationVM.showReceiveSheet,
+                    showSettingsPanel: $navigationVM.showSettingsPanel,
+                    showStakingSheet: $navigationVM.showStakingSheet,
+                    showNotificationsSheet: $navigationVM.showNotificationsSheet,
+                    showContactsSheet: $navigationVM.showContactsSheet,
+                    showWalletConnectSheet: $navigationVM.showWalletConnectSheet,
+                    showL2AggregatorSheet: $navigationVM.showL2AggregatorSheet,
+                    showPaymentLinksSheet: $navigationVM.showPaymentLinksSheet,
+                    showTransactionNotesSheet: $navigationVM.showTransactionNotesSheet,
+                    showSellCryptoSheet: $navigationVM.showSellCryptoSheet,
+                    showPriceAlertsSheet: $navigationVM.showPriceAlertsSheet,
                     // Phase 4: Account Abstraction
-                    showSmartAccountSheet: $showSmartAccountSheet,
-                    showGasAccountSheet: $showGasAccountSheet,
-                    showPasskeyAuthSheet: $showPasskeyAuthSheet,
-                    showGaslessTxSheet: $showGaslessTxSheet,
+                    showSmartAccountSheet: $navigationVM.showSmartAccountSheet,
+                    showGasAccountSheet: $navigationVM.showGasAccountSheet,
+                    showPasskeyAuthSheet: $navigationVM.showPasskeyAuthSheet,
+                    showGaslessTxSheet: $navigationVM.showGaslessTxSheet,
                     onGenerateKeys: {
                         // Auto-acknowledge security notice for streamlined UX
                         if !hasAcknowledgedSecurityNotice {
                             hasAcknowledgedSecurityNotice = true
                         }
                         guard canAccessSensitiveData else {
-                            showUnlockSheet = true
+                            navigationVM.showUnlockSheet = true
                             return
                         }
                         Task { await runGenerator() }
@@ -323,7 +277,7 @@ struct ContentView: View {
                     isHistoryLoading: $isHistoryLoading,
                     historyError: $historyError
                 )
-            } else if let chain = selectedChain {
+            } else if let chain = navigationVM.selectedChain {
                 HawalaAssetDetailView(
                     chain: chain,
                     balanceState: Binding(
@@ -336,15 +290,15 @@ struct ContentView: View {
                     ),
                     sparklineData: sparklineCache.sparklines[chain.id] ?? [],
                     onSend: {
-                        pendingSendChain = chain
-                        selectedChain = nil
+                        navigationVM.pendingSendChain = chain
+                        navigationVM.selectedChain = nil
                     },
                     onReceive: {
-                        showReceiveSheet = true
+                        navigationVM.showReceiveSheet = true
                     },
                     onClose: {
                         withAnimation(HawalaTheme.Animation.fast) {
-                            selectedChain = nil
+                            navigationVM.selectedChain = nil
                         }
                     },
                     selectedFiatSymbol: selectedFiatCurrency.symbol,
@@ -356,7 +310,7 @@ struct ContentView: View {
         .background(HawalaTheme.Colors.background)
         .preferredColorScheme(.dark)
         // ROADMAP-03: Keyboard shortcuts help sheet
-        .sheet(isPresented: $showKeyboardShortcutsHelp) {
+        .sheet(isPresented: $navigationVM.showKeyboardShortcutsHelp) {
             KeyboardShortcutsHelpView()
                 .hawalaModal(allowSwipeDismiss: true) // OK to swipe-dismiss help
         }
@@ -364,7 +318,7 @@ struct ContentView: View {
         .onAppear {
             setupKeyboardShortcutCallbacks()
         }
-        .sheet(isPresented: $showAllPrivateKeysSheet) {
+        .sheet(isPresented: $navigationVM.showAllPrivateKeysSheet) {
             if let keys {
                 AllPrivateKeysSheet(chains: keys.chainInfos, onCopy: copySensitiveToClipboard)
                     .hawalaModal() // Prevent accidental dismiss of sensitive info
@@ -372,7 +326,7 @@ struct ContentView: View {
                 NoKeysPlaceholderView()
             }
         }
-        .sheet(isPresented: $showReceiveSheet) {
+        .sheet(isPresented: $navigationVM.showReceiveSheet) {
             if let keys {
                 ReceiveViewModern(chains: keys.chainInfos, onCopy: copyToClipboard)
                     .frame(minWidth: 500, minHeight: 650)
@@ -381,7 +335,7 @@ struct ContentView: View {
                 NoKeysPlaceholderView()
             }
         }
-        .sheet(item: $sendChainContext, onDismiss: { sendChainContext = nil }) { chain in
+        .sheet(item: $navigationVM.sendChainContext, onDismiss: { navigationVM.sendChainContext = nil }) { chain in
             if let keys {
                 SendView(keys: keys, initialChain: mapToChain(chain.id), onSuccess: { result in
                     handleTransactionSuccess(result)
@@ -392,50 +346,50 @@ struct ContentView: View {
             }
         }
 
-        .sheet(isPresented: $showSendPicker, onDismiss: presentQueuedSendIfNeeded) {
+        .sheet(isPresented: $navigationVM.showSendPicker, onDismiss: presentQueuedSendIfNeeded) {
             if let keys {
                 SendAssetPickerSheet(
                     chains: sendEligibleChains(from: keys),
                     onSelect: { chain in
-                        pendingSendChain = chain
-                        showSendPicker = false
+                        navigationVM.pendingSendChain = chain
+                        navigationVM.showSendPicker = false
                     },
                     onBatchSend: {
-                        showSendPicker = false
-                        showBatchTransactionSheet = true
+                        navigationVM.showSendPicker = false
+                        navigationVM.showBatchTransactionSheet = true
                     },
                     onDismiss: {
-                        showSendPicker = false
+                        navigationVM.showSendPicker = false
                     }
                 )
             }
         }
-        .sheet(isPresented: $showSeedPhraseSheet) {
+        .sheet(isPresented: $navigationVM.showSeedPhraseSheet) {
             SeedPhraseSheet(onCopy: { value in
                 copyToClipboard(value)
             })
             .hawalaModal() // CRITICAL: Prevent accidental dismiss of seed phrase
         }
-        .sheet(isPresented: $showTransactionHistorySheet) {
+        .sheet(isPresented: $navigationVM.showTransactionHistorySheet) {
             TransactionHistoryView()
                 .frame(minWidth: 500, minHeight: 600)
                 .hawalaModal(allowSwipeDismiss: true) // OK to swipe-dismiss history
         }
-        .sheet(item: $selectedTransactionForDetail) { transaction in
+        .sheet(item: $navigationVM.selectedTransactionForDetail) { transaction in
             TransactionDetailSheet(transaction: transaction)
                 .hawalaModal(allowSwipeDismiss: true) // OK to swipe-dismiss detail
         }
-        .sheet(item: $speedUpTransaction) { tx in
+        .sheet(item: $navigationVM.speedUpTransaction) { tx in
             if let keys {
                 TransactionCancellationSheet(
                     pendingTx: tx,
                     keys: keys,
                     initialMode: .speedUp,
                     onDismiss: {
-                        speedUpTransaction = nil
+                        navigationVM.speedUpTransaction = nil
                     },
                     onSuccess: { newTxid in
-                        speedUpTransaction = nil
+                        navigationVM.speedUpTransaction = nil
                         showStatus("Transaction sped up: \(newTxid.prefix(16))...", tone: .success)
                         Task { await refreshPendingTransactions() }
                     }
@@ -443,17 +397,17 @@ struct ContentView: View {
                 .hawalaModal() // CRITICAL: Prevent accidental dismiss during speed-up
             }
         }
-        .sheet(item: $cancelTransaction) { tx in
+        .sheet(item: $navigationVM.cancelTransaction) { tx in
             if let keys {
                 TransactionCancellationSheet(
                     pendingTx: tx,
                     keys: keys,
                     initialMode: .cancel,
                     onDismiss: {
-                        cancelTransaction = nil
+                        navigationVM.cancelTransaction = nil
                     },
                     onSuccess: { newTxid in
-                        cancelTransaction = nil
+                        navigationVM.cancelTransaction = nil
                         showStatus("Transaction cancelled: \(newTxid.prefix(16))...", tone: .success)
                         Task { await refreshPendingTransactions() }
                     }
@@ -461,25 +415,25 @@ struct ContentView: View {
                 .hawalaModal() // CRITICAL: Prevent accidental dismiss during cancel
             }
         }
-        .sheet(isPresented: $showContactsSheet) {
+        .sheet(isPresented: $navigationVM.showContactsSheet) {
             ContactsView()
         }
-        .sheet(isPresented: $showStakingSheet) {
+        .sheet(isPresented: $navigationVM.showStakingSheet) {
             StakingView()
         }
-        .sheet(isPresented: $showNotificationsSheet) {
+        .sheet(isPresented: $navigationVM.showNotificationsSheet) {
             NotificationsView()
         }
-        .sheet(isPresented: $showMultisigSheet) {
+        .sheet(isPresented: $navigationVM.showMultisigSheet) {
             MultisigView()
         }
-        .sheet(isPresented: $showHardwareWalletSheet) {
+        .sheet(isPresented: $navigationVM.showHardwareWalletSheet) {
             HardwareWalletView()
         }
-        .sheet(isPresented: $showWatchOnlySheet) {
+        .sheet(isPresented: $navigationVM.showWatchOnlySheet) {
             WatchOnlyView()
         }
-        .sheet(isPresented: $showWalletConnectSheet) {
+        .sheet(isPresented: $navigationVM.showWalletConnectSheet) {
             WalletConnectView(
                 availableAccounts: getEvmAccounts(),
                 onSign: { request in
@@ -488,42 +442,42 @@ struct ContentView: View {
             )
         }
         // Phase 3 Feature Sheets
-        .sheet(isPresented: $showL2AggregatorSheet) {
+        .sheet(isPresented: $navigationVM.showL2AggregatorSheet) {
             if let ethAddress = keys?.chainInfos.first(where: { $0.id == "ethereum" })?.receiveAddress {
                 L2BalanceAggregatorView(address: ethAddress)
             } else {
                 L2BalanceAggregatorView(address: "")
             }
         }
-        .sheet(isPresented: $showPaymentLinksSheet) {
+        .sheet(isPresented: $navigationVM.showPaymentLinksSheet) {
             PaymentLinksView()
         }
-        .sheet(isPresented: $showTransactionNotesSheet) {
+        .sheet(isPresented: $navigationVM.showTransactionNotesSheet) {
             TransactionNotesView()
         }
-        .sheet(isPresented: $showSellCryptoSheet) {
+        .sheet(isPresented: $navigationVM.showSellCryptoSheet) {
             SellCryptoView()
         }
-        .sheet(isPresented: $showPriceAlertsSheet) {
+        .sheet(isPresented: $navigationVM.showPriceAlertsSheet) {
             PriceAlertsView()
         }
         // Phase 4: ERC-4337 Account Abstraction Sheets
-        .sheet(isPresented: $showSmartAccountSheet) {
+        .sheet(isPresented: $navigationVM.showSmartAccountSheet) {
             SmartAccountView()
         }
-        .sheet(isPresented: $showGasAccountSheet) {
+        .sheet(isPresented: $navigationVM.showGasAccountSheet) {
             GasAccountView()
         }
-        .sheet(isPresented: $showPasskeyAuthSheet) {
+        .sheet(isPresented: $navigationVM.showPasskeyAuthSheet) {
             PasskeyAuthView()
         }
-        .sheet(isPresented: $showGaslessTxSheet) {
+        .sheet(isPresented: $navigationVM.showGaslessTxSheet) {
             GaslessTxView()
         }
-        .sheet(isPresented: $showBatchTransactionSheet) {
+        .sheet(isPresented: $navigationVM.showBatchTransactionSheet) {
             BatchTransactionView()
         }
-        .sheet(isPresented: $showSettingsPanel) {
+        .sheet(isPresented: $navigationVM.showSettingsPanel) {
             SettingsPanelView(
                 hasKeys: keys != nil,
                 onShowKeys: {
@@ -535,7 +489,7 @@ struct ContentView: View {
                 },
                 onOpenSecurity: {
                     DispatchQueue.main.async {
-                        showSecuritySettings = true
+                        navigationVM.showSecuritySettings = true
                     }
                 },
                 selectedCurrency: $storedFiatCurrency,
@@ -548,26 +502,26 @@ struct ContentView: View {
                 }
             )
         }
-        .sheet(isPresented: $showSecurityNotice) {
+        .sheet(isPresented: $navigationVM.showSecurityNotice) {
             SecurityNoticeView {
                 hasAcknowledgedSecurityNotice = true
-                showSecurityNotice = false
+                navigationVM.showSecurityNotice = false
             }
         }
-        .sheet(isPresented: $showSecuritySettings) {
+        .sheet(isPresented: $navigationVM.showSecuritySettings) {
             SecuritySettingsView(
                 hasPasscode: storedPasscodeHash != nil,
                 onSetPasscode: { passcode in
                     storedPasscodeHash = hashPasscode(passcode)
                     lock()
-                    showSecuritySettings = false
+                    navigationVM.showSecuritySettings = false
                 },
                 onRemovePasscode: {
                     storedPasscodeHash = nil
                     isUnlocked = true
-                    showSecuritySettings = false
+                    navigationVM.showSecuritySettings = false
                 },
-                biometricState: biometricState,
+                biometricState: securityVM.biometricState,
                 biometricEnabled: biometricToggleBinding,
                 biometricForSends: $biometricForSends,
                 biometricForKeyReveal: $biometricForKeyReveal,
@@ -577,9 +531,9 @@ struct ContentView: View {
                 }
             )
         }
-        .sheet(isPresented: $showUnlockSheet) {
+        .sheet(isPresented: $navigationVM.showUnlockSheet) {
             UnlockView(
-                supportsBiometrics: biometricUnlockEnabled && biometricState.supportsUnlock && storedPasscodeHash != nil,
+                supportsBiometrics: biometricUnlockEnabled && securityVM.biometricState.supportsUnlock && storedPasscodeHash != nil,
                 biometricButtonLabel: biometricDisplayInfo.label,
                 biometricButtonIcon: biometricDisplayInfo.icon,
                 onBiometricRequest: {
@@ -590,58 +544,58 @@ struct ContentView: View {
                     let hashed = hashPasscode(candidate)
                     if hashed == expected {
                         isUnlocked = true
-                        showUnlockSheet = false
+                        navigationVM.showUnlockSheet = false
                         recordActivity()
                         return nil
                     }
                     return "Incorrect passcode. Try again."
                 },
                 onCancel: {
-                    showUnlockSheet = false
+                    navigationVM.showUnlockSheet = false
                 }
             )
         }
-        .sheet(isPresented: $showExportPasswordPrompt) {
+        .sheet(isPresented: $navigationVM.showExportPasswordPrompt) {
             PasswordPromptView(
                 mode: .export,
                 onConfirm: { password in
-                    showExportPasswordPrompt = false
+                    navigationVM.showExportPasswordPrompt = false
                     performEncryptedExport(with: password)
                 },
                 onCancel: {
-                    showExportPasswordPrompt = false
+                    navigationVM.showExportPasswordPrompt = false
                 }
             )
         }
-        .sheet(isPresented: $showImportPasswordPrompt) {
+        .sheet(isPresented: $navigationVM.showImportPasswordPrompt) {
             PasswordPromptView(
                 mode: .import,
                 onConfirm: { password in
-                    showImportPasswordPrompt = false
+                    navigationVM.showImportPasswordPrompt = false
                     finalizeEncryptedImport(with: password)
                 },
                 onCancel: {
-                    showImportPasswordPrompt = false
-                    pendingImportData = nil
+                    navigationVM.showImportPasswordPrompt = false
+                    navigationVM.pendingImportData = nil
                 }
             )
         }
-        .sheet(isPresented: $showImportPrivateKeySheet) {
+        .sheet(isPresented: $navigationVM.showImportPrivateKeySheet) {
             ImportPrivateKeySheet(
                 onImport: { privateKey, chainType in
-                    showImportPrivateKeySheet = false
+                    navigationVM.showImportPrivateKeySheet = false
                     Task {
                         await importPrivateKey(privateKey, for: chainType)
                     }
                 },
                 onCancel: {
-                    showImportPrivateKeySheet = false
+                    navigationVM.showImportPrivateKeySheet = false
                 }
             )
         }
         .overlay {
             // Privacy blur overlay when app goes to background/inactive
-            if showPrivacyBlur {
+            if securityVM.showPrivacyBlur {
                 PrivacyBlurOverlay()
                     .transition(.opacity)
             }
@@ -660,7 +614,7 @@ struct ContentView: View {
         .onChange(of: scenePhase) { phase in
             handleScenePhase(phase)
         }
-        .onChange(of: shouldAutoGenerateAfterOnboarding) { newValue in
+        .onChange(of: navigationVM.shouldAutoGenerateAfterOnboarding) { newValue in
             if newValue {
                 triggerAutoGenerationIfNeeded()
             }
@@ -687,8 +641,8 @@ struct ContentView: View {
         // Set all the necessary flags
         hasAcknowledgedSecurityNotice = true
         isUnlocked = true
-        shouldAutoGenerateAfterOnboarding = false
-        completedOnboardingThisSession = true
+        navigationVM.shouldAutoGenerateAfterOnboarding = false
+        navigationVM.completedOnboardingThisSession = true
         
         // Generate or import wallet based on method
         switch result.method {
@@ -770,11 +724,11 @@ struct ContentView: View {
     private var contentArea: some View {
         if !hasAcknowledgedSecurityNotice {
             SecurityPromptView {
-                showSecurityNotice = true
+                navigationVM.showSecurityNotice = true
             }
         } else if !canAccessSensitiveData {
             LockedStateView {
-                showUnlockSheet = true
+                navigationVM.showUnlockSheet = true
             }
         } else if let keys {
             ScrollView {
@@ -795,14 +749,14 @@ struct ContentView: View {
                             Spacer()
                         }
                         
-                        LazyVGrid(columns: gridColumns(for: viewportWidth), spacing: 14) {
+                        LazyVGrid(columns: gridColumns(for: navigationVM.viewportWidth), spacing: 14) {
                             ForEach(keys.chainInfos) { chain in
                                 Button {
                                     guard canAccessSensitiveData else {
-                                        showUnlockSheet = true
+                                        navigationVM.showUnlockSheet = true
                                         return
                                     }
-                                    selectedChain = chain
+                                    navigationVM.selectedChain = chain
                                 } label: {
                                     let balance = balanceStates[chain.id] ?? defaultBalanceState(for: chain.id)
                                     let price = priceStates[chain.id] ?? defaultPriceState(for: chain.id)
@@ -820,7 +774,7 @@ struct ContentView: View {
                         }
                         // Only animate viewport changes, not data changes
                         // This prevents full grid re-renders during scroll
-                        .animation(cardAnimation, value: viewportWidth)
+                        .animation(cardAnimation, value: navigationVM.viewportWidth)
                         // Removed: .animation(cardAnimation, value: balanceAnimationToken)
                         // Removed: .animation(cardAnimation, value: priceAnimationToken)
                         // These caused jank during scroll as any balance/price update triggered full grid animation
@@ -839,7 +793,7 @@ struct ContentView: View {
                 }
             )
             .onPreferenceChange(ViewWidthPreferenceKey.self) { width in
-                viewportWidth = width
+                navigationVM.viewportWidth = width
             }
         } else {
             VStack(spacing: 12) {
@@ -959,7 +913,7 @@ struct ContentView: View {
             .controlSize(.small)
             .tint(.blue)
         }
-        .frame(maxWidth: headerMaxWidth(for: viewportWidth))
+        .frame(maxWidth: headerMaxWidth(for: navigationVM.viewportWidth))
         .padding(.vertical, 20)
         .padding(.horizontal, 16)
         .background(
@@ -1061,7 +1015,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private var actionButtonsRow: some View {
-        if viewportWidth < 620 {
+        if navigationVM.viewportWidth < 620 {
             VStack(spacing: 10) {
                 actionButtonsContent
             }
@@ -1101,7 +1055,7 @@ struct ContentView: View {
                 showStatus("Generate keys before receiving.", tone: .info)
                 return
             }
-            showReceiveSheet = true
+            navigationVM.showReceiveSheet = true
         }
         .disabled(keys == nil)
 
@@ -1111,7 +1065,7 @@ struct ContentView: View {
             color: .blue
         ) {
             guard canAccessSensitiveData else {
-                showUnlockSheet = true
+                navigationVM.showUnlockSheet = true
                 return
             }
             if keys != nil {
@@ -1131,7 +1085,7 @@ struct ContentView: View {
                 showStatus("Generate keys before exporting.", tone: .info)
                 return
             }
-            showExportPasswordPrompt = true
+            navigationVM.showExportPasswordPrompt = true
         }
         .disabled(keys == nil)
 
@@ -1140,7 +1094,7 @@ struct ContentView: View {
             systemImage: "list.number.rtl",
             color: .purple
         ) {
-            showSeedPhraseSheet = true
+            navigationVM.showSeedPhraseSheet = true
         }
         
         walletActionButton(
@@ -1148,7 +1102,7 @@ struct ContentView: View {
             systemImage: "clock.arrow.circlepath",
             color: .cyan
         ) {
-            showTransactionHistorySheet = true
+            navigationVM.showTransactionHistorySheet = true
         }
     }
 
@@ -1265,10 +1219,10 @@ struct ContentView: View {
                         PendingTransactionRow(
                             transaction: tx,
                             onSpeedUp: {
-                                speedUpTransaction = tx
+                                navigationVM.speedUpTransaction = tx
                             },
                             onCancel: {
-                                cancelTransaction = tx
+                                navigationVM.cancelTransaction = tx
                             }
                         )
                         if tx.id != pending.last?.id {
@@ -1413,7 +1367,7 @@ struct ContentView: View {
                     VStack(spacing: 0) {
                         ForEach(filtered) { entry in
                             Button {
-                                selectedTransactionForDetail = entry
+                                navigationVM.selectedTransactionForDetail = entry
                             } label: {
                                 TransactionHistoryRow(entry: entry)
                             }
@@ -1742,7 +1696,7 @@ struct ContentView: View {
 
     /// Handle a successful transaction broadcast
     private func handleTransactionSuccess(_ result: TransactionBroadcastResult) {
-        sendChainContext = nil
+        navigationVM.sendChainContext = nil
         showStatus("Transaction broadcast: \(result.txid.prefix(16))...", tone: .success)
         trackPendingTransaction(
             txid: result.txid,
@@ -2089,20 +2043,20 @@ struct ContentView: View {
             showStatus("No send-ready chains available yet.", tone: .info)
             return
         }
-        pendingSendChain = nil
-        sendChainContext = nil
-        showSendPicker = true
+        navigationVM.pendingSendChain = nil
+        navigationVM.sendChainContext = nil
+        navigationVM.showSendPicker = true
     }
     
     private func openSendSheet(for chain: ChainInfo) {
-        pendingSendChain = nil
-        sendChainContext = chain
+        navigationVM.pendingSendChain = nil
+        navigationVM.sendChainContext = chain
     }
 
     private func presentQueuedSendIfNeeded() {
-        guard let chain = pendingSendChain else { return }
-        pendingSendChain = nil
-        sendChainContext = chain
+        guard let chain = navigationVM.pendingSendChain else { return }
+        navigationVM.pendingSendChain = nil
+        navigationVM.sendChainContext = chain
     }
 
     private func mapToChain(_ chainId: String) -> Chain {
@@ -2355,12 +2309,12 @@ struct ContentView: View {
 
     private func beginEncryptedImport() {
         guard hasAcknowledgedSecurityNotice else {
-            showSecurityNotice = true
+            navigationVM.showSecurityNotice = true
             return
         }
 
         guard canAccessSensitiveData else {
-            showUnlockSheet = true
+            navigationVM.showUnlockSheet = true
             return
         }
 
@@ -2379,8 +2333,8 @@ struct ContentView: View {
                 if response == .OK, let url = panel.url {
                     do {
                         let data = try Data(contentsOf: url)
-                        self.pendingImportData = data
-                        self.showImportPasswordPrompt = true
+                        self.navigationVM.pendingImportData = data
+                        self.navigationVM.showImportPasswordPrompt = true
                     } catch {
                         self.showStatus("Failed to read file: \(error.localizedDescription)", tone: .error, autoClear: false)
                     }
@@ -2394,7 +2348,7 @@ struct ContentView: View {
 
     @MainActor
     private func finalizeEncryptedImport(with password: String) {
-        guard let archiveData = pendingImportData else {
+        guard let archiveData = navigationVM.pendingImportData else {
             showStatus("No backup selected.", tone: .error)
             return
         }
@@ -2447,7 +2401,7 @@ struct ContentView: View {
             startBalanceFetch(for: importedKeys)
             startPriceUpdatesIfNeeded()
             refreshTransactionHistory(force: true)
-            pendingImportData = nil
+            navigationVM.pendingImportData = nil
             showStatus("Encrypted backup imported successfully. Keys loaded.", tone: .success)
             #if DEBUG
             print("✅ Import complete - UI should now show keys")
@@ -2631,18 +2585,18 @@ struct ContentView: View {
     private func clearSensitiveData() {
         keys = nil
         rawJSON = ""
-        selectedChain = nil
-        sendChainContext = nil
+        navigationVM.selectedChain = nil
+        navigationVM.sendChainContext = nil
         statusTask?.cancel()
         statusTask = nil
         statusMessage = nil
         errorMessage = nil
-        pendingImportData = nil
-    pendingSendChain = nil
-        showSendPicker = false
-        showReceiveSheet = false
-        showAllPrivateKeysSheet = false
-        showImportPrivateKeySheet = false
+        navigationVM.pendingImportData = nil
+    navigationVM.pendingSendChain = nil
+        navigationVM.showSendPicker = false
+        navigationVM.showReceiveSheet = false
+        navigationVM.showAllPrivateKeysSheet = false
+        navigationVM.showImportPrivateKeySheet = false
     historyFetchTask?.cancel()
     historyFetchTask = nil
     historyEntries = []
@@ -2672,7 +2626,7 @@ struct ContentView: View {
     @MainActor
     private func prepareSecurityState() {
         if !hasAcknowledgedSecurityNotice {
-            showSecurityNotice = true
+            navigationVM.showSecurityNotice = true
         }
 
         guard storedPasscodeHash != nil else {
@@ -2680,12 +2634,12 @@ struct ContentView: View {
             return
         }
 
-        if completedOnboardingThisSession {
+        if navigationVM.completedOnboardingThisSession {
             isUnlocked = true
-            showUnlockSheet = false
-            completedOnboardingThisSession = false
+            navigationVM.showUnlockSheet = false
+            navigationVM.completedOnboardingThisSession = false
         } else if !isUnlocked {
-            showUnlockSheet = true
+            navigationVM.showUnlockSheet = true
         }
     }
     
@@ -2697,7 +2651,7 @@ struct ContentView: View {
         
         // ⌘, - Open Settings
         commands.onOpenSettings = { [self] in
-            showSettingsPanel = true
+            navigationVM.showSettingsPanel = true
         }
         
         // ⌘R - Refresh data
@@ -2712,36 +2666,36 @@ struct ContentView: View {
         // ⌘N - New transaction (Send)
         commands.onNewTransaction = { [self] in
             if keys != nil {
-                showSendPicker = true
+                navigationVM.showSendPicker = true
             }
         }
         
         // ⌘? - Show help/shortcuts
         commands.onShowHelp = { [self] in
-            showKeyboardShortcutsHelp = true
+            navigationVM.showKeyboardShortcutsHelp = true
         }
         
         // ⌘⇧R - Receive
         commands.onReceive = { [self] in
             if keys != nil {
-                showReceiveSheet = true
+                navigationVM.showReceiveSheet = true
             }
         }
         
         // ⌘H - Toggle history
         commands.onToggleHistory = { [self] in
-            showTransactionHistorySheet.toggle()
+            navigationVM.showTransactionHistorySheet.toggle()
         }
     }
 
     @MainActor
     private func triggerAutoGenerationIfNeeded() {
-        guard shouldAutoGenerateAfterOnboarding else { return }
+        guard navigationVM.shouldAutoGenerateAfterOnboarding else { return }
         guard hasAcknowledgedSecurityNotice else { return }
         guard canAccessSensitiveData else { return }
         guard !isGenerating else { return }
 
-        shouldAutoGenerateAfterOnboarding = false
+        navigationVM.shouldAutoGenerateAfterOnboarding = false
 
         Task {
             await runGenerator()
@@ -3930,7 +3884,7 @@ struct ContentView: View {
         } else {
             isUnlocked = true
             biometricUnlockEnabled = false
-            autoLockTask?.cancel()
+            securityVM.autoLockTask?.cancel()
         }
     }
 
@@ -3940,7 +3894,7 @@ struct ContentView: View {
         case .active:
             // Remove privacy blur when app becomes active
             withAnimation(.easeOut(duration: 0.2)) {
-                showPrivacyBlur = false
+                securityVM.showPrivacyBlur = false
             }
             startPriceUpdatesIfNeeded()
             refreshBiometricAvailability()
@@ -3950,21 +3904,21 @@ struct ContentView: View {
                 if biometricUnlockEnabled {
                     attemptBiometricUnlock(reason: "Unlock Hawala")
                 }
-                showUnlockSheet = true
+                navigationVM.showUnlockSheet = true
             }
         case .inactive:
             // Show privacy blur when app goes inactive (e.g., app switcher)
             withAnimation(.easeIn(duration: 0.1)) {
-                showPrivacyBlur = true
+                securityVM.showPrivacyBlur = true
             }
         case .background:
-            showPrivacyBlur = true
+            securityVM.showPrivacyBlur = true
             stopPriceUpdates()
             clearSensitiveData()
             if storedPasscodeHash != nil {
                 isUnlocked = false
             }
-            autoLockTask?.cancel()
+            securityVM.autoLockTask?.cancel()
             stopActivityMonitoring()
         @unknown default:
             break
@@ -3974,8 +3928,8 @@ struct ContentView: View {
     private func lock() {
         clearSensitiveData()
         isUnlocked = false
-        showUnlockSheet = true
-        autoLockTask?.cancel()
+        navigationVM.showUnlockSheet = true
+        securityVM.autoLockTask?.cancel()
         if biometricUnlockEnabled {
             attemptBiometricUnlock(reason: "Unlock Hawala")
         }
@@ -3983,18 +3937,18 @@ struct ContentView: View {
 
     @MainActor
     private func recordActivity() {
-        lastActivityTimestamp = Date()
+        securityVM.lastActivityTimestamp = Date()
         scheduleAutoLockCountdown()
     }
 
     @MainActor
     private func scheduleAutoLockCountdown() {
-        autoLockTask?.cancel()
+        securityVM.autoLockTask?.cancel()
         guard storedPasscodeHash != nil else { return }
         guard let interval = (AutoLockIntervalOption(rawValue: storedAutoLockInterval) ?? .fiveMinutes).duration,
               interval > 0 else { return }
-        let deadline = lastActivityTimestamp.addingTimeInterval(interval)
-        autoLockTask = Task { [deadline] in
+        let deadline = securityVM.lastActivityTimestamp.addingTimeInterval(interval)
+        securityVM.autoLockTask = Task { [deadline] in
             let delay = max(0, deadline.timeIntervalSinceNow)
             let nanos = UInt64(delay * 1_000_000_000)
             try? await Task.sleep(nanoseconds: nanos)
@@ -4036,22 +3990,22 @@ struct ContentView: View {
             if #available(macOS 11.0, iOS 11.0, *) {
                 switch context.biometryType {
                 case .touchID:
-                    biometricState = .available(.touchID)
+                    securityVM.biometricState = .available(.touchID)
                 case .faceID:
-                    biometricState = .available(.faceID)
+                    securityVM.biometricState = .available(.faceID)
                 default:
-                    biometricState = .available(.generic)
+                    securityVM.biometricState = .available(.generic)
                 }
             } else {
-                biometricState = .available(.generic)
+                securityVM.biometricState = .available(.generic)
             }
         } else {
             let reason = error?.localizedDescription ?? "Biometrics are not available on this device."
-            biometricState = .unavailable(reason)
+            securityVM.biometricState = .unavailable(reason)
             biometricUnlockEnabled = false
         }
         #else
-        biometricState = .unavailable("Biometrics are not supported on this platform.")
+        securityVM.biometricState = .unavailable("Biometrics are not supported on this platform.")
         biometricUnlockEnabled = false
         #endif
     }
@@ -4068,20 +4022,20 @@ struct ContentView: View {
                     if let evalError = evalError as? LAError, evalError.code == .biometryNotAvailable {
                         Task { @MainActor in
                             biometricUnlockEnabled = false
-                            biometricState = .unavailable(evalError.localizedDescription)
+                            securityVM.biometricState = .unavailable(evalError.localizedDescription)
                         }
                     }
                     return
                 }
                 Task { @MainActor in
                     isUnlocked = true
-                    showUnlockSheet = false
+                    navigationVM.showUnlockSheet = false
                     recordActivity()
                 }
             }
         } else {
             biometricUnlockEnabled = false
-            biometricState = .unavailable(error?.localizedDescription ?? "Biometrics are unavailable.")
+            securityVM.biometricState = .unavailable(error?.localizedDescription ?? "Biometrics are unavailable.")
         }
         #else
         _ = reason
@@ -4113,7 +4067,7 @@ struct ContentView: View {
             }
         }
         
-        showAllPrivateKeysSheet = true
+        navigationVM.showAllPrivateKeysSheet = true
     }
 
     private var workspaceRoot: URL {
