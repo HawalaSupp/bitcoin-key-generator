@@ -287,8 +287,8 @@ final class SecurityViewModel: ObservableObject {
         }
     }
     
-    // MARK: - Private Helpers
-    private func hashPasscode(_ passcode: String) -> String {
+    // MARK: - Passcode Helpers
+    func hashPasscode(_ passcode: String) -> String {
         let data = Data(passcode.utf8)
         let digest = CryptoKit.SHA256.hash(data: data)
         return digest.map { String(format: "%02x", $0) }.joined()

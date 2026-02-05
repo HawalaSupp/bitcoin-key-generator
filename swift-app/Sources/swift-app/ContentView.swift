@@ -63,9 +63,6 @@ struct ContentView: View {
     #if DEBUG
     @State private var showPerformanceOverlay = false  // Disabled for screenshot
     #endif
-    #if canImport(AppKit)
-    @State private var activityMonitor: UserActivityMonitor?
-    #endif
     private let moneroBalancePlaceholder = "View-only · Open Monero GUI wallet for full access"
     private let trackedPriceChainIDs = [
         "bitcoin", "bitcoin-testnet", "ethereum", "ethereum-sepolia", "litecoin", "monero",
@@ -113,7 +110,7 @@ struct ContentView: View {
             set: { newValue in
                 storedAutoLockInterval = newValue.rawValue
                 Task { @MainActor in
-                    recordActivity()
+                    securityVM.recordActivity()
                 }
             }
         )
@@ -129,7 +126,7 @@ struct ContentView: View {
                 }
                 biometricUnlockEnabled = newValue
                 if newValue {
-                    attemptBiometricUnlock(reason: "Unlock Hawala")
+                    securityVM.attemptBiometricUnlock(reason: "Unlock Hawala")
                 }
             }
         )
@@ -512,8 +509,8 @@ struct ContentView: View {
             SecuritySettingsView(
                 hasPasscode: storedPasscodeHash != nil,
                 onSetPasscode: { passcode in
-                    storedPasscodeHash = hashPasscode(passcode)
-                    lock()
+                    storedPasscodeHash = securityVM.hashPasscode(passcode)
+                    securityVM.lock()
                     navigationVM.showSecuritySettings = false
                 },
                 onRemovePasscode: {
@@ -527,7 +524,7 @@ struct ContentView: View {
                 biometricForKeyReveal: $biometricForKeyReveal,
                 autoLockSelection: autoLockSelectionBinding,
                 onBiometricRequest: {
-                    attemptBiometricUnlock(reason: "Unlock Hawala")
+                    securityVM.attemptBiometricUnlock(reason: "Unlock Hawala")
                 }
             )
         }
@@ -537,15 +534,15 @@ struct ContentView: View {
                 biometricButtonLabel: biometricDisplayInfo.label,
                 biometricButtonIcon: biometricDisplayInfo.icon,
                 onBiometricRequest: {
-                    attemptBiometricUnlock(reason: "Unlock Hawala")
+                    securityVM.attemptBiometricUnlock(reason: "Unlock Hawala")
                 },
                 onSubmit: { candidate in
                     guard let expected = storedPasscodeHash else { return nil }
-                    let hashed = hashPasscode(candidate)
+                    let hashed = securityVM.hashPasscode(candidate)
                     if hashed == expected {
                         isUnlocked = true
                         navigationVM.showUnlockSheet = false
-                        recordActivity()
+                        securityVM.recordActivity()
                         return nil
                     }
                     return "Incorrect passcode. Try again."
@@ -604,12 +601,12 @@ struct ContentView: View {
             prepareSecurityState()
             triggerAutoGenerationIfNeeded()
             startPriceUpdatesIfNeeded()
-            refreshBiometricAvailability()
-            startActivityMonitoringIfNeeded()
-            recordActivity()
+            securityVM.refreshBiometricAvailability()
+            securityVM.startActivityMonitoringIfNeeded()
+            securityVM.recordActivity()
         }
         .onChange(of: storedPasscodeHash) { _ in
-            handlePasscodeChange()
+            securityVM.handlePasscodeChange()
         }
         .onChange(of: scenePhase) { phase in
             handleScenePhase(phase)
@@ -3878,175 +3875,39 @@ struct ContentView: View {
         return formatter.string(from: NSNumber(value: amount)) ?? "$\(String(format: "%.2f", amount))"
     }
 
-    private func handlePasscodeChange() {
-        if storedPasscodeHash != nil {
-            lock()
-        } else {
-            isUnlocked = true
-            biometricUnlockEnabled = false
-            securityVM.autoLockTask?.cancel()
-        }
-    }
 
     @MainActor
     private func handleScenePhase(_ phase: ScenePhase) {
+        // Delegate security handling to ViewModel
+        securityVM.handleScenePhase(phase)
+        
+        // App-specific phase handling
         switch phase {
         case .active:
-            // Remove privacy blur when app becomes active
-            withAnimation(.easeOut(duration: 0.2)) {
-                securityVM.showPrivacyBlur = false
-            }
             startPriceUpdatesIfNeeded()
-            refreshBiometricAvailability()
-            startActivityMonitoringIfNeeded()
-            recordActivity()
             if storedPasscodeHash != nil && !isUnlocked {
-                if biometricUnlockEnabled {
-                    attemptBiometricUnlock(reason: "Unlock Hawala")
-                }
                 navigationVM.showUnlockSheet = true
             }
         case .inactive:
-            // Show privacy blur when app goes inactive (e.g., app switcher)
-            withAnimation(.easeIn(duration: 0.1)) {
-                securityVM.showPrivacyBlur = true
-            }
+            break
         case .background:
-            securityVM.showPrivacyBlur = true
             stopPriceUpdates()
             clearSensitiveData()
             if storedPasscodeHash != nil {
                 isUnlocked = false
             }
-            securityVM.autoLockTask?.cancel()
-            stopActivityMonitoring()
         @unknown default:
             break
         }
     }
 
-    private func lock() {
-        clearSensitiveData()
-        isUnlocked = false
-        navigationVM.showUnlockSheet = true
-        securityVM.autoLockTask?.cancel()
-        if biometricUnlockEnabled {
-            attemptBiometricUnlock(reason: "Unlock Hawala")
-        }
-    }
 
-    @MainActor
-    private func recordActivity() {
-        securityVM.lastActivityTimestamp = Date()
-        scheduleAutoLockCountdown()
-    }
 
-    @MainActor
-    private func scheduleAutoLockCountdown() {
-        securityVM.autoLockTask?.cancel()
-        guard storedPasscodeHash != nil else { return }
-        guard let interval = (AutoLockIntervalOption(rawValue: storedAutoLockInterval) ?? .fiveMinutes).duration,
-              interval > 0 else { return }
-        let deadline = securityVM.lastActivityTimestamp.addingTimeInterval(interval)
-        securityVM.autoLockTask = Task { [deadline] in
-            let delay = max(0, deadline.timeIntervalSinceNow)
-            let nanos = UInt64(delay * 1_000_000_000)
-            try? await Task.sleep(nanoseconds: nanos)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                if Date() >= deadline && storedPasscodeHash != nil {
-                    lock()
-                }
-            }
-        }
-    }
 
-    @MainActor
-    private func startActivityMonitoringIfNeeded() {
-        #if canImport(AppKit)
-        guard activityMonitor == nil else { return }
-        activityMonitor = UserActivityMonitor {
-            Task { @MainActor in
-                recordActivity()
-            }
-        }
-        #endif
-    }
 
-    @MainActor
-    private func stopActivityMonitoring() {
-        #if canImport(AppKit)
-        activityMonitor?.stop()
-        activityMonitor = nil
-        #endif
-    }
 
-    @MainActor
-    private func refreshBiometricAvailability() {
-        #if canImport(LocalAuthentication)
-        let context = LAContext()
-        var error: NSError?
-        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
-            if #available(macOS 11.0, iOS 11.0, *) {
-                switch context.biometryType {
-                case .touchID:
-                    securityVM.biometricState = .available(.touchID)
-                case .faceID:
-                    securityVM.biometricState = .available(.faceID)
-                default:
-                    securityVM.biometricState = .available(.generic)
-                }
-            } else {
-                securityVM.biometricState = .available(.generic)
-            }
-        } else {
-            let reason = error?.localizedDescription ?? "Biometrics are not available on this device."
-            securityVM.biometricState = .unavailable(reason)
-            biometricUnlockEnabled = false
-        }
-        #else
-        securityVM.biometricState = .unavailable("Biometrics are not supported on this platform.")
-        biometricUnlockEnabled = false
-        #endif
-    }
 
-    private func attemptBiometricUnlock(reason: String) {
-        #if canImport(LocalAuthentication)
-        guard biometricUnlockEnabled else { return }
-        let context = LAContext()
-        context.localizedFallbackTitle = "Enter Passcode"
-        var error: NSError?
-        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
-            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, evalError in
-                guard success else {
-                    if let evalError = evalError as? LAError, evalError.code == .biometryNotAvailable {
-                        Task { @MainActor in
-                            biometricUnlockEnabled = false
-                            securityVM.biometricState = .unavailable(evalError.localizedDescription)
-                        }
-                    }
-                    return
-                }
-                Task { @MainActor in
-                    isUnlocked = true
-                    navigationVM.showUnlockSheet = false
-                    recordActivity()
-                }
-            }
-        } else {
-            biometricUnlockEnabled = false
-            securityVM.biometricState = .unavailable(error?.localizedDescription ?? "Biometrics are unavailable.")
-        }
-        #else
-        _ = reason
-        #endif
-    }
 
-    private func hashPasscode(_ passcode: String) -> String {
-        let data = Data(passcode.utf8)
-        let digest = CryptoKit.SHA256.hash(data: data)
-        return digest.map { String(format: "%02x", $0) }.joined()
-    }
     
     /// Reveal private keys with optional biometric authentication
     @MainActor
@@ -4138,54 +3999,6 @@ struct ContentView: View {
 
 // BitcoinUTXO, BitcoinFeeEstimates, EthGasSpeed, EthGasEstimates, and BitcoinSendError
 // are defined in Models/FeeModels.swift
-
-#if canImport(AppKit)
-private final class UserActivityMonitor {
-    private var tokens: [Any] = []
-
-    init(handler: @escaping () -> Void) {
-        let mask: NSEvent.EventTypeMask = [
-            .keyDown,
-            .flagsChanged,
-            .leftMouseDown,
-            .rightMouseDown,
-            .otherMouseDown,
-            .mouseMoved,
-            .scrollWheel
-        ]
-
-        if let localToken = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { event in
-            handler()
-            return event
-        }) {
-            tokens.append(localToken)
-        }
-
-        if let globalToken = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { _ in
-            handler()
-        }) {
-            tokens.append(globalToken)
-        }
-    }
-
-    func stop() {
-        for token in tokens {
-            NSEvent.removeMonitor(token)
-        }
-        tokens.removeAll()
-    }
-
-    deinit {
-        stop()
-    }
-}
-#else
-private final class UserActivityMonitor {
-    init(handler: @escaping () -> Void) {}
-    func stop() {}
-}
-#endif
-
 
 // Preview disabled - use Xcode previews instead
 // #Preview {
