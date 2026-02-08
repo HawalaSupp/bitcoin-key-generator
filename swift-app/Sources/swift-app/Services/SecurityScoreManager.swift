@@ -73,7 +73,7 @@ final class SecurityScoreManager: ObservableObject {
             case .passcodeCreated: return "Protect your wallet with a PIN"
             case .biometricsEnabled: return "Use Touch ID for quick, secure access"
             case .backupCreated: return "Write down your 12/24 word recovery phrase"
-            case .backupVerified: return "Confirm you've saved your backup correctly"
+            case .backupVerified: return "Verify your backup — unverified wallets lose 30 points"
             case .iCloudBackupEnabled: return "Store an encrypted backup in iCloud"
             case .guardiansAdded: return "Designate trusted contacts for recovery"
             case .twoFactorEnabled: return "Add another layer of authentication"
@@ -108,10 +108,12 @@ final class SecurityScoreManager: ObservableObject {
         
         var points: Int {
             switch self {
+            // ROADMAP-02: backupVerified is 30 pts so unverified users face a -30 penalty
+            // from maximum score. backupCreated reduced from 20→10 to keep max=100.
             case .passcodeCreated: return 15
             case .biometricsEnabled: return 10
-            case .backupCreated: return 20
-            case .backupVerified: return 15
+            case .backupCreated: return 10
+            case .backupVerified: return 30
             case .iCloudBackupEnabled: return 10
             case .guardiansAdded: return 10
             case .twoFactorEnabled: return 5

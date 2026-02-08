@@ -199,9 +199,12 @@ struct NewOnboardingFlowView: View {
                     }
                 },
                 onSaveToiCloud: {
+                    // ROADMAP-02: iCloud backup is only allowed post-verification
+                    // During onboarding, the phrase is being displayed for the first time
+                    // so we flag intent but defer actual backup until after verification
                     state.iCloudBackupEnabled = true
-                    // TODO: Implement iCloud Keychain save
-                    // Still require verification even after iCloud
+                    // Navigate to verification — actual iCloud save happens in completeOnboarding()
+                    // only if BackupVerificationManager.shared.isVerified is true
                     if state.selectedPath == .quick {
                         state.navigateTo(.quickVerifyBackup)
                     } else {
@@ -505,6 +508,30 @@ struct NewOnboardingFlowView: View {
         }
     }
     
+    /// ROADMAP-02: Perform iCloud backup only after verification is confirmed
+    private func performiCloudBackup() {
+        guard BackupVerificationManager.shared.isVerified else {
+            #if DEBUG
+            print("⚠️ iCloud backup blocked — backup not verified")
+            #endif
+            return
+        }
+        guard !state.generatedRecoveryPhrase.isEmpty else { return }
+        
+        do {
+            let password = state.passcode.isEmpty ? UUID().uuidString : state.passcode
+            try SecureSeedStorage.backupToiCloud(state.generatedRecoveryPhrase, encryptedWith: password)
+            SecurityScoreManager.shared.complete(.iCloudBackupEnabled)
+            #if DEBUG
+            print("✅ iCloud backup completed (post-verification)")
+            #endif
+        } catch {
+            #if DEBUG
+            print("❌ iCloud backup failed: \(error)")
+            #endif
+        }
+    }
+    
     private func updateSecurityScoreFromState() {
         // Update security score based on completed steps
         let scoreManager = SecurityScoreManager.shared
@@ -517,7 +544,8 @@ struct NewOnboardingFlowView: View {
             scoreManager.complete(.biometricsEnabled)
         }
         
-        if state.iCloudBackupEnabled {
+        // ROADMAP-02: Only award iCloud score if backup is verified
+        if state.iCloudBackupEnabled && BackupVerificationManager.shared.isVerified {
             scoreManager.complete(.iCloudBackupEnabled)
         }
         
@@ -548,6 +576,17 @@ struct NewOnboardingFlowView: View {
             SecurityScoreManager.shared.complete(.backupVerified)
         }
         
+        // ROADMAP-02: iCloud backup is ONLY performed after backup verification
+        if state.iCloudBackupEnabled && BackupVerificationManager.shared.isVerified {
+            performiCloudBackup()
+        } else if state.iCloudBackupEnabled && !BackupVerificationManager.shared.isVerified {
+            #if DEBUG
+            print("⚠️ iCloud backup requested but deferred — backup not yet verified")
+            #endif
+            // Clear the flag; user must verify first, then enable iCloud from Settings
+            state.iCloudBackupEnabled = false
+        }
+        
         let result = WalletCreationResult(
             method: state.selectedCreationMethod ?? .create,
             recoveryPhrase: state.generatedRecoveryPhrase,
@@ -564,6 +603,9 @@ struct NewOnboardingFlowView: View {
         FeedbackManager.shared.trigger(.success)
         
         onComplete?(result)
+        
+        // ROADMAP-02: Clear force-quit checkpoint AFTER result delivered — onboarding complete
+        OnboardingCheckpoint.clear()
     }
 }
 

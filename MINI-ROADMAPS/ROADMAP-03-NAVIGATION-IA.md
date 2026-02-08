@@ -122,10 +122,11 @@
 - [ ] Feature modules each < 500 LOC — **PARTIAL: Most modules compliant**
   - Services: Well-factored, most under 500 LOC
   - Views: Some large files remain (historical)
-- [x] NavigationSplitView alternative — ✅ Custom tab-based navigation (HawalaMainView)
-  - App uses professional custom navigation with NavigationTab enum
-  - Glass morphism design, FAB actions, asset detail popups
-  - Superior to standard NavigationSplitView for wallet UX
+- [x] NavigationSplitView — ✅ Proper NavigationSplitView with sidebar (ContentView)
+  - NavigationSplitView wraps mainAppStage with sidebar list (SidebarItem enum)
+  - Sidebar syncs with HawalaMainView tabs via NavigationViewModel.sidebarTab
+  - `.navigationSplitViewStyle(.balanced)` with 160px sidebar
+  - Custom liquid glass nav bar retained in detail pane for rapid switching
 
 ### Progress Summary
 | Metric | Before | After | Change |
@@ -177,7 +178,7 @@
 - [x] Deep link to send screen works ✅ (hawala://send?chain=bitcoin)
 - [x] Deep link while in transaction prompts confirmation ✅ (NavigationRouter.isTransactionInProgress)
 - [x] Window minimum size enforced ✅ (.frame(minWidth: 900, minHeight: 600))
-- [x] Custom navigation replaces NavigationSplitView ✅ (HawalaMainView with tabs)
+- [x] NavigationSplitView with sidebar ✅ (ContentView.mainAppStage wraps in NavigationSplitView)
 
 **Implementation Verification:**
 - [x] Build compiles without errors ✅

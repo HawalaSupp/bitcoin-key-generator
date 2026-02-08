@@ -1,7 +1,156 @@
 import SwiftUI
+import Security
 
 // MARK: - Onboarding State Machine
 // Complete state management for the Hawala onboarding experience
+
+// MARK: - Onboarding Checkpoint Persistence
+// ROADMAP-02: Force-quit recovery — persist progress so users can resume onboarding
+@MainActor
+enum OnboardingCheckpoint {
+    private static let prefix = "hawala.onboarding."
+
+    // Keys
+    static let stepKey       = prefix + "currentStep"
+    static let pathKey       = prefix + "selectedPath"
+    static let personaKey    = prefix + "selectedPersona"
+    static let walletCreated = prefix + "isWalletCreated"
+    static let iCloudBackup  = prefix + "iCloudBackupEnabled"
+    static let biometrics    = prefix + "biometricsEnabled"
+    static let chainsKey     = prefix + "selectedChains"
+    static let phraseTag     = prefix + "recoveryPhrase" // Keychain tag
+    static let historyKey    = prefix + "navigationHistory"
+    static let securityKey   = prefix + "securityScore"
+    static let passcodeSetKey = prefix + "passcodeSet"
+    static let activeKey     = prefix + "isActive"
+
+    // MARK: - Save
+
+    static func save(_ state: OnboardingState) {
+        let ud = UserDefaults.standard
+        ud.set(state.currentStep.rawValue, forKey: stepKey)
+        ud.set(state.selectedPath?.rawValue, forKey: pathKey)
+        ud.set(state.selectedPersona?.rawValue, forKey: personaKey)
+        ud.set(state.isWalletCreated, forKey: walletCreated)
+        ud.set(state.iCloudBackupEnabled, forKey: iCloudBackup)
+        ud.set(state.biometricsEnabled, forKey: biometrics)
+        ud.set(Array(state.selectedChains), forKey: chainsKey)
+        ud.set(state.navigationHistory.map(\.rawValue), forKey: historyKey)
+        ud.set(state.securityScore.pinCreated, forKey: passcodeSetKey)
+        ud.set(true, forKey: activeKey)
+
+        // Security score flags
+        let scoreDict: [String: Bool] = [
+            "pin": state.securityScore.pinCreated,
+            "bio": state.securityScore.biometricEnabled,
+            "backupDone": state.securityScore.backupCompleted,
+            "backupVerified": state.securityScore.backupVerified,
+            "guardians": state.securityScore.guardiansAdded,
+            "twoFactor": state.securityScore.twoFactorEnabled,
+        ]
+        ud.set(scoreDict, forKey: securityKey)
+
+        // Recovery phrase → Keychain (NEVER UserDefaults)
+        if !state.generatedRecoveryPhrase.isEmpty {
+            saveToKeychain(state.generatedRecoveryPhrase.joined(separator: " "))
+        }
+    }
+
+    // MARK: - Restore
+
+    static func restore(into state: OnboardingState) {
+        let ud = UserDefaults.standard
+        guard ud.bool(forKey: activeKey) else { return }
+
+        if let raw = ud.string(forKey: stepKey),
+           let step = NewOnboardingStep(rawValue: raw) {
+            state.currentStep = step
+        }
+        if let raw = ud.string(forKey: pathKey),
+           let path = OnboardingPath(rawValue: raw) {
+            state.selectedPath = path
+        }
+        if let raw = ud.string(forKey: personaKey),
+           let persona = UserPersona(rawValue: raw) {
+            state.selectedPersona = persona
+        }
+        state.isWalletCreated = ud.bool(forKey: walletCreated)
+        state.iCloudBackupEnabled = ud.bool(forKey: iCloudBackup)
+        state.biometricsEnabled = ud.bool(forKey: biometrics)
+        if let chains = ud.stringArray(forKey: chainsKey) {
+            state.selectedChains = Set(chains)
+        }
+        if let rawHistory = ud.stringArray(forKey: historyKey) {
+            state.navigationHistory = rawHistory.compactMap { NewOnboardingStep(rawValue: $0) }
+        }
+
+        // Security score
+        if let dict = ud.dictionary(forKey: securityKey) as? [String: Bool] {
+            state.securityScore.pinCreated = dict["pin"] ?? false
+            state.securityScore.biometricEnabled = dict["bio"] ?? false
+            state.securityScore.backupCompleted = dict["backupDone"] ?? false
+            state.securityScore.backupVerified = dict["backupVerified"] ?? false
+            state.securityScore.guardiansAdded = dict["guardians"] ?? false
+            state.securityScore.twoFactorEnabled = dict["twoFactor"] ?? false
+        }
+
+        // Recovery phrase from Keychain
+        if let phrase = loadFromKeychain() {
+            state.generatedRecoveryPhrase = phrase.components(separatedBy: " ")
+        }
+    }
+
+    // MARK: - Clear
+
+    static func clear() {
+        let ud = UserDefaults.standard
+        let keys = [stepKey, pathKey, personaKey, walletCreated, iCloudBackup,
+                     biometrics, chainsKey, historyKey, securityKey, passcodeSetKey, activeKey]
+        keys.forEach { ud.removeObject(forKey: $0) }
+        deleteFromKeychain()
+    }
+
+    // MARK: - Active check
+
+    static var hasActiveCheckpoint: Bool {
+        UserDefaults.standard.bool(forKey: activeKey)
+    }
+
+    // MARK: - Keychain helpers (recovery phrase only)
+
+    private static func saveToKeychain(_ value: String) {
+        deleteFromKeychain()
+        guard let data = value.data(using: .utf8) else { return }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: phraseTag,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+        ]
+        SecItemAdd(query as CFDictionary, nil)
+    }
+
+    private static func loadFromKeychain() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: phraseTag,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func deleteFromKeychain() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: phraseTag,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+}
 
 // MARK: - Onboarding Path
 /// The two main paths through onboarding
@@ -222,8 +371,9 @@ struct SecurityScore {
         var total = 0
         if pinCreated { total += 20 }
         if biometricEnabled { total += 15 }
-        if backupCompleted { total += 25 }
-        if backupVerified { total += 15 }
+        if backupCompleted { total += 10 }
+        // ROADMAP-02: -30 penalty for unverified (30 pts awarded only when verified)
+        if backupVerified { total += 30 }
         if guardiansAdded { total += 15 }
         if twoFactorEnabled { total += 10 }
         return total
@@ -246,8 +396,9 @@ struct SecurityScore {
         var items: [(String, String, Int)] = []
         if !pinCreated { items.append(("Create PIN", "Set up passcode", 20)) }
         if !biometricEnabled { items.append(("Enable biometrics", "Quick unlock", 15)) }
-        if !backupCompleted { items.append(("Back up recovery phrase", "Save your keys", 25)) }
-        if !backupVerified { items.append(("Verify backup", "Confirm you saved it", 15)) }
+        if !backupCompleted { items.append(("Back up recovery phrase", "Save your keys", 10)) }
+        // ROADMAP-02: Verify backup is worth 30 pts (-30 penalty when missing)
+        if !backupVerified { items.append(("Verify backup", "Confirm you saved it — 30pt penalty if skipped", 30)) }
         if !guardiansAdded { items.append(("Add recovery guardians", "Social recovery", 15)) }
         if !twoFactorEnabled { items.append(("Enable 2FA", "Extra protection", 10)) }
         return items
@@ -391,6 +542,8 @@ class OnboardingState: ObservableObject {
         withAnimation(.easeInOut(duration: 0.35)) {
             currentStep = step
         }
+        // ROADMAP-02: Persist checkpoint after every navigation for force-quit recovery
+        OnboardingCheckpoint.save(self)
     }
     
     func goBack() {
@@ -398,6 +551,7 @@ class OnboardingState: ObservableObject {
         withAnimation(.easeInOut(duration: 0.35)) {
             currentStep = previousStep
         }
+        OnboardingCheckpoint.save(self)
     }
     
     func canGoBack() -> Bool {
@@ -414,12 +568,24 @@ class OnboardingState: ObservableObject {
             return false
         }
         securityScore.pinCreated = true
+        OnboardingCheckpoint.save(self)
         return true
+    }
+    
+    // MARK: - Initialization (force-quit recovery)
+    
+    /// Restores onboarding progress from a previous session if one was interrupted
+    init() {
+        if OnboardingCheckpoint.hasActiveCheckpoint {
+            // Restore immediately since we're already on MainActor
+            OnboardingCheckpoint.restore(into: self)
+        }
     }
     
     // MARK: - Reset
     
     func reset() {
+        OnboardingCheckpoint.clear()
         currentStep = .welcome
         navigationHistory = []
         selectedPath = nil

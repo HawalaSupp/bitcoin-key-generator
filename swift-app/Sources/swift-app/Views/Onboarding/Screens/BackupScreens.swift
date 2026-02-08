@@ -120,10 +120,10 @@ struct RecoveryPhraseScreen: View {
                             .font(.system(size: 16))
                         
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Save to iCloud instead")
+                            Text("Save to iCloud after verification")
                                 .font(.custom("ClashGrotesk-Medium", size: 14))
                             
-                            Text("Encrypted with your Apple ID")
+                            Text("Encrypted backup — requires word verification first")
                                 .font(.system(size: 11, weight: .regular))
                                 .foregroundColor(.white.opacity(0.5))
                         }

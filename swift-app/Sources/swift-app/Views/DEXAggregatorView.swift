@@ -59,6 +59,10 @@ struct DEXAggregatorView: View {
                 headerSection
                 chainSelector
                 swapInputSection
+                
+                // Transfer tax warning (ROADMAP-07 E11)
+                transferTaxWarning
+                
                 slippageSection
                 
                 if service.isLoading {
@@ -307,6 +311,56 @@ struct DEXAggregatorView: View {
         .cornerRadius(12)
     }
     
+    // MARK: - Transfer Tax Warning (ROADMAP-07 E11)
+    
+    @ViewBuilder
+    private var transferTaxWarning: some View {
+        let chainId = selectedChain.rawValue
+        let fromTax = TransferTaxDetector.detectTax(address: fromToken, chainId: chainId)
+        let toTax = TransferTaxDetector.detectTax(address: toToken, chainId: chainId)
+        // Also check by symbol as fallback
+        let fromSymbol = getTokenSymbol(fromToken)
+        let fromTaxBySymbol = fromTax == nil ? TransferTaxDetector.detectTaxBySymbol(fromSymbol) : nil
+        let toSymbol = getTokenSymbol(toToken)
+        let toTaxBySymbol = toTax == nil ? TransferTaxDetector.detectTaxBySymbol(toSymbol) : nil
+        
+        let detectedFrom = fromTax ?? fromTaxBySymbol
+        let detectedTo = toTax ?? toTaxBySymbol
+        
+        if let tax = detectedFrom ?? detectedTo {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                    .font(.title3)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Transfer Tax Detected")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.red)
+                    
+                    Text(TransferTaxDetector.warningMessage(for: tax))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    
+                    if detectedFrom != nil && detectedTo != nil {
+                        Text("Both tokens have transfer taxes — expect significant slippage.")
+                            .font(.caption)
+                            .foregroundStyle(.red.opacity(0.8))
+                    }
+                }
+            }
+            .padding()
+            .background(Color.red.opacity(0.08))
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.red.opacity(0.3), lineWidth: 1)
+            )
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Warning: \(TransferTaxDetector.warningMessage(for: tax))")
+        }
+    }
+    
     // MARK: - Loading
     
     private var loadingSection: some View {
@@ -382,9 +436,19 @@ struct DEXAggregatorView: View {
                     }
                     
                     if let impact = quote.priceImpact {
-                        Text("Impact: \(String(format: "%.2f", impact))%")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        // ROADMAP-07 E6: Color-coded price impact thresholds
+                        let absImpact = abs(impact)
+                        let impactColor: Color = absImpact > 5.0 ? .red : (absImpact > 2.0 ? .orange : .secondary)
+                        HStack(spacing: 4) {
+                            if absImpact > 2.0 {
+                                Image(systemName: absImpact > 5.0 ? "exclamationmark.triangle.fill" : "exclamationmark.circle.fill")
+                                    .font(.caption2)
+                            }
+                            Text("Impact: \(String(format: "%.2f", impact))%")
+                                .font(.caption)
+                        }
+                        .foregroundStyle(impactColor)
+                        .fontWeight(absImpact > 5.0 ? .bold : .regular)
                     }
                 }
                 

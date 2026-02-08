@@ -487,6 +487,14 @@ final class AddressIntelligenceManager: ObservableObject {
         return sentHistory[normalized] == nil
     }
     
+    /// Returns the most recently sent-to addresses, sorted by lastDate descending (ROADMAP-05 E7)
+    func getRecentRecipients(limit: Int = 5) -> [(address: String, count: Int, lastDate: Date)] {
+        return sentHistory
+            .sorted { $0.value.lastDate > $1.value.lastDate }
+            .prefix(limit)
+            .map { (address: $0.key, count: $0.value.count, lastDate: $0.value.lastDate) }
+    }
+    
     // MARK: - Scam Reporting
     
     /// Report an address as scam

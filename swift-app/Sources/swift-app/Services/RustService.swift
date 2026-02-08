@@ -60,7 +60,74 @@ private struct FFIAnyCodable: Decodable {
 final class RustService: @unchecked Sendable {
     static let shared = RustService()
     
+    /// Whether the Rust FFI backend passed its health check on launch
+    private(set) var isHealthy: Bool = false
+    /// Detailed health check failure reason, if any
+    private(set) var healthCheckError: String?
+    
     private init() {}
+    
+    // MARK: - Health Check (ROADMAP-01)
+    
+    /// Performs a health check on the Rust FFI backend.
+    /// Verifies that the FFI layer is loaded, responsive, and can perform basic operations.
+    /// Should be called once on app launch from `applicationDidFinishLaunching`.
+    @discardableResult
+    func performHealthCheck() -> Bool {
+        // Test 1: Check that hawala_health_check FFI is reachable
+        guard let cString = hawala_health_check() else {
+            isHealthy = false
+            healthCheckError = "Rust FFI returned null from health check"
+            #if DEBUG
+            print("❌ Rust health check FAILED: FFI returned null")
+            #endif
+            return false
+        }
+        
+        let response = String(cString: cString)
+        hawala_free_string(UnsafeMutablePointer(mutating: cString))
+        
+        // Parse the JSON response
+        guard let data = response.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let success = json["success"] as? Bool, success else {
+            isHealthy = false
+            healthCheckError = "Rust FFI health check returned invalid response: \(response)"
+            #if DEBUG
+            print("❌ Rust health check FAILED: invalid response — \(response)")
+            #endif
+            return false
+        }
+        
+        // Test 2: Verify basic crypto operation (generate a wallet)
+        let walletResult = generateKeys()
+        guard walletResult != "{}" else {
+            isHealthy = false
+            healthCheckError = "Rust FFI cannot generate wallets"
+            #if DEBUG
+            print("❌ Rust health check FAILED: generateKeys returned empty")
+            #endif
+            return false
+        }
+        
+        // Test 3: Verify mnemonic validation works
+        let validMnemonic = validateMnemonic("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
+        guard validMnemonic else {
+            isHealthy = false
+            healthCheckError = "Rust FFI mnemonic validation broken"
+            #if DEBUG
+            print("❌ Rust health check FAILED: validateMnemonic returned false for known-good mnemonic")
+            #endif
+            return false
+        }
+        
+        isHealthy = true
+        healthCheckError = nil
+        #if DEBUG
+        print("✅ Rust FFI health check PASSED")
+        #endif
+        return true
+    }
     
     // MARK: - Response Parsing Helper
     

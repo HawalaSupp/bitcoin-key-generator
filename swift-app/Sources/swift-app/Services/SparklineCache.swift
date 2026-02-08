@@ -20,6 +20,9 @@ final class SparklineCache: ObservableObject {
     /// Cache duration - 15 minutes (increased to reduce API calls)
     private let cacheDuration: TimeInterval = 900
     
+    /// Currently selected days range for portfolio time range tabs (ROADMAP-04 E3)
+    var selectedDays: String = "7"
+    
     /// Delay between API calls for priority coins - 500ms (fast loading)
     private let priorityRequestDelay: UInt64 = 500_000_000
     
@@ -173,6 +176,15 @@ final class SparklineCache: ObservableObject {
                 self.saveToDisk()
             }
         }
+    }
+    
+    /// Refresh sparklines for a new time range (ROADMAP-04 E3)
+    func refreshSparklines(days: String) {
+        guard days != selectedDays else { return }
+        selectedDays = days
+        // Invalidate cache and re-fetch with new range
+        lastFetchTime.removeAll()
+        fetchAllSparklines(force: true)
     }
     
     /// Get sparkline for a specific chain (returns cached or empty)

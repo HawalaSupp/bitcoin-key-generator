@@ -204,14 +204,34 @@ struct TransactionHistoryView: View {
     private var filteredTransactions: [TransactionDisplayItem] {
         switch selectedFilter {
         case .all:
-            return viewModel.transactions
+            // Exclude dust/spam from main view (ROADMAP-05 E14)
+            return viewModel.transactions.filter { !isDustTransaction($0) }
         case .pending:
             return viewModel.transactions.filter { $0.status == .pending }
         case .sent:
             return viewModel.transactions.filter { $0.type == .send }
         case .received:
-            return viewModel.transactions.filter { $0.type == .receive }
+            return viewModel.transactions.filter { $0.type == .receive && !isDustTransaction($0) }
+        case .spam:
+            return viewModel.transactions.filter { isDustTransaction($0) }
         }
+    }
+    
+    /// Detects dust/spam transactions — received transactions with negligible value (ROADMAP-05 E14)
+    /// Uses per-chain dust thresholds as a proxy for < $0.01 fiat value
+    private func isDustTransaction(_ tx: TransactionDisplayItem) -> Bool {
+        guard tx.type == .receive else { return false }
+        let threshold: Double
+        switch tx.symbol.uppercased() {
+        case "BTC": threshold = 0.00000546 // 546 sats (~$0.003 at $60k)
+        case "LTC": threshold = 0.00001
+        case "ETH": threshold = 0.000005 // ~$0.01 at $2k
+        case "SOL": threshold = 0.0001
+        case "XRP": threshold = 0.01
+        case "MATIC", "BNB": threshold = 0.00001
+        default: threshold = 0.000001
+        }
+        return tx.amount < threshold
     }
     
     private var groupedTransactions: [Date: [TransactionDisplayItem]] {
@@ -223,10 +243,11 @@ struct TransactionHistoryView: View {
     
     private func countForFilter(_ filter: TransactionFilter) -> Int {
         switch filter {
-        case .all: return viewModel.transactions.count
+        case .all: return viewModel.transactions.filter { !isDustTransaction($0) }.count
         case .pending: return viewModel.transactions.filter { $0.status == .pending }.count
         case .sent: return viewModel.transactions.filter { $0.type == .send }.count
-        case .received: return viewModel.transactions.filter { $0.type == .receive }.count
+        case .received: return viewModel.transactions.filter { $0.type == .receive && !isDustTransaction($0) }.count
+        case .spam: return viewModel.transactions.filter { isDustTransaction($0) }.count
         }
     }
     
@@ -236,6 +257,7 @@ struct TransactionHistoryView: View {
         case .pending: return "clock"
         case .sent: return "arrow.up.circle"
         case .received: return "arrow.down.circle"
+        case .spam: return "exclamationmark.shield"
         }
     }
     
@@ -245,6 +267,7 @@ struct TransactionHistoryView: View {
         case .pending: return "No Pending"
         case .sent: return "No Sent"
         case .received: return "No Received"
+        case .spam: return "No Spam"
         }
     }
     
@@ -254,6 +277,7 @@ struct TransactionHistoryView: View {
         case .pending: return "You don't have any pending transactions."
         case .sent: return "You haven't sent any transactions yet."
         case .received: return "You haven't received any transactions yet."
+        case .spam: return "No dust or spam transactions detected. Transactions under $0.01 are automatically filtered here."
         }
     }
     
@@ -278,6 +302,7 @@ enum TransactionFilter: String, CaseIterable, Identifiable {
     case pending = "Pending"
     case sent = "Sent"
     case received = "Received"
+    case spam = "Spam"
     
     var id: String { rawValue }
     
@@ -287,6 +312,7 @@ enum TransactionFilter: String, CaseIterable, Identifiable {
         case .pending: return "clock"
         case .sent: return "arrow.up"
         case .received: return "arrow.down"
+        case .spam: return "exclamationmark.shield"
         }
     }
 }

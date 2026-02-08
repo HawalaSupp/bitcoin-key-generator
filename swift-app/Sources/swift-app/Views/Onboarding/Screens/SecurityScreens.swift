@@ -20,6 +20,9 @@ struct SecuritySetupScreen: View {
     
     @State private var animateContent = false
     @State private var isKeyboardActive = true
+    // ROADMAP-02: Track passcode mismatch attempts for better UX
+    @State private var mismatchAttempts: Int = 0
+    private let maxMismatchAttempts = 3
     
     private var currentPasscode: String {
         isConfirmingPasscode ? confirmPasscode : passcode
@@ -62,10 +65,23 @@ struct SecuritySetupScreen: View {
             
             // Error message
             if showError {
-                Text(errorMessage)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.red)
-                    .transition(.opacity)
+                VStack(spacing: 8) {
+                    Text(errorMessage)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.red)
+                        .transition(.opacity)
+                    
+                    // ROADMAP-02: After N mismatches, offer to start passcode over
+                    if mismatchAttempts >= maxMismatchAttempts {
+                        Button(action: resetPasscodeEntry) {
+                            Text("Start Over — Create New Passcode")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.orange)
+                        }
+                        .buttonStyle(.plain)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                }
             }
             
             Spacer()
@@ -189,19 +205,41 @@ struct SecuritySetupScreen: View {
     private func validateAndComplete() {
         if confirmPasscode == passcode {
             FeedbackManager.shared.trigger(.success)
+            mismatchAttempts = 0
             onComplete()
         } else {
             FeedbackManager.shared.trigger(.error)
+            mismatchAttempts += 1
             withAnimation {
                 showError = true
-                errorMessage = "Passcodes don't match"
+                if mismatchAttempts >= maxMismatchAttempts {
+                    errorMessage = "Passcodes don't match — \(mismatchAttempts) failed attempts"
+                } else {
+                    let remaining = maxMismatchAttempts - mismatchAttempts
+                    errorMessage = "Passcodes don't match — \(remaining) attempt\(remaining == 1 ? "" : "s") left"
+                }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 withAnimation {
                     confirmPasscode = ""
-                    showError = false
+                    if mismatchAttempts < maxMismatchAttempts {
+                        showError = false
+                    }
+                    // Keep error visible when max attempts reached so user sees "Start Over"
                 }
             }
+        }
+    }
+    
+    /// ROADMAP-02: Reset entire passcode entry after too many mismatches
+    private func resetPasscodeEntry() {
+        withAnimation(.spring(response: 0.4)) {
+            passcode = ""
+            confirmPasscode = ""
+            isConfirmingPasscode = false
+            mismatchAttempts = 0
+            showError = false
+            errorMessage = ""
         }
     }
     

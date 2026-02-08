@@ -8,6 +8,9 @@ final class NavigationViewModel: ObservableObject {
     @Published var selectedChain: ChainInfo?
     @Published var showSplashScreen = true
     
+    // MARK: - Sidebar ↔ Tab Sync (ROADMAP-03 E8)
+    @Published var sidebarTab: String = "Portfolio"
+    
     // MARK: - Onboarding
     @Published var onboardingStep: OnboardingStep = .welcome
     @Published var completedOnboardingThisSession = false

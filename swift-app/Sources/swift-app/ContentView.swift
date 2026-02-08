@@ -159,89 +159,38 @@ struct ContentView: View {
     }
 
     
-    private var mainAppStage: some View {
-        ZStack {
-            // New modern UI
-            if navigationVM.selectedChain == nil {
-                HawalaMainView(
-                    keys: $keys,
-                    selectedChain: $navigationVM.selectedChain,
-                    balanceStates: $balanceStates,
-                    priceStates: $priceService.priceStates,
-                    sparklineCache: sparklineCache,
-                    showSendPicker: $navigationVM.showSendPicker,
-                    showReceiveSheet: $navigationVM.showReceiveSheet,
-                    showSettingsPanel: $navigationVM.showSettingsPanel,
-                    showStakingSheet: $navigationVM.showStakingSheet,
-                    showNotificationsSheet: $navigationVM.showNotificationsSheet,
-                    showContactsSheet: $navigationVM.showContactsSheet,
-                    showWalletConnectSheet: $navigationVM.showWalletConnectSheet,
-                    showL2AggregatorSheet: $navigationVM.showL2AggregatorSheet,
-                    showPaymentLinksSheet: $navigationVM.showPaymentLinksSheet,
-                    showTransactionNotesSheet: $navigationVM.showTransactionNotesSheet,
-                    showSellCryptoSheet: $navigationVM.showSellCryptoSheet,
-                    showPriceAlertsSheet: $navigationVM.showPriceAlertsSheet,
-                    // Phase 4: Account Abstraction
-                    showSmartAccountSheet: $navigationVM.showSmartAccountSheet,
-                    showGasAccountSheet: $navigationVM.showGasAccountSheet,
-                    showPasskeyAuthSheet: $navigationVM.showPasskeyAuthSheet,
-                    showGaslessTxSheet: $navigationVM.showGaslessTxSheet,
-                    onGenerateKeys: {
-                        // Auto-acknowledge security notice for streamlined UX
-                        if !hasAcknowledgedSecurityNotice {
-                            hasAcknowledgedSecurityNotice = true
-                        }
-                        guard canAccessSensitiveData else {
-                            navigationVM.showUnlockSheet = true
-                            return
-                        }
-                        Task { await runGenerator() }
-                    },
-                    onRefreshBalances: {
-                        if let keys = keys {
-                            balanceService.startBalanceFetch(for: keys)
-                        }
-                    },
-                    onRefreshHistory: {
-                        refreshTransactionHistory(force: true)
-                    },
-                    selectedFiatSymbol: selectedFiatCurrency.symbol,
-                    fxRates: priceService.fxRates,
-                    selectedFiatCurrency: storedFiatCurrency,
-                    isGenerating: isGenerating,
-                    historyEntries: $historyEntries,
-                    isHistoryLoading: $isHistoryLoading,
-                    historyError: $historyError
-                )
-            } else if let chain = navigationVM.selectedChain {
-                HawalaAssetDetailView(
-                    chain: chain,
-                    balanceState: Binding(
-                        get: { balanceStates[chain.id] },
-                        set: { balanceStates[chain.id] = $0 ?? .idle }
-                    ),
-                    priceState: Binding(
-                        get: { priceService.priceStates[chain.id] },
-                        set: { priceService.priceStates[chain.id] = $0 ?? .idle }
-                    ),
-                    sparklineData: sparklineCache.sparklines[chain.id] ?? [],
-                    onSend: {
-                        navigationVM.pendingSendChain = chain
-                        navigationVM.selectedChain = nil
-                    },
-                    onReceive: {
-                        navigationVM.showReceiveSheet = true
-                    },
-                    onClose: {
-                        withAnimation(HawalaTheme.Animation.fast) {
-                            navigationVM.selectedChain = nil
-                        }
-                    },
-                    selectedFiatSymbol: selectedFiatCurrency.symbol,
-                    fxMultiplier: priceService.fxRates[storedFiatCurrency] ?? 1.0
-                )
+    // MARK: - NavigationSplitView sidebar selection (ROADMAP-03 E8)
+    @State private var sidebarSelection: SidebarItem? = .portfolio
+
+    enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
+        case portfolio = "Portfolio"
+        case activity  = "Activity"
+        case discover  = "Discover"
+
+        var id: String { rawValue }
+        var icon: String {
+            switch self {
+            case .portfolio: return "chart.pie.fill"
+            case .activity:  return "clock.arrow.circlepath"
+            case .discover:  return "sparkles"
             }
         }
+    }
+
+    private var mainAppStage: some View {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
+            // Sidebar (ROADMAP-03 E8: macOS NavigationSplitView)
+            List(SidebarItem.allCases, selection: $sidebarSelection) { item in
+                Label(item.rawValue, systemImage: item.icon)
+                    .tag(item)
+            }
+            .listStyle(.sidebar)
+            .navigationTitle("Hawala")
+            .frame(minWidth: 160, idealWidth: 180)
+        } detail: {
+            mainDetailContent
+        }
+        .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 900, minHeight: 600)
         .background(HawalaTheme.Colors.background)
         .preferredColorScheme(.dark)
@@ -308,6 +257,98 @@ struct ContentView: View {
                 priceService.startPriceUpdatesIfNeeded(sparklineCache: sparklineCache)
             } else {
                 priceService.stopPriceUpdates()
+            }
+        }
+        // Sync sidebar selection → HawalaMainView tab
+        .onChange(of: sidebarSelection) { newValue in
+            if let item = newValue {
+                navigationVM.sidebarTab = item.rawValue
+            }
+        }
+    }
+
+    private var mainDetailContent: some View {
+        ZStack {
+            // New modern UI
+            if navigationVM.selectedChain == nil {
+                HawalaMainView(
+                    keys: $keys,
+                    selectedChain: $navigationVM.selectedChain,
+                    balanceStates: $balanceStates,
+                    priceStates: $priceService.priceStates,
+                    sparklineCache: sparklineCache,
+                    showSendPicker: $navigationVM.showSendPicker,
+                    showReceiveSheet: $navigationVM.showReceiveSheet,
+                    showSettingsPanel: $navigationVM.showSettingsPanel,
+                    showStakingSheet: $navigationVM.showStakingSheet,
+                    showNotificationsSheet: $navigationVM.showNotificationsSheet,
+                    showContactsSheet: $navigationVM.showContactsSheet,
+                    showWalletConnectSheet: $navigationVM.showWalletConnectSheet,
+                    showL2AggregatorSheet: $navigationVM.showL2AggregatorSheet,
+                    showPaymentLinksSheet: $navigationVM.showPaymentLinksSheet,
+                    showTransactionNotesSheet: $navigationVM.showTransactionNotesSheet,
+                    showSellCryptoSheet: $navigationVM.showSellCryptoSheet,
+                    showPriceAlertsSheet: $navigationVM.showPriceAlertsSheet,
+                    // Phase 4: Account Abstraction
+                    showSmartAccountSheet: $navigationVM.showSmartAccountSheet,
+                    showGasAccountSheet: $navigationVM.showGasAccountSheet,
+                    showPasskeyAuthSheet: $navigationVM.showPasskeyAuthSheet,
+                    showGaslessTxSheet: $navigationVM.showGaslessTxSheet,
+                    onGenerateKeys: {
+                        // Auto-acknowledge security notice for streamlined UX
+                        if !hasAcknowledgedSecurityNotice {
+                            hasAcknowledgedSecurityNotice = true
+                        }
+                        guard canAccessSensitiveData else {
+                            navigationVM.showUnlockSheet = true
+                            return
+                        }
+                        Task { await runGenerator() }
+                    },
+                    onRefreshBalances: {
+                        if let keys = keys {
+                            balanceService.startBalanceFetch(for: keys)
+                        }
+                    },
+                    onRefreshHistory: {
+                        refreshTransactionHistory(force: true)
+                    },
+                    selectedFiatSymbol: selectedFiatCurrency.symbol,
+                    fxRates: priceService.fxRates,
+                    selectedFiatCurrency: storedFiatCurrency,
+                    isGenerating: isGenerating,
+                    historyEntries: $historyEntries,
+                    isHistoryLoading: $isHistoryLoading,
+                    historyError: $historyError,
+                    sidebarTab: navigationVM.sidebarTab
+                )
+            } else if let chain = navigationVM.selectedChain {
+                HawalaAssetDetailView(
+                    chain: chain,
+                    balanceState: Binding(
+                        get: { balanceStates[chain.id] },
+                        set: { balanceStates[chain.id] = $0 ?? .idle }
+                    ),
+                    priceState: Binding(
+                        get: { priceService.priceStates[chain.id] },
+                        set: { priceService.priceStates[chain.id] = $0 ?? .idle }
+                    ),
+                    sparklineData: sparklineCache.sparklines[chain.id] ?? [],
+                    onSend: {
+                        navigationVM.pendingSendChain = chain
+                        navigationVM.selectedChain = nil
+                    },
+                    onReceive: {
+                        navigationVM.showReceiveSheet = true
+                    },
+                    onClose: {
+                        withAnimation(HawalaTheme.Animation.fast) {
+                            navigationVM.selectedChain = nil
+                        }
+                    },
+                    selectedFiatSymbol: selectedFiatCurrency.symbol,
+                    fxMultiplier: priceService.fxRates[storedFiatCurrency] ?? 1.0
+                )
             }
         }
     }

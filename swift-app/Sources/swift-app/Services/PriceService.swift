@@ -305,6 +305,11 @@ final class PriceService: ObservableObject {
     }
     
     func formatFiatAmountInSelectedCurrency(_ amountInUSD: Double, storedFiatCurrency: String = "USD", useSelectedCurrency: Bool = true) -> String {
+        // ROADMAP-04 E12: $0 price → "Price unavailable"
+        if amountInUSD <= 0 {
+            return "Price unavailable"
+        }
+        
         let currency = useSelectedCurrency ? (FiatCurrency(rawValue: storedFiatCurrency) ?? .usd) : .usd
         let rate = fxRates[currency.rawValue] ?? 1.0
         let convertedAmount = amountInUSD * rate

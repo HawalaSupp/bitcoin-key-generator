@@ -1,6 +1,7 @@
 import SwiftUI
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import LocalAuthentication
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -71,12 +72,19 @@ struct ReceiveViewModern: View {
         _selectedChain = State(initialValue: chains.first(where: { $0.receiveAddress != nil }))
     }
     
+    @ObservedObject private var passcodeManager = PasscodeManager.shared
+    @State private var requiresUnlock = false
+    
     var body: some View {
         ZStack {
             // Background
             HawalaTheme.Colors.background
                 .ignoresSafeArea()
             
+            // ROADMAP-06 E8: Gate receive view when wallet is locked
+            if passcodeManager.isLocked {
+                walletLockedOverlay
+            } else {
             VStack(spacing: 0) {
                 // Header
                 receiveHeader
@@ -126,12 +134,71 @@ struct ReceiveViewModern: View {
             if showAddressVerification {
                 addressVerificationOverlay
             }
+            } // end else (wallet not locked)
         }
         .preferredColorScheme(.dark)
         .onAppear {
             withAnimation(HawalaTheme.Animation.spring) {
                 appearAnimation = true
             }
+        }
+    }
+    
+    // MARK: - Wallet Locked Overlay (ROADMAP-06 E8)
+    
+    private var walletLockedOverlay: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            Image(systemName: "lock.shield.fill")
+                .font(.system(size: 56))
+                .foregroundColor(HawalaTheme.Colors.warning)
+            
+            Text("Wallet Locked")
+                .font(HawalaTheme.Typography.h2)
+                .foregroundColor(HawalaTheme.Colors.textPrimary)
+            
+            Text("Unlock your wallet to view receive addresses.")
+                .font(HawalaTheme.Typography.body)
+                .foregroundColor(HawalaTheme.Colors.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            Button(action: {
+                Task {
+                    let context = LAContext()
+                    do {
+                        let success = try await context.evaluatePolicy(
+                            .deviceOwnerAuthentication,
+                            localizedReason: "Unlock wallet to view receive address"
+                        )
+                        if success {
+                            await MainActor.run { passcodeManager.unlock() }
+                        }
+                    } catch {
+                        #if DEBUG
+                        print("[ReceiveView] Biometric unlock failed: \\(error)")
+                        #endif
+                    }
+                }
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "faceid")
+                    Text("Unlock")
+                }
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.black)
+                .frame(maxWidth: 200)
+                .padding(.vertical, 14)
+                .background(Color.white)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            
+            Button("Cancel") { dismiss() }
+                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                .buttonStyle(.plain)
+            
+            Spacer()
         }
     }
     
@@ -248,21 +315,26 @@ struct ReceiveViewModern: View {
     
     private func qrCodeSection(chain: ChainInfo, address: String) -> some View {
         VStack(spacing: HawalaTheme.Spacing.md) {
-            // QR Code with Chain Branding
-            ZStack {
-                // Glow effect behind QR
-                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg + 8, style: .continuous)
-                    .fill(HawalaTheme.Colors.forChain(chain.id).opacity(0.1))
-                    .frame(width: 240, height: 240)
-                    .blur(radius: 20)
-                
-                // White background for QR
-                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                    .fill(.white)
-                    .frame(width: 220, height: 220)
-                
-                // QR Code
-                QRCodeView(content: generatePaymentURI(chain: chain, address: address), size: 200)
+            // QR Code with Chain Branding — responsive sizing (ROADMAP-06 E1)
+            GeometryReader { geo in
+                let maxQR = min(geo.size.width * 0.6, 400) // max 60% width, capped at 400pt
+                let qrSize = max(250, maxQR) // min 250pt
+                let bgSize = qrSize + 20
+                let glowSize = qrSize + 40
+                ZStack {
+                    // Glow effect behind QR
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg + 8, style: .continuous)
+                        .fill(HawalaTheme.Colors.forChain(chain.id).opacity(0.1))
+                        .frame(width: glowSize, height: glowSize)
+                        .blur(radius: 20)
+                    
+                    // White background for QR
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                        .fill(.white)
+                        .frame(width: bgSize, height: bgSize)
+                    
+                    // QR Code
+                    QRCodeView(content: generatePaymentURI(chain: chain, address: address), size: qrSize)
                 
                 // Chain Icon Overlay
                 ZStack {
@@ -279,11 +351,14 @@ struct ReceiveViewModern: View {
                         .foregroundColor(.white)
                 }
             }
-            .scaleEffect(qrAnimationScale)
-            .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
-            .accessibilityLabel("QR code for receiving \(chain.symbol)")
-            .accessibilityHint("Scan this code to send \(chain.symbol) to your wallet")
-            .accessibilityIdentifier("receive_qr_code")
+                .scaleEffect(qrAnimationScale)
+                .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
+                .accessibilityLabel("QR code for receiving \(chain.symbol)")
+                .accessibilityHint("Scan this code to send \(chain.symbol) to your wallet")
+                .accessibilityIdentifier("receive_qr_code")
+                .frame(maxWidth: .infinity)
+                }
+            .frame(height: 340) // Reserve space for GeometryReader
             
             // Chain Name Badge with Amount
             HStack(spacing: 6) {

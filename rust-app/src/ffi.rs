@@ -75,6 +75,26 @@ fn string_to_ptr(s: String) -> *mut c_char {
 }
 
 // =============================================================================
+// Health Check (ROADMAP-01)
+// =============================================================================
+
+/// Verify that the Rust FFI backend is loaded and functional.
+/// Called once on app launch to ensure the native library is accessible.
+///
+/// # Output
+/// ```json
+/// { "success": true, "data": { "version": "1.0.0", "status": "healthy" } }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn hawala_health_check() -> *mut c_char {
+    use std::collections::HashMap;
+    let mut data: HashMap<&str, &str> = HashMap::new();
+    data.insert("version", env!("CARGO_PKG_VERSION"));
+    data.insert("status", "healthy");
+    success_response(data)
+}
+
+// =============================================================================
 // Wallet Operations
 // =============================================================================
 

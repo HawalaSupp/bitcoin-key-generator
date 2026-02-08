@@ -219,6 +219,16 @@ struct SendView: View {
     // Fee warnings state
     @State private var feeWarnings: [FeeWarning] = []
     
+    // First-time address warning (ROADMAP-05 E5)
+    @State private var showingFirstTimeWarning = false
+    
+    // Amount validation (ROADMAP-05 E8-E11)
+    @State private var amountValidationError: String?
+    
+    // Fee estimate timestamp for expiry warning (ROADMAP-05 E16)
+    @State private var feeEstimateTimestamp: Date = Date()
+    @State private var showFeeExpiredWarning = false
+    
     // Gas estimation state
     @State private var gasEstimateResult: GasEstimateResult?
     @State private var isEstimatingGas = false
@@ -252,13 +262,36 @@ struct SendView: View {
         .onAppear(perform: handleOnAppear)
         .onChange(of: selectedChain, perform: handleChainChange)
         .onChange(of: selectedFeePriority) { _ in updateFeeFromPriority() }
-        .onChange(of: amount) { _ in updateFeeWarnings() }
+        .onChange(of: amount) { newValue in
+            // ROADMAP-05 E9: Locale separator handling — convert commas to dots
+            let sanitized = newValue.replacingOccurrences(of: ",", with: ".")
+            if sanitized != newValue {
+                amount = sanitized
+                return // onChange will re-fire with sanitized value
+            }
+            // ROADMAP-05 E8-E11: Validate amount using AmountValidator
+            validateAmount()
+            updateFeeWarnings()
+        }
         .onChange(of: feeRate) { _ in if selectedChain.isBitcoin { updateFeeWarnings() } }
         .sheet(isPresented: $showingQRScanner, content: qrScannerSheet)
         .sheet(isPresented: $showingReview, content: reviewSheet)
         .sheet(isPresented: $showingSuccessSheet, content: successSheet)
         .sheet(isPresented: $showingSecurityCheck, content: securityCheckSheet)
         .sheet(isPresented: $showBackupRequiredSheet, content: backupRequiredSheet)
+        .sheet(isPresented: $showingFirstTimeWarning) {
+            FirstTimeSendWarning(
+                address: recipientAddress,
+                onProceed: {
+                    showingFirstTimeWarning = false
+                    // Continue to security check flow
+                    proceedToSecurityCheck()
+                },
+                onCancel: {
+                    showingFirstTimeWarning = false
+                }
+            )
+        }
     }
     
     // MARK: - Backup Required Sheet (ROADMAP-02)
@@ -490,6 +523,9 @@ struct SendView: View {
             // Recipient Address
             recipientSection
             
+            // Recent Recipients (ROADMAP-05 E7)
+            recentRecipientsSection
+            
             // Amount Input
             amountSection
             
@@ -511,6 +547,28 @@ struct SendView: View {
             // XRP Destination Tag
             if selectedChain.isXRP {
                 xrpOptionsSection
+            }
+            
+            // Estimated Arrival Time (ROADMAP-05 E12)
+            if !amount.isEmpty, let amtVal = Double(amount), amtVal > 0 {
+                estimatedArrivalRow
+            }
+            
+            // Fee Expiry Warning (ROADMAP-05 E16)
+            if showFeeExpiredWarning {
+                feeExpiredWarningBanner
+            }
+            
+            // Amount Validation Error (ROADMAP-05 E8-E11)
+            if let validationError = amountValidationError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.caption)
+                    Text(validationError)
+                        .font(HawalaTheme.Typography.caption)
+                }
+                .foregroundColor(HawalaTheme.Colors.error)
+                .padding(.horizontal, HawalaTheme.Spacing.sm)
             }
             
             // Error Message
@@ -780,6 +838,107 @@ struct SendView: View {
         .opacity(appearAnimation ? 1 : 0)
         .offset(y: appearAnimation ? 0 : 20)
         .animation(HawalaTheme.Animation.spring.delay(0.1), value: appearAnimation)
+    }
+    
+    // MARK: - Recent Recipients (ROADMAP-05 E7)
+    
+    @ViewBuilder
+    private var recentRecipientsSection: some View {
+        let recents = AddressIntelligenceManager.shared.getRecentRecipients(limit: 5)
+        if !recents.isEmpty {
+            VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
+                Text("RECENT")
+                    .font(HawalaTheme.Typography.label)
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .tracking(1)
+                
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: HawalaTheme.Spacing.sm) {
+                        ForEach(recents, id: \.address) { entry in
+                            Button(action: {
+                                recipientAddress = entry.address
+                                validateAddressAsync()
+                            }) {
+                                VStack(spacing: 4) {
+                                    ZStack {
+                                        Circle()
+                                            .fill(HawalaTheme.Colors.accent.opacity(0.15))
+                                            .frame(width: 36, height: 36)
+                                        Text(String(entry.address.suffix(2)).uppercased())
+                                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                            .foregroundColor(HawalaTheme.Colors.accent)
+                                    }
+                                    Text(truncateAddress(entry.address))
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                                    Text("\(entry.count)×")
+                                        .font(.system(size: 9, weight: .medium))
+                                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .background(HawalaTheme.Colors.backgroundTertiary)
+                                .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .opacity(appearAnimation ? 1 : 0)
+            .offset(y: appearAnimation ? 0 : 20)
+            .animation(HawalaTheme.Animation.spring.delay(0.07), value: appearAnimation)
+        }
+    }
+    
+    private func truncateAddress(_ addr: String) -> String {
+        guard addr.count > 12 else { return addr }
+        return "\(addr.prefix(6))…\(addr.suffix(4))"
+    }
+    
+    // MARK: - Estimated Arrival (ROADMAP-05 E12)
+    
+    private var estimatedArrivalRow: some View {
+        let (_, _, _, eta) = calculateFeeDetails()
+        return HStack(spacing: 8) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 14))
+                .foregroundColor(HawalaTheme.Colors.accent)
+            Text("Estimated arrival")
+                .font(HawalaTheme.Typography.caption)
+                .foregroundColor(HawalaTheme.Colors.textSecondary)
+            Spacer()
+            Text("~\(eta)")
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundColor(HawalaTheme.Colors.textPrimary)
+        }
+        .padding(HawalaTheme.Spacing.md)
+        .background(HawalaTheme.Colors.backgroundTertiary)
+        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+    }
+    
+    // MARK: - Fee Expiry Warning (ROADMAP-05 E16)
+    
+    private var feeExpiredWarningBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+            Text("Fee estimate may have changed.")
+                .font(HawalaTheme.Typography.caption)
+                .foregroundColor(.orange)
+            Spacer()
+            Button(action: {
+                refreshFees()
+            }) {
+                Text("Refresh")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(HawalaTheme.Colors.accent)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(HawalaTheme.Spacing.md)
+        .background(Color.orange.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
     }
     
     // MARK: - Fee Section
@@ -1295,6 +1454,9 @@ struct SendView: View {
             } else {
                 await feeEstimator.fetchEthereumFees()
             }
+            // ROADMAP-05 E16: Reset fee estimate timestamp
+            feeEstimateTimestamp = Date()
+            showFeeExpiredWarning = false
         }
     }
     
@@ -1329,14 +1491,8 @@ struct SendView: View {
             fromAddress = keys.ethereumSepolia.address
         }
         
-        // Convert amount to wei hex
-        let weiValue: String
-        if let amountDouble = Double(amount), amountDouble > 0 {
-            let weiAmount = UInt64(amountDouble * 1_000_000_000_000_000_000) // 1e18
-            weiValue = "0x" + String(weiAmount, radix: 16)
-        } else {
-            weiValue = "0x0"
-        }
+        // Convert amount to wei hex (Decimal-safe — ROADMAP-05 E1)
+        let weiValue = safeAmountToWeiHex(amount)
         
         // Get chain ID for the selected chain
         let chainId = Int(selectedChain.evmChainId ?? 1)
@@ -1420,6 +1576,32 @@ struct SendView: View {
         }
     }
     
+    // MARK: - Safe Decimal Conversion Helpers (ROADMAP-05 E1)
+    
+    /// Safely converts an amount string to smallest unit (sats, drops, wei) using Decimal
+    /// to prevent UInt64 overflow that occurs with Double multiplication.
+    private func safeAmountToSmallestUnit(_ amountString: String, multiplier: Decimal) -> UInt64 {
+        guard let d = Decimal(string: amountString), d > 0 else { return 0 }
+        let scaled = d * multiplier
+        guard scaled >= 0, scaled <= Decimal(UInt64.max) else { return 0 }
+        return NSDecimalNumber(decimal: scaled).uint64Value
+    }
+    
+    /// Safely converts a Double gas/fee value to Wei (from Gwei) using Decimal
+    private func safeGweiToWei(_ gwei: Double) -> UInt64 {
+        let d = Decimal(gwei) * Decimal(1_000_000_000)
+        guard d >= 0, d <= Decimal(UInt64.max) else { return 0 }
+        return NSDecimalNumber(decimal: d).uint64Value
+    }
+    
+    /// Safely converts an ETH amount string to a hex-encoded wei value for EVM gas estimation
+    private func safeAmountToWeiHex(_ amountString: String) -> String {
+        guard let d = Decimal(string: amountString), d > 0 else { return "0x0" }
+        let wei = d * Decimal(string: "1000000000000000000")!
+        guard wei >= 0, wei <= Decimal(UInt64.max) else { return "0x0" }
+        return "0x" + String(NSDecimalNumber(decimal: wei).uint64Value, radix: 16)
+    }
+    
     // MARK: - Computed Properties
     
     private var canSend: Bool {
@@ -1429,6 +1611,8 @@ struct SendView: View {
         guard !amount.isEmpty else { return false }
         guard let result = addressValidationResult, result.isValid else { return false }
         guard Double(amount) ?? 0 > 0 else { return false }
+        // ROADMAP-05 E10/E11: Block send if amount validation fails
+        guard amountValidationError == nil else { return false }
         return true
     }
     
@@ -1447,12 +1631,48 @@ struct SendView: View {
         }
     }
     
-    /// Fills the amount field with the maximum available balance
+    /// Fills the amount field with the maximum available balance minus estimated fees (ROADMAP-05 E6)
     private func fillMaxAmount() {
-        guard let maxBalance = availableBalanceString, let maxValue = Double(maxBalance), maxValue > 0 else {
+        guard let maxBalance = availableBalanceString,
+              let maxDecimal = Decimal(string: maxBalance), maxDecimal > 0 else {
             return
         }
-        amount = maxBalance
+        
+        // Subtract estimated fees from max balance
+        let feeReserve: Decimal
+        switch selectedChain {
+        case .bitcoinTestnet, .bitcoinMainnet, .litecoin:
+            // BTC/LTC: fee = feeRate * ~200 vbytes, in sats → convert to BTC
+            let feeRateSats = Decimal(effectiveBitcoinFeeRate)
+            let estimatedSats = feeRateSats * 200 + 1000 // buffer for change output
+            feeReserve = estimatedSats / Decimal(100_000_000)
+        case .ethereumSepolia, .ethereumMainnet, .polygon, .bnb:
+            // ETH: fee = gasPrice (gwei) * gasLimit → convert to ETH
+            let gasPriceVal = Decimal(string: gasPrice) ?? 20
+            let gasLimitVal = Decimal(string: gasLimit) ?? 21000
+            feeReserve = (gasPriceVal * gasLimitVal) / Decimal(string: "1000000000")! // gwei to ETH
+        case .solanaDevnet, .solanaMainnet:
+            feeReserve = Decimal(string: "0.000005")! // ~5000 lamports
+        case .xrpTestnet, .xrpMainnet:
+            feeReserve = Decimal(string: "10.000012")! // 10 XRP reserve + 12 drops fee
+        case .monero:
+            feeReserve = Decimal(string: "0.0001")! // typical monero fee
+        }
+        
+        let spendable = maxDecimal - feeReserve
+        guard spendable > 0 else {
+            amount = "0"
+            return
+        }
+        
+        // Format without trailing zeros but preserve necessary precision
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 8
+        formatter.minimumFractionDigits = 0
+        formatter.groupingSeparator = ""
+        amount = formatter.string(from: NSDecimalNumber(decimal: spendable)) ?? String(describing: spendable)
     }
     
     private var amountHint: String {
@@ -1500,6 +1720,108 @@ struct SendView: View {
     
     private var chainIcon: String {
         selectedChain.iconName
+    }
+    
+    // MARK: - Amount Validation (ROADMAP-05 E8-E11)
+    
+    private func validateAmount() {
+        let trimmed = amount.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            amountValidationError = nil
+            return
+        }
+        
+        let result: AmountValidationResult
+        switch selectedChain {
+        case .bitcoinTestnet, .bitcoinMainnet, .litecoin:
+            // Get available sats from balance
+            let availableSats: Int64
+            if let balStr = availableBalanceString, let dec = Decimal(string: balStr) {
+                availableSats = NSDecimalNumber(decimal: dec * Decimal(100_000_000)).int64Value
+            } else {
+                availableSats = 0
+            }
+            let feeSats = Int64(effectiveBitcoinFeeRate) * 200 + 1000
+            let balanceLoaded = availableBalanceString != nil
+            result = AmountValidator.validateBitcoin(
+                amountString: trimmed,
+                availableSats: availableSats,
+                estimatedFeeSats: feeSats,
+                balanceLoaded: balanceLoaded
+            )
+        case .ethereumSepolia, .ethereumMainnet, .polygon, .bnb:
+            let available: Decimal
+            if let balStr = availableBalanceString, let d = Decimal(string: balStr) {
+                available = d
+            } else {
+                available = 0
+            }
+            let gasPriceVal = Decimal(string: gasPrice) ?? 20
+            let gasLimitVal = Decimal(string: gasLimit) ?? 21000
+            let feeReserve = (gasPriceVal * gasLimitVal) / Decimal(string: "1000000000")!
+            result = AmountValidator.validateDecimalAsset(
+                amountString: trimmed,
+                assetName: chainSymbol,
+                available: available,
+                precision: 18,
+                minimum: Decimal(string: "0.000001")!,
+                reserved: feeReserve
+            )
+        case .solanaDevnet, .solanaMainnet:
+            let available: Decimal
+            if let balStr = availableBalanceString, let d = Decimal(string: balStr) {
+                available = d
+            } else {
+                available = 0
+            }
+            result = AmountValidator.validateDecimalAsset(
+                amountString: trimmed,
+                assetName: "SOL",
+                available: available,
+                precision: 9,
+                minimum: Decimal(string: "0.000001")!,
+                reserved: Decimal(string: "0.000005")!
+            )
+        case .xrpTestnet, .xrpMainnet:
+            let available: Decimal
+            if let balStr = availableBalanceString, let d = Decimal(string: balStr) {
+                available = d
+            } else {
+                available = 0
+            }
+            result = AmountValidator.validateDecimalAsset(
+                amountString: trimmed,
+                assetName: "XRP",
+                available: available,
+                precision: 6,
+                minimum: Decimal(string: "0.000001")!,
+                reserved: Decimal(string: "10.000012")! // 10 XRP reserve + fee
+            )
+        case .monero:
+            let available: Decimal
+            if let balStr = availableBalanceString, let d = Decimal(string: balStr) {
+                available = d
+            } else {
+                available = 0
+            }
+            result = AmountValidator.validateDecimalAsset(
+                amountString: trimmed,
+                assetName: "XMR",
+                available: available,
+                precision: 12,
+                minimum: Decimal(string: "0.000000000001")!,
+                reserved: Decimal(string: "0.0001")!
+            )
+        }
+        
+        switch result {
+        case .empty:
+            amountValidationError = nil
+        case .valid:
+            amountValidationError = nil
+        case .invalid(let message):
+            amountValidationError = message
+        }
     }
     
     // MARK: - Address Validation
@@ -1629,7 +1951,9 @@ struct SendView: View {
         let currentGasPrice = UInt64(gasPrice) ?? 20
         let currentGasLimit = UInt64(gasLimit) ?? 21000
         let gasPriceWei = currentGasPrice * 1_000_000_000 // Convert gwei to wei
-        let amountWei = UInt64(amount * 1_000_000_000_000_000_000) // Convert ETH to wei
+        // Decimal-safe ETH→Wei conversion (ROADMAP-05 E1)
+        let amountDecimal = Decimal(amount) * Decimal(string: "1000000000000000000")!
+        let amountWei = amountDecimal <= Decimal(UInt64.max) ? NSDecimalNumber(decimal: amountDecimal).uint64Value : UInt64.max
         
         // Get fee estimates from FeeEstimationService if available
         var ethereumEstimate: EthereumFeeEstimate?
@@ -1673,6 +1997,23 @@ struct SendView: View {
     
     /// Initiates the security check flow before showing the review screen
     private func initiateSecurityCheckAndReview() {
+        // ROADMAP-05 E16: Check if fee estimate is stale (> 30s)
+        if Date().timeIntervalSince(feeEstimateTimestamp) > 30 {
+            showFeeExpiredWarning = true
+            return
+        }
+        
+        // ROADMAP-05 E5: First-time address warning
+        if AddressIntelligenceManager.shared.isFirstTimeSend(to: recipientAddress) {
+            showingFirstTimeWarning = true
+            return
+        }
+        
+        proceedToSecurityCheck()
+    }
+    
+    /// Continue to security check after first-time warning (if applicable)
+    private func proceedToSecurityCheck() {
         // Check if security checks are enabled (can be toggled in settings)
         let securityEnabled = UserDefaults.standard.bool(forKey: "security.threatProtection")
         
@@ -1760,7 +2101,7 @@ struct SendView: View {
                 
                 switch await MainActor.run(body: { self.selectedChain }) {
                 case .bitcoinTestnet:
-                    let amountSats = await MainActor.run { UInt64((Double(self.amount) ?? 0) * 100_000_000) }
+                    let amountSats = await MainActor.run { self.safeAmountToSmallestUnit(self.amount, multiplier: Decimal(100_000_000)) }
                     let fee = await MainActor.run { self.effectiveBitcoinFeeRate }
                     let recipient = await MainActor.run { self.recipientAddress }
                     let wif = await MainActor.run { self.keys.bitcoinTestnet.privateWif }
@@ -1795,7 +2136,7 @@ struct SendView: View {
                     )
                     
                 case .bitcoinMainnet:
-                    let amountSats = await MainActor.run { UInt64((Double(self.amount) ?? 0) * 100_000_000) }
+                    let amountSats = await MainActor.run { self.safeAmountToSmallestUnit(self.amount, multiplier: Decimal(100_000_000)) }
                     let fee = await MainActor.run { self.effectiveBitcoinFeeRate }
                     let recipient = await MainActor.run { self.recipientAddress }
                     let wif = await MainActor.run { self.keys.bitcoin.privateWif }
@@ -1975,6 +2316,9 @@ struct SendView: View {
                 nonce: capturedNonce,
                 isRBFEnabled: selectedChain.isBitcoin // Bitcoin txs are RBF by default
             )
+            
+            // ROADMAP-05 E5: Record successful send for address history
+            AddressIntelligenceManager.shared.recordSend(to: recipientAddress)
             
             #if DEBUG
             print("[SendView] Setting showingSuccessSheet = true")
@@ -2258,7 +2602,7 @@ struct SendView: View {
     // MARK: - Chain-Specific Send Methods
 
     private func sendBitcoin(isTestnet: Bool) async throws -> (String, Int?) {
-        let amountSats = UInt64((Double(amount) ?? 0) * 100_000_000)
+        let amountSats = safeAmountToSmallestUnit(amount, multiplier: Decimal(100_000_000))
         let fee = UInt64(effectiveBitcoinFeeRate)
         let recipient = recipientAddress
         let wif = isTestnet ? keys.bitcoinTestnet.privateWif : keys.bitcoin.privateWif
@@ -2302,7 +2646,7 @@ struct SendView: View {
     }
 
     private func sendLitecoin() async throws -> (String, Int?) {
-        let amountLits = UInt64((Double(amount) ?? 0) * 100_000_000)
+        let amountLits = safeAmountToSmallestUnit(amount, multiplier: Decimal(100_000_000))
         let fee = UInt64(effectiveBitcoinFeeRate)
         let recipient = recipientAddress
         let wif = keys.litecoin.privateWif
@@ -2426,7 +2770,7 @@ struct SendView: View {
         // 1 Gwei = 1,000,000,000 Wei
         let gasPriceWei: String?
         if !gasPrice.isEmpty, let gasPriceGwei = Double(gasPrice) {
-            let weiValue = UInt64(gasPriceGwei * 1_000_000_000)
+            let weiValue = safeGweiToWei(gasPriceGwei)
             gasPriceWei = String(weiValue)
             #if DEBUG
             print("[ETH TX] Gas price: \(gasPrice) Gwei → \(weiValue) Wei")
@@ -2469,7 +2813,7 @@ struct SendView: View {
         // Also convert maxFeePerGas and maxPriorityFeePerGas from Gwei to Wei
         let maxFeeWei: String?
         if !effectiveMaxFeePerGas.isEmpty, let maxFeeGwei = Double(effectiveMaxFeePerGas) {
-            maxFeeWei = String(UInt64(maxFeeGwei * 1_000_000_000))
+            maxFeeWei = String(safeGweiToWei(maxFeeGwei))
             #if DEBUG
             print("[ETH TX] Max Fee: \(effectiveMaxFeePerGas) Gwei → \(maxFeeWei!) Wei")
             #endif
@@ -2482,7 +2826,7 @@ struct SendView: View {
         
         let maxPriorityWei: String?
         if !effectiveMaxPriorityFeePerGas.isEmpty, let maxPriorityGwei = Double(effectiveMaxPriorityFeePerGas) {
-            maxPriorityWei = String(UInt64(maxPriorityGwei * 1_000_000_000))
+            maxPriorityWei = String(safeGweiToWei(maxPriorityGwei))
             #if DEBUG
             print("[ETH TX] Max Priority: \(effectiveMaxPriorityFeePerGas) Gwei → \(maxPriorityWei!) Wei")
             #endif
@@ -2638,7 +2982,7 @@ struct SendView: View {
     }
 
     private func sendXRP(isTestnet: Bool) async throws -> String {
-        let amountDrops = UInt64((Double(amount) ?? 0) * 1_000_000)
+        let amountDrops = safeAmountToSmallestUnit(amount, multiplier: Decimal(1_000_000))
         let recipient = recipientAddress
         let senderSeed = keys.xrp.privateHex
         let senderAddress = keys.xrp.classicAddress

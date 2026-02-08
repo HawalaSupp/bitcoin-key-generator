@@ -96,12 +96,44 @@ struct HawalaCommands: Commands {
 struct AppRootView: View {
     @EnvironmentObject var passcodeManager: PasscodeManager
     @State private var hasCheckedPasscode = false
+    @State private var rustHealthFailed = false
     
     var body: some View {
         ZStack {
             // Main app content
             ContentView()
                 .opacity(passcodeManager.isLocked ? 0 : 1)
+            
+            // ROADMAP-01: Rust FFI health failure banner
+            if rustHealthFailed {
+                VStack {
+                    HStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.white)
+                        Text("Wallet core unavailable. Signing and key generation may fail.")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white)
+                        Spacer()
+                        Button(action: {
+                            // Retry health check
+                            let ok = RustService.shared.performHealthCheck()
+                            if ok { rustHealthFailed = false }
+                        }) {
+                            Text("Retry")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 4)
+                                .background(Capsule().fill(Color.white.opacity(0.2)))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(12)
+                    .background(Color.red.opacity(0.85))
+                    Spacer()
+                }
+                .zIndex(200)
+            }
             
             // Passcode setup prompt (first launch)
             if passcodeManager.showSetupPrompt && hasCheckedPasscode {
@@ -132,6 +164,10 @@ struct AppRootView: View {
                 passcodeManager.checkPasscodeStatus()
                 hasCheckedPasscode = true
             }
+            // ROADMAP-01: Check Rust health after launch
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                rustHealthFailed = !RustService.shared.isHealthy
+            }
         }
     }
 }
@@ -153,6 +189,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Start network services
         Task { @MainActor in
+            // ROADMAP-01: Verify Rust FFI backend is healthy before anything else
+            let rustHealthy = RustService.shared.performHealthCheck()
+            if !rustHealthy {
+                print("⚠️ WARNING: Rust FFI health check failed — \(RustService.shared.healthCheckError ?? "unknown")")
+            }
+            
             // Start WebSocket for live prices
             WebSocketPriceService.shared.connect()
             

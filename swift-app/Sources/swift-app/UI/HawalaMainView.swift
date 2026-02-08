@@ -20,6 +20,10 @@ struct HawalaMainView: View {
     @AppStorage("selectedBackgroundType") private var selectedBackgroundType = "silk"
     @AppStorage("portfolioTestMode") private var portfolioTestMode = false
     
+    // Portfolio display preferences (ROADMAP-04 E4/E5)
+    @AppStorage("hawala.showFiatValues") private var showFiatValues = true
+    @AppStorage("hawala.hideZeroBalances") private var hideZeroBalances = false
+    
     // Demo mode editable amounts
     @AppStorage("demo_bitcoin") private var demoBitcoin: Double = 45230.0
     @AppStorage("demo_ethereum") private var demoEthereum: Double = 28150.0
@@ -42,6 +46,12 @@ struct HawalaMainView: View {
     // FAB state
     @State private var isFABExpanded: Bool = false
     @State private var isRefreshing: Bool = false
+    
+    // Portfolio time range (ROADMAP-04 E3)
+    @State private var selectedTimeRange: PortfolioTimeRange = .day7
+    
+    // Swap & Bridge sheet (ROADMAP-07 E8)
+    @State private var showSwapBridgeSheet: Bool = false
     
     // Drag and drop reordering
     @State private var assetOrder: [String] = []
@@ -83,6 +93,9 @@ struct HawalaMainView: View {
     @Binding var isHistoryLoading: Bool
     @Binding var historyError: String?
     
+    // Sidebar tab sync (ROADMAP-03 NavigationSplitView)
+    var sidebarTab: String = "Portfolio"
+    
     // Transaction detail sheet
     @State private var selectedTransaction: HawalaTransactionEntry?
     
@@ -98,6 +111,25 @@ struct HawalaMainView: View {
     // Computed property for background type
     private var backgroundType: AnimatedBackgroundType {
         AnimatedBackgroundType(rawValue: selectedBackgroundType) ?? .none
+    }
+    
+    // MARK: - Portfolio Time Range (ROADMAP-04 E3)
+    enum PortfolioTimeRange: String, CaseIterable {
+        case day1  = "1D"
+        case day7  = "1W"
+        case day30 = "1M"
+        case year1 = "1Y"
+        case all   = "All"
+        
+        var coingeckoDays: String {
+            switch self {
+            case .day1:  return "1"
+            case .day7:  return "7"
+            case .day30: return "30"
+            case .year1: return "365"
+            case .all:   return "max"
+            }
+        }
     }
     
     enum NavigationTab: String, CaseIterable, Comparable {
@@ -208,12 +240,31 @@ struct HawalaMainView: View {
                 showFirstLaunchCoachmarks()
             }
         }
+        // Sync sidebar selection into local tab (ROADMAP-03 E8)
+        .onChange(of: sidebarTab) { newTab in
+            if let tab = NavigationTab(rawValue: newTab), tab != selectedTab {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                    selectedTab = tab
+                }
+            }
+        }
         .sheet(isPresented: $showSettingsPanel) {
             SettingsView()
                 .frame(minWidth: 500, minHeight: 700)
         }
         .sheet(item: $selectedTransaction) { transaction in
             TransactionDetailSheet(transaction: transaction)
+        }
+        .sheet(isPresented: $showSwapBridgeSheet) {
+            NavigationStack {
+                SwapBridgeView(keys: keys)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close") { showSwapBridgeSheet = false }
+                        }
+                    }
+            }
+            .frame(minWidth: 600, minHeight: 700)
         }
     }
     
@@ -588,7 +639,7 @@ struct HawalaMainView: View {
                             .textCase(.uppercase)
                             .tracking(1.5)
                         
-                        Text("$0.00")
+                        Text("Loading…")
                             .font(.clashGroteskBold(size: 72))
                             .foregroundColor(HawalaTheme.Colors.textTertiary)
                             .opacity(0.5)
@@ -610,6 +661,9 @@ struct HawalaMainView: View {
                         }
                     )
                     .coachmarkAnchor(.portfolioTotal)
+                    
+                    // Time range tabs (ROADMAP-04 E3)
+                    portfolioTimeRangeTabs
                 }
             } else {
                 // No keys state
@@ -634,11 +688,38 @@ struct HawalaMainView: View {
         .padding(.vertical, HawalaTheme.Spacing.xxl)
     }
     
+    // MARK: - Portfolio Time Range Tabs (ROADMAP-04 E3)
+    private var portfolioTimeRangeTabs: some View {
+        HStack(spacing: 6) {
+            ForEach(PortfolioTimeRange.allCases, id: \.self) { range in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedTimeRange = range
+                    }
+                    // Refresh sparklines with new range
+                    sparklineCache.refreshSparklines(days: range.coingeckoDays)
+                } label: {
+                    Text(range.rawValue)
+                        .font(.system(size: 11, weight: selectedTimeRange == range ? .bold : .medium, design: .rounded))
+                        .foregroundColor(selectedTimeRange == range ? .white : HawalaTheme.Colors.textTertiary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule()
+                                .fill(selectedTimeRange == range ? Color.white.opacity(0.15) : Color.clear)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.top, 4)
+    }
+    
     // MARK: - Bento Assets Grid
     private var bentoAssetsGrid: some View {
         VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
-            // Section header
-            HStack {
+            // Section header with filter toggles (ROADMAP-04 E4/E5)
+            HStack(spacing: 10) {
                 Text("Assets")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundColor(HawalaTheme.Colors.textSecondary)
@@ -646,7 +727,83 @@ struct HawalaMainView: View {
                     .tracking(1.2)
                 
                 Spacer()
+                
+                // Fiat show/hide toggle (ROADMAP-04 E4)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { showFiatValues.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: showFiatValues ? "dollarsign.circle.fill" : "dollarsign.circle")
+                            .font(.system(size: 11, weight: .medium))
+                        Text(showFiatValues ? "Fiat" : "Fiat Off")
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(showFiatValues ? HawalaTheme.Colors.textPrimary : HawalaTheme.Colors.textTertiary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(showFiatValues ? 0.10 : 0.04))
+                    )
+                }
+                .buttonStyle(.plain)
+                .help("Toggle fiat value display")
+                
+                // Hide zero balances toggle (ROADMAP-04 E5)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { hideZeroBalances.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: hideZeroBalances ? "eye.slash.fill" : "eye.fill")
+                            .font(.system(size: 11, weight: .medium))
+                        Text(hideZeroBalances ? "Hiding ∅" : "Show All")
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(hideZeroBalances ? HawalaTheme.Colors.accent : HawalaTheme.Colors.textTertiary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(hideZeroBalances ? 0.10 : 0.04))
+                    )
+                }
+                .buttonStyle(.plain)
+                .help("Hide tokens with zero balance")
             }
+            .padding(.horizontal, HawalaTheme.Spacing.xl)
+            
+            // Token search field (ROADMAP-04 E1)
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                
+                TextField("Search tokens…", text: $searchText)
+                    .font(.system(size: 13, weight: .regular, design: .rounded))
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    .textFieldStyle(.plain)
+                
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+            )
             .padding(.horizontal, HawalaTheme.Spacing.xl)
             
             if let keys = keys {
@@ -660,7 +817,7 @@ struct HawalaMainView: View {
                             chainSymbol: chainSymbol(for: chain.id),
                             chainColor: HawalaTheme.Colors.forChain(chain.id),
                             balance: formatBalance(for: chain.id),
-                            fiatValue: formatFiatValue(for: chain.id),
+                            fiatValue: showFiatValues ? formatFiatValue(for: chain.id) : "",
                             sparklineData: sparklineCache.sparklines[chain.id] ?? [],
                             hideBalance: shouldHideBalances,
                             onTap: {
@@ -1248,6 +1405,15 @@ struct HawalaMainView: View {
                 }
                 
                 DiscoverCard(
+                    icon: "arrow.triangle.2.circlepath",
+                    title: "Swap & Bridge",
+                    description: "Swap tokens and bridge across chains",
+                    color: .purple
+                ) {
+                    showSwapBridgeSheet = true
+                }
+                
+                DiscoverCard(
                     icon: "bell.badge.fill",
                     title: "Price Alerts",
                     description: "Get notified on price movements",
@@ -1480,6 +1646,15 @@ struct HawalaMainView: View {
     }
     
     private func formatLargeNumber(_ value: Double) -> String {
+        // K/M/B abbreviation for large portfolio totals (ROADMAP-04 E9)
+        if value >= 1_000_000_000 {
+            return String(format: "%.2fB", value / 1_000_000_000)
+        } else if value >= 1_000_000 {
+            return String(format: "%.2fM", value / 1_000_000)
+        } else if value >= 100_000 {
+            return String(format: "%.1fK", value / 1_000)
+        }
+        
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.minimumFractionDigits = 2
@@ -1498,6 +1673,13 @@ struct HawalaMainView: View {
         // Filter out testnets if toggle is off
         if !showTestnets {
             filtered = filtered.filter { !testnetChainIds.contains($0.id) }
+        }
+        
+        // Hide zero-balance tokens (ROADMAP-04 E5 — persisted via @AppStorage)
+        if hideZeroBalances {
+            filtered = filtered.filter { chain in
+                getRawBalance(for: chain.id) > 0
+            }
         }
         
         // Apply search filter
@@ -1537,7 +1719,7 @@ struct HawalaMainView: View {
                 return "..."
             case .loaded(let balance, _):
                 if let val = Double(balance) {
-                    return String(format: "%.6f", val)
+                    return formatBalanceValue(val)
                 }
                 return balance
             case .refreshing(let previous, _), .stale(let previous, _, _):
@@ -1547,6 +1729,49 @@ struct HawalaMainView: View {
             }
         }
         return "0.000000"
+    }
+    
+    /// Scientific-notation-safe balance formatter (ROADMAP-04 E10).
+    /// Converts via Decimal to guarantee no "1.5e-7" display.
+    private func formatBalanceValue(_ value: Double) -> String {
+        let decimal = Decimal(value)
+        let handler = NSDecimalNumberHandler(
+            roundingMode: .plain,
+            scale: 8,
+            raiseOnExactness: false,
+            raiseOnOverflow: false,
+            raiseOnUnderflow: false,
+            raiseOnDivideByZero: false
+        )
+        let rounded = (decimal as NSDecimalNumber).rounding(accordingToBehavior: handler)
+        
+        // Use Decimal string — never scientific notation
+        let raw = rounded.stringValue  // e.g. "0.00012345"
+        
+        // Trim excessive trailing zeros but keep at least 2 decimals
+        if let dotIndex = raw.firstIndex(of: ".") {
+            let intPart = String(raw[raw.startIndex..<dotIndex])
+            var fracPart = String(raw[raw.index(after: dotIndex)...])
+            
+            // Trim trailing zeros, keep minimum 2 fraction digits
+            while fracPart.count > 2 && fracPart.hasSuffix("0") {
+                fracPart.removeLast()
+            }
+            
+            // Add grouping separator for large integer parts
+            if let intVal = Int(intPart), intVal >= 1000 {
+                let nf = NumberFormatter()
+                nf.numberStyle = .decimal
+                nf.groupingSeparator = ","
+                nf.maximumFractionDigits = 0
+                let formattedInt = nf.string(from: NSNumber(value: intVal)) ?? intPart
+                return "\(formattedInt).\(fracPart)"
+            }
+            
+            return "\(intPart).\(fracPart)"
+        }
+        
+        return raw
     }
     
     private func getRawBalance(for chainId: String) -> Double {
@@ -1573,8 +1798,13 @@ struct HawalaMainView: View {
             return "\(selectedFiatSymbol)0.00"
         }
         
+        // ROADMAP-04 E12: $0 price → "Price unavailable"
+        if price <= 0 {
+            return "Price unavailable"
+        }
+        
         let value = balance * price * fxMultiplier
-        return "\(selectedFiatSymbol)\(String(format: "%.2f", value))"
+        return "\(selectedFiatSymbol)\(formatLargeNumber(value))"
     }
 }
 
