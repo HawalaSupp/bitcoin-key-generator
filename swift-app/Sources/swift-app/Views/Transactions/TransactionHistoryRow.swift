@@ -100,10 +100,7 @@ struct TransactionHistoryRow: View {
                                         .font(.caption2.monospaced())
                                         .foregroundStyle(.primary)
                                     Button {
-                                        #if canImport(AppKit)
-                                        NSPasteboard.general.clearContents()
-                                        NSPasteboard.general.setString(hash, forType: .string)
-                                        #endif
+                                        ClipboardHelper.copySensitive(hash, timeout: 60)
                                     } label: {
                                         Image(systemName: "doc.on.doc")
                                             .font(.caption2)

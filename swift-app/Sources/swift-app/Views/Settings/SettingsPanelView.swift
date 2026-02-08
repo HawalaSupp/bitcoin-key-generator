@@ -14,6 +14,7 @@ struct SettingsPanelView: View {
     @State private var selectedLanguage: LocalizationManager.Language = .english
     @State private var showPrivacySettings = false
     @ObservedObject private var privacyManager = PrivacyManager.shared
+    @ObservedObject private var analyticsService = AnalyticsService.shared
 
     var body: some View {
         NavigationStack {
@@ -34,6 +35,7 @@ struct SettingsPanelView: View {
                     keysButton
                     securityButton
                     privacyButton
+                    analyticsToggle
 
                     Spacer()
                 }
@@ -190,5 +192,36 @@ struct SettingsPanelView: View {
             }
             .frame(width: 450, height: 550)
         }
+    }
+    
+    // MARK: - Analytics Opt-In/Out
+    
+    private var analyticsToggle: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(isOn: $analyticsService.isEnabled) {
+                HStack(spacing: 8) {
+                    Image(systemName: "chart.bar.xaxis")
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Anonymous Analytics")
+                            .font(HawalaTheme.Typography.body)
+                        Text("Help improve Hawala. No personal data collected.")
+                            .font(HawalaTheme.Typography.caption)
+                            .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    }
+                }
+            }
+            .toggleStyle(.switch)
+            .tint(HawalaTheme.Colors.accent)
+            
+            if analyticsService.isEnabled {
+                Text("\(analyticsService.eventCount) events this session")
+                    .font(HawalaTheme.Typography.caption)
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+            }
+        }
+        .padding(HawalaTheme.Spacing.md)
+        .background(HawalaTheme.Colors.backgroundSecondary)
+        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
     }
 }

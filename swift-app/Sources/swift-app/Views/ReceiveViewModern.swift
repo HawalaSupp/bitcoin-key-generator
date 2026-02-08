@@ -698,21 +698,15 @@ struct ReceiveViewModern: View {
     }
     
     private func copyAddress(_ address: String) {
-        #if canImport(AppKit)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(address, forType: .string)
-        #endif
+        ClipboardHelper.copySensitive(address, timeout: 60)
         onCopy(address)
-        showToast("Address copied!")
+        showToast("Address copied! Auto-clears in 60s.")
     }
     
     private func copyPaymentLink(chain: ChainInfo, address: String) {
         let uri = generatePaymentURI(chain: chain, address: address)
-        #if canImport(AppKit)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(uri, forType: .string)
-        #endif
-        showToast("Payment link copied!")
+        ClipboardHelper.copySensitive(uri, timeout: 60)
+        showToast("Payment link copied! Auto-clears in 60s.")
     }
     
     private func shareAddress(chain: ChainInfo, address: String) {

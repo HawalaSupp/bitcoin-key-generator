@@ -154,6 +154,7 @@ struct SendView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var broadcaster = TransactionBroadcaster.shared
     @ObservedObject var addressValidator = ChainAddressValidator.shared
+    @ObservedObject var balanceService = BalanceService.shared
     @StateObject private var feeEstimator = FeeEstimator.shared
     @StateObject private var feeWarningService = FeeWarningService.shared
     
@@ -737,6 +738,21 @@ struct SendView: View {
                 
                 Spacer()
                 
+                // Send Max button
+                Button(action: fillMaxAmount) {
+                    Text("MAX")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundColor(HawalaTheme.Colors.accent)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(HawalaTheme.Colors.accent.opacity(0.15))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Send maximum amount")
+                .accessibilityHint("Sets the amount to your full available balance")
+                .accessibilityIdentifier("send_max_button")
+                
                 Text(chainSymbol)
                     .font(HawalaTheme.Typography.h3)
                     .foregroundColor(HawalaTheme.Colors.textSecondary)
@@ -745,9 +761,20 @@ struct SendView: View {
             .background(HawalaTheme.Colors.backgroundTertiary)
             .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
             
-            Text(amountHint)
-                .font(HawalaTheme.Typography.caption)
-                .foregroundColor(HawalaTheme.Colors.textTertiary)
+            // Available balance row
+            HStack {
+                Text(amountHint)
+                    .font(HawalaTheme.Typography.caption)
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                
+                Spacer()
+                
+                if let balance = availableBalanceString {
+                    Text("Available: \(balance) \(chainSymbol)")
+                        .font(HawalaTheme.Typography.caption)
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                }
+            }
         }
         .hawalaCard()
         .opacity(appearAnimation ? 1 : 0)
@@ -1403,6 +1430,29 @@ struct SendView: View {
         guard let result = addressValidationResult, result.isValid else { return false }
         guard Double(amount) ?? 0 > 0 else { return false }
         return true
+    }
+    
+    /// The available balance for the currently selected chain, or nil if not loaded
+    private var availableBalanceString: String? {
+        let chainId = selectedChain.chainId
+        guard let state = balanceService.balanceStates[chainId] else { return nil }
+        switch state {
+        case .loaded(let value, _), .refreshing(let value, _), .stale(let value, _, _):
+            // Extract just the numeric portion (balance strings may include chain symbol)
+            let numericString = value.components(separatedBy: CharacterSet.decimalDigits.inverted.subtracting(CharacterSet(charactersIn: ".")))
+                .joined()
+            return numericString.isEmpty ? nil : numericString
+        case .idle, .loading, .failed:
+            return nil
+        }
+    }
+    
+    /// Fills the amount field with the maximum available balance
+    private func fillMaxAmount() {
+        guard let maxBalance = availableBalanceString, let maxValue = Double(maxBalance), maxValue > 0 else {
+            return
+        }
+        amount = maxBalance
     }
     
     private var amountHint: String {
@@ -3073,10 +3123,7 @@ struct TransactionSuccessView: View {
     }
     
     private func copyTxId() {
-        #if canImport(AppKit)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(details.txId, forType: .string)
-        #endif
+        ClipboardHelper.copySensitive(details.txId, timeout: 60)
         
         withAnimation {
             copiedTxId = true

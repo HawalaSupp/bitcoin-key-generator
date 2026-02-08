@@ -570,9 +570,8 @@ struct AddressIntelligenceView: View {
     }
     
     private func copyAddress(_ address: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(address, forType: .string)
-        ToastManager.shared.success("Address copied!")
+        ClipboardHelper.copySensitive(address, timeout: 60)
+        ToastManager.shared.success("Address copied! Auto-clears in 60s.")
     }
     
     private func reportAsScam(_ address: String) {
@@ -653,8 +652,7 @@ struct AddressDetailRow: View {
             
             if canCopy {
                 Button(action: {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(value, forType: .string)
+                    ClipboardHelper.copySensitive(value, timeout: 60)
                     withAnimation {
                         showCopied = true
                     }

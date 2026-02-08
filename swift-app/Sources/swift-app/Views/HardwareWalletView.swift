@@ -255,8 +255,7 @@ struct HWAddressCard: View {
             
             HStack(spacing: 8) {
                 Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(address.address, forType: .string)
+                    ClipboardHelper.copySensitive(address.address, timeout: 60)
                 } label: {
                     Image(systemName: "doc.on.doc")
                 }

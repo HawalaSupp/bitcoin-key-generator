@@ -209,16 +209,8 @@ struct SeedPhraseDisplayView: View {
             if isRevealed {
                 // Copy button
                 Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(seedPhrase, forType: .string)
+                    ClipboardHelper.copySensitive(seedPhrase, timeout: 30)
                     hasCopied = true
-                    
-                    // Clear clipboard after 60 seconds
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
-                        if NSPasteboard.general.string(forType: .string) == seedPhrase {
-                            NSPasteboard.general.clearContents()
-                        }
-                    }
                 } label: {
                     HStack(spacing: HawalaTheme.Spacing.sm) {
                         Image(systemName: hasCopied ? "checkmark" : "doc.on.doc")

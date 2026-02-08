@@ -371,8 +371,7 @@ struct TransactionIntentView: View {
                     HStack {
                         Spacer()
                         Button(action: {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(intent.rawTransaction, forType: .string)
+                            ClipboardHelper.copySensitive(intent.rawTransaction, timeout: 60)
                         }) {
                             Label("Copy", systemImage: "doc.on.doc")
                                 .font(.caption)
@@ -595,8 +594,7 @@ struct IntentDetailRow: View {
     
     private func copyToClipboard() {
         if let full = fullValue {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(full, forType: .string)
+            ClipboardHelper.copySensitive(full, timeout: 60)
             
             withAnimation {
                 showCopied = true

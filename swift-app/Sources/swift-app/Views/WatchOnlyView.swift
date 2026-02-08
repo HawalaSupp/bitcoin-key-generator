@@ -233,8 +233,7 @@ struct WatchOnlyWalletRow: View {
                     .buttonStyle(.plain)
                     
                     Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(wallet.address, forType: .string)
+                        ClipboardHelper.copySensitive(wallet.address, timeout: 60)
                     } label: {
                         Image(systemName: "doc.on.doc")
                     }

@@ -430,11 +430,8 @@ struct TransactionDetailViewModern: View {
     }
     
     private func copyToClipboard(_ text: String, label: String) {
-        #if canImport(AppKit)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        #endif
-        showToast("\(label) copied!")
+        ClipboardHelper.copySensitive(text, timeout: 60)
+        showToast("\(label) copied! Auto-clears in 60s.")
     }
     
     private func showToast(_ text: String) {

@@ -272,17 +272,25 @@ enum NavigationAnalytics {
         print("[Navigation] \(method.rawValue) -> \(screen)")
         #endif
         
-        // In production, send to analytics service
-        // AnalyticsService.shared.track("navigation_transition", properties: [
-        //     "to_screen": screen,
-        //     "method": method.rawValue
-        // ])
+        Task { @MainActor in
+            AnalyticsService.shared.track(AnalyticsService.EventName.navigationTransition, properties: [
+                "to_screen": screen,
+                "method": method.rawValue
+            ])
+        }
     }
     
     static func trackDeepLink(url: String, success: Bool) {
         #if DEBUG
         print("[DeepLink] \(url) - \(success ? "✅" : "❌")")
         #endif
+        
+        Task { @MainActor in
+            AnalyticsService.shared.track(AnalyticsService.EventName.deepLinkOpened, properties: [
+                "url": url,
+                "success": success ? "true" : "false"
+            ])
+        }
     }
 }
 

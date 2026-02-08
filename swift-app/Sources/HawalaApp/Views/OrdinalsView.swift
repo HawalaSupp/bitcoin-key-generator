@@ -452,8 +452,17 @@ struct InscriptionDetailView: View {
     }
     
     private func copyToClipboard(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        #if canImport(AppKit)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        // Auto-clear clipboard after 60 seconds for security
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
+            if NSPasteboard.general.string(forType: .string) == text {
+                NSPasteboard.general.clearContents()
+            }
+        }
+        #endif
     }
 }
 

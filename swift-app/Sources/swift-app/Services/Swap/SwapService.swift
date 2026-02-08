@@ -1111,8 +1111,7 @@ struct SwapProgressSheet: View {
                     .truncationMode(.middle)
                 
                 Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(value, forType: .string)
+                    ClipboardHelper.copySensitive(value, timeout: 60)
                     copiedField = field
                     
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2) {

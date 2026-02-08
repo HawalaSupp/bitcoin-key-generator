@@ -719,10 +719,7 @@ struct PracticeScenarioView: View {
                 
                 Button {
                     hasCopied = true
-                    #if os(macOS)
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(manager.practiceAddress, forType: .string)
-                    #endif
+                    ClipboardHelper.copySensitive(manager.practiceAddress, timeout: 60)
                 } label: {
                     Image(systemName: hasCopied ? "checkmark.circle.fill" : "doc.on.doc")
                         .font(.system(size: 16))

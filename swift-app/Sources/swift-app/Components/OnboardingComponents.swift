@@ -728,10 +728,7 @@ struct AddressDisplayCard: View {
     }
     
     private func copyToClipboard() {
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(address, forType: .string)
-        #endif
+        ClipboardHelper.copySensitive(address, timeout: 60)
         copied = true
         onCopy?()
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {

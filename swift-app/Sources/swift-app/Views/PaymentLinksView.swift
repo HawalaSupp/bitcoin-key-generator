@@ -592,10 +592,7 @@ struct PaymentLinksView: View {
     }
     
     private func copyToClipboard(_ text: String) {
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        #endif
+        ClipboardHelper.copySensitive(text, timeout: 60)
         
         withAnimation {
             showCopiedToast = true

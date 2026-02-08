@@ -528,10 +528,7 @@ struct InviteCoSignerSheet: View {
                             
                             Button {
                                 // Copy to clipboard
-                                #if os(macOS)
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(invitation.inviteCode, forType: .string)
-                                #endif
+                                ClipboardHelper.copySensitive(invitation.inviteCode, timeout: 60)
                                 showCopied = true
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                                     showCopied = false

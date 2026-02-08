@@ -148,8 +148,7 @@ struct MultisigView: View {
                 } onExport: {
                     // Export action
                     let exported = multisigManager.exportPSBT(psbt)
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(exported, forType: .string)
+                    ClipboardHelper.copySensitive(exported, timeout: 60)
                 }
             }
         }
@@ -245,8 +244,7 @@ struct MultisigWalletCard: View {
                             Spacer()
                             
                             Button {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(pubKey, forType: .string)
+                                ClipboardHelper.copySensitive(pubKey, timeout: 60)
                             } label: {
                                 Image(systemName: "doc.on.doc")
                                     .font(.caption)
@@ -275,8 +273,7 @@ struct MultisigWalletCard: View {
                     if wallet.isComplete {
                         Button {
                             if let address = wallet.address {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(address, forType: .string)
+                                ClipboardHelper.copySensitive(address, timeout: 60)
                             }
                         } label: {
                             Label("Copy Address", systemImage: "doc.on.doc")

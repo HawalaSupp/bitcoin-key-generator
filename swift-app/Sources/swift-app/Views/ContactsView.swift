@@ -191,14 +191,11 @@ struct ContactRow: View {
             if isHovered {
                 HStack(spacing: 8) {
                     Button {
-                        #if canImport(AppKit)
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(contact.address, forType: .string)
+                        ClipboardHelper.copySensitive(contact.address, timeout: 60)
                         copied = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                             copied = false
                         }
-                        #endif
                     } label: {
                         Image(systemName: copied ? "checkmark" : "doc.on.doc")
                             .font(.caption)

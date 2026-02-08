@@ -51,6 +51,7 @@ struct ContentView: View {
     // Debug: Show FPS performance overlay in DEBUG builds
     #if DEBUG
     @State private var showPerformanceOverlay = false  // Disabled for screenshot
+    @State private var walletSearchText: String = ""
     #endif
     private let moneroBalancePlaceholder = "View-only · Open Monero GUI wallet for full access"
 
@@ -78,41 +79,6 @@ struct ContentView: View {
             get: { appearanceMode },
             set: { newValue in updateAppearanceMode(newValue) }
         )
-    }
-
-    private var autoLockSelectionBinding: Binding<AutoLockIntervalOption> {
-        Binding(
-            get: { AutoLockIntervalOption(rawValue: storedAutoLockInterval) ?? .fiveMinutes },
-            set: { newValue in
-                storedAutoLockInterval = newValue.rawValue
-                Task { @MainActor in
-                    securityVM.recordActivity()
-                }
-            }
-        )
-    }
-
-    private var biometricToggleBinding: Binding<Bool> {
-        Binding(
-            get: { biometricUnlockEnabled && storedPasscodeHash != nil },
-            set: { newValue in
-                guard storedPasscodeHash != nil else {
-                    biometricUnlockEnabled = false
-                    return
-                }
-                biometricUnlockEnabled = newValue
-                if newValue {
-                    securityVM.attemptBiometricUnlock(reason: "Unlock Hawala")
-                }
-            }
-        )
-    }
-
-    private var biometricDisplayInfo: (label: String, icon: String) {
-        if case .available(let kind) = securityVM.biometricState {
-            return (kind.displayName, kind.iconName)
-        }
-        return ("Biometrics", "lock.circle")
     }
 
     var body: some View {
@@ -279,291 +245,35 @@ struct ContentView: View {
         .frame(minWidth: 900, minHeight: 600)
         .background(HawalaTheme.Colors.background)
         .preferredColorScheme(.dark)
-        // ROADMAP-03: Keyboard shortcuts help sheet
-        .sheet(isPresented: $navigationVM.showKeyboardShortcutsHelp) {
-            KeyboardShortcutsHelpView()
-                .hawalaModal(allowSwipeDismiss: true) // OK to swipe-dismiss help
-        }
-        // ROADMAP-03: Setup keyboard shortcut callbacks
-        .onAppear {
-            setupKeyboardShortcutCallbacks()
-        }
-        .sheet(isPresented: $navigationVM.showAllPrivateKeysSheet) {
-            if let keys {
-                AllPrivateKeysSheet(chains: keys.chainInfos, onCopy: copySensitiveToClipboard)
-                    .hawalaModal() // Prevent accidental dismiss of sensitive info
-            } else {
-                NoKeysPlaceholderView()
-            }
-        }
-        .sheet(isPresented: $navigationVM.showReceiveSheet) {
-            if let keys {
-                ReceiveViewModern(chains: keys.chainInfos, onCopy: copyToClipboard)
-                    .frame(minWidth: 500, minHeight: 650)
-                    .hawalaModal(allowSwipeDismiss: true) // OK to swipe-dismiss receive
-            } else {
-                NoKeysPlaceholderView()
-            }
-        }
-        .sheet(item: $navigationVM.sendChainContext, onDismiss: { navigationVM.sendChainContext = nil }) { chain in
-            if let keys {
-                SendView(keys: keys, initialChain: SendFlowHelper.mapToChain(chain.id), onSuccess: { result in
-                    handleTransactionSuccess(result)
-                })
-                .hawalaModal() // CRITICAL: Prevent accidental dismiss during transaction
-            } else {
-                Text("Keys not available")
-            }
-        }
-
-        .sheet(isPresented: $navigationVM.showSendPicker, onDismiss: presentQueuedSendIfNeeded) {
-            if let keys {
-                SendAssetPickerSheet(
-                    chains: SendFlowHelper.sendEligibleChains(from: keys),
-                    onSelect: { chain in
-                        navigationVM.pendingSendChain = chain
-                        navigationVM.showSendPicker = false
-                    },
-                    onBatchSend: {
-                        navigationVM.showSendPicker = false
-                        navigationVM.showBatchTransactionSheet = true
-                    },
-                    onDismiss: {
-                        navigationVM.showSendPicker = false
-                    }
-                )
-            }
-        }
-        .sheet(isPresented: $navigationVM.showSeedPhraseSheet) {
-            SeedPhraseSheet(onCopy: { value in
-                copyToClipboard(value)
-            })
-            .hawalaModal() // CRITICAL: Prevent accidental dismiss of seed phrase
-        }
-        .sheet(isPresented: $navigationVM.showTransactionHistorySheet) {
-            TransactionHistoryView()
-                .frame(minWidth: 500, minHeight: 600)
-                .hawalaModal(allowSwipeDismiss: true) // OK to swipe-dismiss history
-        }
-        .sheet(item: $navigationVM.selectedTransactionForDetail) { transaction in
-            TransactionDetailSheet(transaction: transaction)
-                .hawalaModal(allowSwipeDismiss: true) // OK to swipe-dismiss detail
-        }
-        .sheet(item: $navigationVM.speedUpTransaction) { tx in
-            if let keys {
-                TransactionCancellationSheet(
-                    pendingTx: tx,
-                    keys: keys,
-                    initialMode: .speedUp,
-                    onDismiss: {
-                        navigationVM.speedUpTransaction = nil
-                    },
-                    onSuccess: { newTxid in
-                        navigationVM.speedUpTransaction = nil
-                        showStatus("Transaction sped up: \(newTxid.prefix(16))...", tone: .success)
-                        Task { await refreshPendingTransactions() }
-                    }
-                )
-                .hawalaModal() // CRITICAL: Prevent accidental dismiss during speed-up
-            }
-        }
-        .sheet(item: $navigationVM.cancelTransaction) { tx in
-            if let keys {
-                TransactionCancellationSheet(
-                    pendingTx: tx,
-                    keys: keys,
-                    initialMode: .cancel,
-                    onDismiss: {
-                        navigationVM.cancelTransaction = nil
-                    },
-                    onSuccess: { newTxid in
-                        navigationVM.cancelTransaction = nil
-                        showStatus("Transaction cancelled: \(newTxid.prefix(16))...", tone: .success)
-                        Task { await refreshPendingTransactions() }
-                    }
-                )
-                .hawalaModal() // CRITICAL: Prevent accidental dismiss during cancel
-            }
-        }
-        .sheet(isPresented: $navigationVM.showContactsSheet) {
-            ContactsView()
-        }
-        .sheet(isPresented: $navigationVM.showStakingSheet) {
-            StakingView()
-        }
-        .sheet(isPresented: $navigationVM.showNotificationsSheet) {
-            NotificationsView()
-        }
-        .sheet(isPresented: $navigationVM.showMultisigSheet) {
-            MultisigView()
-        }
-        .sheet(isPresented: $navigationVM.showHardwareWalletSheet) {
-            HardwareWalletView()
-        }
-        .sheet(isPresented: $navigationVM.showWatchOnlySheet) {
-            WatchOnlyView()
-        }
-        .sheet(isPresented: $navigationVM.showWalletConnectSheet) {
-            WalletConnectView(
-                availableAccounts: keys.map { wcSigningService.evmAccounts(from: $0) } ?? [],
-                onSign: { [self] request in
-                    guard let keys = self.keys else { throw WCError.userRejected }
-                    return try await wcSigningService.handleSign(request, keys: keys)
-                }
-            )
-        }
-        // Phase 3 Feature Sheets
-        .sheet(isPresented: $navigationVM.showL2AggregatorSheet) {
-            if let ethAddress = keys?.chainInfos.first(where: { $0.id == "ethereum" })?.receiveAddress {
-                L2BalanceAggregatorView(address: ethAddress)
-            } else {
-                L2BalanceAggregatorView(address: "")
-            }
-        }
-        .sheet(isPresented: $navigationVM.showPaymentLinksSheet) {
-            PaymentLinksView()
-        }
-        .sheet(isPresented: $navigationVM.showTransactionNotesSheet) {
-            TransactionNotesView()
-        }
-        .sheet(isPresented: $navigationVM.showSellCryptoSheet) {
-            SellCryptoView()
-        }
-        .sheet(isPresented: $navigationVM.showPriceAlertsSheet) {
-            PriceAlertsView()
-        }
-        // Phase 4: ERC-4337 Account Abstraction Sheets
-        .sheet(isPresented: $navigationVM.showSmartAccountSheet) {
-            SmartAccountView()
-        }
-        .sheet(isPresented: $navigationVM.showGasAccountSheet) {
-            GasAccountView()
-        }
-        .sheet(isPresented: $navigationVM.showPasskeyAuthSheet) {
-            PasskeyAuthView()
-        }
-        .sheet(isPresented: $navigationVM.showGaslessTxSheet) {
-            GaslessTxView()
-        }
-        .sheet(isPresented: $navigationVM.showBatchTransactionSheet) {
-            BatchTransactionView()
-        }
-        .sheet(isPresented: $navigationVM.showSettingsPanel) {
-            SettingsPanelView(
-                hasKeys: keys != nil,
-                onShowKeys: {
-                    if keys != nil {
-                        Task { await revealPrivateKeysWithBiometric() }
-                    } else {
-                        showStatus("Generate keys before viewing private material.", tone: .info)
-                    }
-                },
-                onOpenSecurity: {
-                    DispatchQueue.main.async {
-                        navigationVM.showSecuritySettings = true
-                    }
-                },
-                selectedCurrency: $storedFiatCurrency,
-                onCurrencyChanged: {
-                    // Refresh FX rates and prices when currency changes
-                    priceService.startFXRatesFetch()
-                    Task {
-                        _ = await priceService.fetchAndStorePrices()
-                    }
-                }
-            )
-        }
-        .sheet(isPresented: $navigationVM.showSecurityNotice) {
-            SecurityNoticeView {
-                hasAcknowledgedSecurityNotice = true
-                navigationVM.showSecurityNotice = false
-            }
-        }
-        .sheet(isPresented: $navigationVM.showSecuritySettings) {
-            SecuritySettingsView(
-                hasPasscode: storedPasscodeHash != nil,
-                onSetPasscode: { passcode in
-                    storedPasscodeHash = securityVM.hashPasscode(passcode)
-                    securityVM.lock()
-                    navigationVM.showSecuritySettings = false
-                },
-                onRemovePasscode: {
-                    storedPasscodeHash = nil
-                    isUnlocked = true
-                    navigationVM.showSecuritySettings = false
-                },
-                biometricState: securityVM.biometricState,
-                biometricEnabled: biometricToggleBinding,
-                biometricForSends: $biometricForSends,
-                biometricForKeyReveal: $biometricForKeyReveal,
-                autoLockSelection: autoLockSelectionBinding,
-                onBiometricRequest: {
-                    securityVM.attemptBiometricUnlock(reason: "Unlock Hawala")
-                }
-            )
-        }
-        .sheet(isPresented: $navigationVM.showUnlockSheet) {
-            UnlockView(
-                supportsBiometrics: biometricUnlockEnabled && securityVM.biometricState.supportsUnlock && storedPasscodeHash != nil,
-                biometricButtonLabel: biometricDisplayInfo.label,
-                biometricButtonIcon: biometricDisplayInfo.icon,
-                onBiometricRequest: {
-                    securityVM.attemptBiometricUnlock(reason: "Unlock Hawala")
-                },
-                onSubmit: { candidate in
-                    guard let expected = storedPasscodeHash else { return nil }
-                    let hashed = securityVM.hashPasscode(candidate)
-                    if hashed == expected {
-                        isUnlocked = true
-                        navigationVM.showUnlockSheet = false
-                        securityVM.recordActivity()
-                        return nil
-                    }
-                    return "Incorrect passcode. Try again."
-                },
-                onCancel: {
-                    navigationVM.showUnlockSheet = false
-                }
-            )
-        }
-        .sheet(isPresented: $navigationVM.showExportPasswordPrompt) {
-            PasswordPromptView(
-                mode: .export,
-                onConfirm: { password in
-                    navigationVM.showExportPasswordPrompt = false
-                    backupService.performEncryptedExport(keys: keys, password: password)
-                },
-                onCancel: {
-                    navigationVM.showExportPasswordPrompt = false
-                }
-            )
-        }
-        .sheet(isPresented: $navigationVM.showImportPasswordPrompt) {
-            PasswordPromptView(
-                mode: .import,
-                onConfirm: { password in
-                    navigationVM.showImportPasswordPrompt = false
-                    finalizeEncryptedImport(with: password)
-                },
-                onCancel: {
-                    navigationVM.showImportPasswordPrompt = false
-                    navigationVM.pendingImportData = nil
-                }
-            )
-        }
-        .sheet(isPresented: $navigationVM.showImportPrivateKeySheet) {
-            ImportPrivateKeySheet(
-                onImport: { privateKey, chainType in
-                    navigationVM.showImportPrivateKeySheet = false
-                    Task {
-                        await importPrivateKey(privateKey, for: chainType)
-                    }
-                },
-                onCancel: {
-                    navigationVM.showImportPrivateKeySheet = false
-                }
-            )
-        }
+        // All sheet modifiers extracted to SheetCoordinator
+        .sheetCoordinator(
+            navigationVM: navigationVM,
+            securityVM: securityVM,
+            backupService: backupService,
+            wcSigningService: wcSigningService,
+            priceService: priceService,
+            keys: $keys,
+            isUnlocked: $isUnlocked,
+            hasAcknowledgedSecurityNotice: $hasAcknowledgedSecurityNotice,
+            storedPasscodeHash: $storedPasscodeHash,
+            storedFiatCurrency: $storedFiatCurrency,
+            biometricUnlockEnabled: $biometricUnlockEnabled,
+            biometricForSends: $biometricForSends,
+            biometricForKeyReveal: $biometricForKeyReveal,
+            storedAutoLockInterval: $storedAutoLockInterval,
+            onShowStatus: { msg, tone, auto in showStatus(msg, tone: tone, autoClear: auto) },
+            onCopyToClipboard: copyToClipboard,
+            onCopySensitiveToClipboard: copySensitiveToClipboard,
+            onRevealPrivateKeys: { await revealPrivateKeysWithBiometric() },
+            onHandleTransactionSuccess: handleTransactionSuccess,
+            onRefreshPendingTransactions: { await refreshPendingTransactions() },
+            onPresentQueuedSend: presentQueuedSendIfNeeded,
+            onFinalizeEncryptedImport: { password in finalizeEncryptedImport(with: password) },
+            onImportPrivateKey: { key, chain in await importPrivateKey(key, for: chain) },
+            onStartFXRatesFetch: { priceService.startFXRatesFetch() },
+            onFetchPrices: { Task { _ = await priceService.fetchAndStorePrices() } },
+            onSetupKeyboardShortcutCallbacks: setupKeyboardShortcutCallbacks
+        )
         .overlay {
             // Privacy blur overlay when app goes to background/inactive
             if securityVM.showPrivacyBlur {
@@ -700,8 +410,37 @@ struct ContentView: View {
                             Spacer()
                         }
                         
+                        // Token / chain search bar
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 14))
+                                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                            
+                            TextField("Search chains...", text: $walletSearchText)
+                                .textFieldStyle(.plain)
+                                .font(HawalaTheme.Typography.body)
+                                .foregroundColor(HawalaTheme.Colors.textPrimary)
+                                .accessibilityLabel("Search wallets")
+                                .accessibilityIdentifier("wallet_search_field")
+                            
+                            if !walletSearchText.isEmpty {
+                                Button {
+                                    walletSearchText = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, HawalaTheme.Spacing.md)
+                        .padding(.vertical, HawalaTheme.Spacing.sm)
+                        .background(HawalaTheme.Colors.backgroundTertiary)
+                        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+                        
                         LazyVGrid(columns: gridColumns(for: navigationVM.viewportWidth), spacing: 14) {
-                            ForEach(keys.chainInfos) { chain in
+                            ForEach(filteredChainInfos(keys.chainInfos)) { chain in
                                 Button {
                                     guard canAccessSensitiveData else {
                                         navigationVM.showUnlockSheet = true
@@ -731,8 +470,7 @@ struct ContentView: View {
                         // These caused jank during scroll as any balance/price update triggered full grid animation
                     }
 
-                    pendingTransactionsSection
-                    transactionHistorySection
+                    transactionHistoryPanel
                 }
                 .padding(.top, 12)
                 .padding(.bottom, 20)
@@ -832,57 +570,63 @@ struct ContentView: View {
         showStatus("\(mode.displayName) enabled", tone: .info)
     }
 
-    private var portfolioHeader: some View {
-        VStack(spacing: 12) {
-            Text("Total Portfolio Value")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .tracking(0.5)
-            
-            Text(totalBalanceDisplay)
-                .font(.system(size: 40, weight: .bold, design: .rounded))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [Color.blue, Color.purple],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-            
-            Text(priceStatusLine)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            Button {
-                refreshAllBalances()
-            } label: {
-                Label("Refresh Balances", systemImage: "arrow.clockwise")
-                    .font(.caption)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .tint(.blue)
-        }
-        .frame(maxWidth: headerMaxWidth(for: navigationVM.viewportWidth))
-        .padding(.vertical, 20)
-        .padding(.horizontal, 16)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(cardBackgroundColor)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+    // MARK: - Dashboard Header (extracted to DashboardHeaderView)
+    
+    private var dashboardHeader: DashboardHeaderView {
+        DashboardHeaderView(
+            totalBalanceDisplay: totalBalanceDisplay,
+            priceStatusLine: priceStatusLine,
+            viewportWidth: navigationVM.viewportWidth,
+            keys: keys,
+            isGenerating: isGenerating,
+            canAccessSensitiveData: canAccessSensitiveData,
+            onRefreshBalances: { refreshAllBalances() },
+            onSend: {
+                if keys == nil {
+                    Task {
+                        await runGenerator()
+                        await MainActor.run { openSendSheet() }
+                    }
+                } else {
+                    openSendSheet()
+                }
+            },
+            onReceive: {
+                guard keys != nil else {
+                    showStatus("Generate keys before receiving.", tone: .info)
+                    return
+                }
+                navigationVM.showReceiveSheet = true
+            },
+            onViewKeys: {
+                guard canAccessSensitiveData else {
+                    navigationVM.showUnlockSheet = true
+                    return
+                }
+                if keys != nil {
+                    Task { await revealPrivateKeysWithBiometric() }
+                } else {
+                    showStatus("Generate keys before viewing private material.", tone: .info)
+                }
+            },
+            onExport: {
+                guard keys != nil else {
+                    showStatus("Generate keys before exporting.", tone: .info)
+                    return
+                }
+                navigationVM.showExportPasswordPrompt = true
+            },
+            onSeedPhrase: { navigationVM.showSeedPhraseSheet = true },
+            onHistory: { navigationVM.showTransactionHistorySheet = true }
         )
     }
-
-    private func headerMaxWidth(for width: CGFloat) -> CGFloat? {
-        guard width.isFinite else { return nil }
-        if width < 560 {
-            return width - 16
-        }
-        return min(width - 120, 780)
+    
+    private var portfolioHeader: some View {
+        dashboardHeader
+    }
+    
+    private var actionButtonsRow: some View {
+        dashboardHeader.actionButtonsRow
     }
 
     private var totalBalanceDisplay: String {
@@ -897,99 +641,6 @@ struct ContentView: View {
         priceService.priceStatusLine(storedFiatCurrency: storedFiatCurrency)
     }
 
-    @ViewBuilder
-    private var actionButtonsRow: some View {
-        if navigationVM.viewportWidth < 620 {
-            VStack(spacing: 10) {
-                actionButtonsContent
-            }
-        } else {
-            HStack(spacing: 10) {
-                actionButtonsContent
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var actionButtonsContent: some View {
-        walletActionButton(
-            title: "Send",
-            systemImage: "paperplane.fill",
-            color: .orange
-        ) {
-            if keys == nil {
-                Task {
-                    await runGenerator()
-                    await MainActor.run {
-                        openSendSheet()
-                    }
-                }
-            } else {
-                openSendSheet()
-            }
-        }
-        .disabled(keys == nil && isGenerating)
-
-        walletActionButton(
-            title: "Receive",
-            systemImage: "arrow.down.left.and.arrow.up.right",
-            color: .green
-        ) {
-            guard keys != nil else {
-                showStatus("Generate keys before receiving.", tone: .info)
-                return
-            }
-            navigationVM.showReceiveSheet = true
-        }
-        .disabled(keys == nil)
-
-        walletActionButton(
-            title: "View Keys",
-            systemImage: "doc.richtext",
-            color: .blue
-        ) {
-            guard canAccessSensitiveData else {
-                navigationVM.showUnlockSheet = true
-                return
-            }
-            if keys != nil {
-                Task { await revealPrivateKeysWithBiometric() }
-            } else {
-                showStatus("Generate keys before viewing private material.", tone: .info)
-            }
-        }
-        .disabled(!canAccessSensitiveData)
-
-        walletActionButton(
-            title: "Export",
-            systemImage: "tray.and.arrow.up",
-            color: .purple
-        ) {
-            guard keys != nil else {
-                showStatus("Generate keys before exporting.", tone: .info)
-                return
-            }
-            navigationVM.showExportPasswordPrompt = true
-        }
-        .disabled(keys == nil)
-
-        walletActionButton(
-            title: "Seed Phrase",
-            systemImage: "list.number.rtl",
-            color: .purple
-        ) {
-            navigationVM.showSeedPhraseSheet = true
-        }
-        
-        walletActionButton(
-            title: "History",
-            systemImage: "clock.arrow.circlepath",
-            color: .cyan
-        ) {
-            navigationVM.showTransactionHistorySheet = true
-        }
-    }
-
     @MainActor
     private func refreshAllBalances() {
         guard let keys else {
@@ -1000,30 +651,6 @@ struct ContentView: View {
         balanceService.startBalanceFetch(for: keys)
         refreshTransactionHistory(force: true)
         showStatus("Refreshing balances…", tone: .info)
-    }
-
-    @ViewBuilder
-    private func walletActionButton(
-        title: String,
-        systemImage: String,
-        color: Color,
-        prominent: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: systemImage)
-                    .font(.title2)
-                Text(title)
-                    .font(.caption)
-                    .fontWeight(.medium)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-        }
-        .buttonStyle(.bordered)
-        .tint(prominent ? color : .secondary)
-        .controlSize(.large)
     }
 
     private var newestBuildBadge: some View {
@@ -1050,309 +677,28 @@ struct ContentView: View {
 
     /// Shows pending (unconfirmed) transactions with live status updates
     @ViewBuilder
-    private var pendingTransactionsSection: some View {
-        let pending = pendingTransactions.filter { $0.status == .pending }
-        if !pending.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Label("Pending Transactions", systemImage: "clock.arrow.circlepath")
-                        .font(.headline)
-                    Spacer()
-                    Text("\(pending.count)")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.orange.opacity(0.2))
-                        .foregroundStyle(.orange)
-                        .clipShape(Capsule())
-                }
-                
-                VStack(spacing: 0) {
-                    ForEach(pending) { tx in
-                        PendingTransactionRow(
-                            transaction: tx,
-                            onSpeedUp: {
-                                navigationVM.speedUpTransaction = tx
-                            },
-                            onCancel: {
-                                navigationVM.cancelTransaction = tx
-                            }
-                        )
-                        if tx.id != pending.last?.id {
-                            Divider()
-                                .padding(.leading, 48)
-                        }
-                    }
-                }
-            }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(cardBackgroundColor)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.orange.opacity(0.3), lineWidth: 1)
-            )
-        }
-    }
+    // MARK: - Transaction History (extracted to TransactionHistoryPanelView)
 
-    private var transactionHistorySection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Recent Activity")
-                        .font(.headline)
-                    Text("Transaction history and events")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                HStack(spacing: 8) {
-                    if isHistoryLoading {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                    
-                    // Export button
-                    if !historyEntries.isEmpty {
-                        Menu {
-                            Button {
-                                let service = self.transactionHistoryService
-                                if let result = service.exportHistoryAsCSV(entries: filteredHistoryEntries) {
-                                    showStatus(result.message, tone: result.tone, autoClear: result.autoClear)
-                                }
-                            } label: {
-                                Label("Export as CSV", systemImage: "tablecells")
-                            }
-                        } label: {
-                            Label("Export", systemImage: "square.and.arrow.up")
-                                .labelStyle(.titleAndIcon)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                        }
-                        .buttonStyle(.link)
-                    }
-                    
-                    Button {
-                        refreshTransactionHistory(force: true)
-                    } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                            .labelStyle(.titleAndIcon)
-                            .font(.caption)
-                            .fontWeight(.medium)
-                    }
-                    .buttonStyle(.link)
-                    .disabled(isHistoryLoading)
+    private var transactionHistoryPanel: some View {
+        TransactionHistoryPanelView(
+            pendingTransactions: pendingTransactions,
+            historyEntries: historyEntries,
+            historyError: historyError,
+            isHistoryLoading: isHistoryLoading,
+            cardBackgroundColor: cardBackgroundColor,
+            historySearchText: $historySearchText,
+            historyFilterChain: $historyFilterChain,
+            historyFilterType: $historyFilterType,
+            onRefresh: { refreshTransactionHistory(force: true) },
+            onSpeedUp: { navigationVM.speedUpTransaction = $0 },
+            onCancel: { navigationVM.cancelTransaction = $0 },
+            onSelectTransaction: { navigationVM.selectedTransactionForDetail = $0 },
+            onExportCSV: {
+                if let result = transactionHistoryService.exportHistoryAsCSV(entries: filteredHistoryEntries) {
+                    showStatus(result.message, tone: result.tone, autoClear: result.autoClear)
                 }
             }
-            
-            // Search and Filter Controls
-            historyFilterBar
-
-            if let historyError {
-                VStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
-                        .foregroundStyle(.orange.opacity(0.6))
-                    Text("Unable to load history")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                    Text(historyError)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                    Button("Try Again") {
-                        refreshTransactionHistory(force: true)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
-            } else if isHistoryLoading && historyEntries.isEmpty {
-                VStack(spacing: 12) {
-                    ProgressView()
-                        .controlSize(.large)
-                    Text("Fetching your latest transactions…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
-            } else if historyEntries.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.largeTitle)
-                        .foregroundStyle(.secondary.opacity(0.5))
-                    Text("No transactions yet")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                    Text("Your activity will appear here once funds move.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
-            } else {
-                let filtered = filteredHistoryEntries
-                if filtered.isEmpty && !historyEntries.isEmpty {
-                    // No results match the filter
-                    VStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.largeTitle)
-                            .foregroundStyle(.secondary.opacity(0.5))
-                        Text("No matching transactions")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                        Text("Try adjusting your search or filters")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Button("Clear Filters") {
-                            historySearchText = ""
-                            historyFilterChain = nil
-                            historyFilterType = nil
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 24)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(filtered) { entry in
-                            Button {
-                                navigationVM.selectedTransactionForDetail = entry
-                            } label: {
-                                TransactionHistoryRow(entry: entry)
-                            }
-                            .buttonStyle(.plain)
-                            
-                            if entry.id != filtered.last?.id {
-                                Divider()
-                                    .padding(.leading, 48)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(cardBackgroundColor)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        )
-    }
-    
-    // MARK: - History Filter Bar
-    private var historyFilterBar: some View {
-        VStack(spacing: 8) {
-            // Search field
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search transactions…", text: $historySearchText)
-                    .textFieldStyle(.plain)
-                if !historySearchText.isEmpty {
-                    Button {
-                        historySearchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(8)
-            .background(Color.primary.opacity(0.05))
-            .cornerRadius(8)
-            
-            // Filter chips
-            HStack(spacing: 8) {
-                // Chain filter
-                Menu {
-                    Button("All Chains") {
-                        historyFilterChain = nil
-                    }
-                    Divider()
-                    ForEach(uniqueHistoryChains, id: \.self) { chain in
-                        Button(self.transactionHistoryService.chainDisplayName(chain)) {
-                            historyFilterChain = chain
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "link")
-                        Text(historyFilterChain.map { self.transactionHistoryService.chainDisplayName($0) } ?? "All Chains")
-                        Image(systemName: "chevron.down")
-                            .font(.caption2)
-                    }
-                    .font(.caption)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(historyFilterChain != nil ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.05))
-                    .foregroundStyle(historyFilterChain != nil ? Color.accentColor : .primary)
-                    .cornerRadius(6)
-                }
-                .buttonStyle(.plain)
-                
-                // Type filter
-                Menu {
-                    Button("All Types") {
-                        historyFilterType = nil
-                    }
-                    Divider()
-                    Button("Received") {
-                        historyFilterType = "Received"
-                    }
-                    Button("Sent") {
-                        historyFilterType = "Sent"
-                    }
-                    Button("Contract") {
-                        historyFilterType = "Contract"
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.left.arrow.right")
-                        Text(historyFilterType ?? "All Types")
-                        Image(systemName: "chevron.down")
-                            .font(.caption2)
-                    }
-                    .font(.caption)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(historyFilterType != nil ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.05))
-                    .foregroundStyle(historyFilterType != nil ? Color.accentColor : .primary)
-                    .cornerRadius(6)
-                }
-                .buttonStyle(.plain)
-                
-                Spacer()
-                
-                // Active filter count
-                if hasActiveHistoryFilters {
-                    Button {
-                        historySearchText = ""
-                        historyFilterChain = nil
-                        historyFilterType = nil
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text("Clear")
-                            Image(systemName: "xmark")
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
     }
     
     // MARK: - History Filtering Logic
@@ -1669,6 +1015,19 @@ struct ContentView: View {
     private func copyToClipboard(_ text: String) {
         ClipboardHelper.copy(text)
         showStatus("Copied to clipboard.", tone: .success)
+    }
+    
+    // MARK: - Portfolio Search
+    
+    /// Filters chain list based on the wallet search text
+    private func filteredChainInfos(_ chains: [ChainInfo]) -> [ChainInfo] {
+        guard !walletSearchText.isEmpty else { return chains }
+        let query = walletSearchText.lowercased().trimmingCharacters(in: .whitespaces)
+        return chains.filter { chain in
+            chain.title.lowercased().contains(query) ||
+            chain.subtitle.lowercased().contains(query) ||
+            chain.id.lowercased().contains(query)
+        }
     }
 
     /// Copies sensitive data to clipboard with auto-clear after 60 seconds

@@ -1068,8 +1068,7 @@ struct BatchResultRow: View {
             if result.success, let txHash = result.txHash {
                 Button {
                     // Copy tx hash to clipboard
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(txHash, forType: .string)
+                    ClipboardHelper.copySensitive(txHash, timeout: 60)
                     ToastManager.shared.success("Transaction hash copied")
                 } label: {
                     HStack(spacing: 4) {

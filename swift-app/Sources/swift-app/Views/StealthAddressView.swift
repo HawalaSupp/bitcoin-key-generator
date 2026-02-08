@@ -570,8 +570,7 @@ struct KeyPairCardView: View {
                     Spacer()
                     
                     Button(action: {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(keyPair.metaAddress, forType: .string)
+                        ClipboardHelper.copySensitive(keyPair.metaAddress, timeout: 60)
                         isCopied = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                             isCopied = false
@@ -928,8 +927,7 @@ struct SendStealthPaymentSheet: View {
                                 .font(.system(.caption, design: .monospaced))
                             
                             Button(action: {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(payment.oneTimeAddress, forType: .string)
+                                ClipboardHelper.copySensitive(payment.oneTimeAddress, timeout: 60)
                             }) {
                                 Image(systemName: "doc.on.doc")
                             }
@@ -1335,8 +1333,7 @@ struct DetailSection: View {
                 Spacer()
                 
                 Button(action: {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(value, forType: .string)
+                    ClipboardHelper.copySensitive(value, timeout: 60)
                 }) {
                     Image(systemName: "doc.on.doc")
                 }

@@ -219,9 +219,8 @@ struct AddressLabelsView: View {
             // Actions
             HStack(spacing: HawalaTheme.Spacing.sm) {
                 Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(label.address, forType: .string)
-                    ToastManager.shared.success("Address copied!")
+                    ClipboardHelper.copySensitive(label.address, timeout: 60)
+                    ToastManager.shared.success("Address copied! Auto-clears in 60s.")
                 } label: {
                     Image(systemName: "doc.on.doc")
                         .foregroundColor(HawalaTheme.Colors.textSecondary)

@@ -491,10 +491,7 @@ struct HDAddressRow: View {
     }
     
     private func copyAddress() {
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(address.address, forType: .string)
-        #endif
+        ClipboardHelper.copySensitive(address.address, timeout: 60)
         
         withAnimation {
             isCopied = true
@@ -736,10 +733,7 @@ struct AddressDetailView: View {
     }
     
     private func copyAddress() {
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(address.address, forType: .string)
-        #endif
+        ClipboardHelper.copySensitive(address.address, timeout: 60)
         
         withAnimation {
             isCopied = true

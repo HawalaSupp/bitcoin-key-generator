@@ -177,10 +177,7 @@ struct RecoveryPhraseScreen: View {
     }
     
     private func copyWordsToClipboard() {
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(words.joined(separator: " "), forType: .string)
-        #endif
+        ClipboardHelper.copySensitive(words.joined(separator: " "), timeout: 30)
         
         withAnimation {
             showCopiedToast = true
