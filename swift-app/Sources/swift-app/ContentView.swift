@@ -3,7 +3,6 @@ import CryptoKit
 import UniformTypeIdentifiers
 import Security
 import LocalAuthentication
-import P256K
 #if canImport(AppKit)
 import AppKit
 #elseif canImport(UIKit)
@@ -44,6 +43,7 @@ struct ContentView: View {
     @StateObject private var balanceService = BalanceService.shared
     @StateObject private var priceService = PriceService.shared
     @StateObject private var backupService = BackupService.shared
+    @StateObject private var wcSigningService = WalletConnectSigningService.shared
     // Phase 3 Feature Sheets
     // Phase 4 Feature Sheets (ERC-4337 Account Abstraction)
     @State private var historyEntries: [HawalaTransactionEntry] = []
@@ -417,9 +417,10 @@ struct ContentView: View {
         }
         .sheet(isPresented: $navigationVM.showWalletConnectSheet) {
             WalletConnectView(
-                availableAccounts: getEvmAccounts(),
-                onSign: { request in
-                    try await handleWalletConnectSign(request)
+                availableAccounts: keys.map { wcSigningService.evmAccounts(from: $0) } ?? [],
+                onSign: { [self] request in
+                    guard let keys = self.keys else { throw WCError.userRejected }
+                    return try await wcSigningService.handleSign(request, keys: keys)
                 }
             )
         }
@@ -1773,250 +1774,6 @@ struct ContentView: View {
         appendTarget(id: "xrp-testnet", address: keys.xrp.classicAddress, displayName: "XRP Testnet", symbol: "XRP")
 
         return targets
-    }
-    
-    // MARK: - WalletConnect Helpers
-    
-    /// Get all EVM-compatible addresses for WalletConnect
-    private func getEvmAccounts() -> [String] {
-        guard let keys = keys else { return [] }
-        
-        var accounts: [String] = []
-        
-        // Ethereum mainnet
-        if !keys.ethereum.address.isEmpty {
-            accounts.append("eip155:1:\(keys.ethereum.address)")
-        }
-        
-        // Ethereum Sepolia testnet
-        if !keys.ethereumSepolia.address.isEmpty {
-            accounts.append("eip155:11155111:\(keys.ethereumSepolia.address)")
-        }
-        
-        // BSC (BNB Chain)
-        if !keys.bnb.address.isEmpty {
-            accounts.append("eip155:56:\(keys.bnb.address)")
-        }
-        
-        // Add more EVM chains as needed - they typically share the same address
-        let evmAddress = keys.ethereum.address.isEmpty ? keys.ethereumSepolia.address : keys.ethereum.address
-        if !evmAddress.isEmpty {
-            accounts.append("eip155:137:\(evmAddress)")   // Polygon
-            accounts.append("eip155:42161:\(evmAddress)") // Arbitrum
-            accounts.append("eip155:10:\(evmAddress)")    // Optimism
-            accounts.append("eip155:43114:\(evmAddress)") // Avalanche
-        }
-        
-        return accounts
-    }
-    
-    /// Handle WalletConnect signing requests
-    private func handleWalletConnectSign(_ request: WCSessionRequest) async throws -> String {
-        // Extract the method and params
-        let method = request.method
-        
-        // For now, we'll return a placeholder - full implementation would
-        // use the wallet's private keys to sign the message/transaction
-        switch method {
-        case "personal_sign", "eth_sign":
-            // Sign a message
-            return try await signPersonalMessage(request)
-            
-        case "eth_signTypedData", "eth_signTypedData_v3", "eth_signTypedData_v4":
-            // Sign typed data (EIP-712)
-            return try await signTypedData(request)
-            
-        case "eth_sendTransaction", "eth_signTransaction":
-            // Sign/send a transaction
-            return try await signTransaction(request)
-            
-        default:
-            throw WCError.userRejected
-        }
-    }
-    
-    /// Sign a personal message (eth_sign, personal_sign)
-    private func signPersonalMessage(_ request: WCSessionRequest) async throws -> String {
-        // Extract message from params
-        guard let params = request.params as? [Any],
-              params.count >= 2,
-              let message = params[1] as? String else {
-            throw WCError.requestTimeout
-        }
-        
-        // Get the Ethereum private key
-        guard let keys = self.keys else {
-            throw WCError.userRejected
-        }
-        
-        let privateKeyHex = keys.ethereum.privateHex.isEmpty ? keys.ethereumSepolia.privateHex : keys.ethereum.privateHex
-        guard !privateKeyHex.isEmpty else {
-            throw WCError.userRejected
-        }
-        
-        #if DEBUG
-        print("📝 WalletConnect: Personal sign request for message: \(message)")
-        #endif
-        
-        // Decode message (could be hex or plain text)
-        let messageBytes: Data
-        if message.hasPrefix("0x") {
-            // Hex-encoded message - proper hex decoding
-            let hexString = String(message.dropFirst(2))
-            var data = Data()
-            var index = hexString.startIndex
-            while index < hexString.endIndex {
-                let nextIndex = hexString.index(index, offsetBy: 2, limitedBy: hexString.endIndex) ?? hexString.endIndex
-                if let byte = UInt8(hexString[index..<nextIndex], radix: 16) {
-                    data.append(byte)
-                }
-                index = nextIndex
-            }
-            messageBytes = data
-        } else {
-            messageBytes = Data(message.utf8)
-        }
-        
-        // Create Ethereum signed message hash: keccak256("\x19Ethereum Signed Message:\n" + len(message) + message)
-        let prefix = "\u{19}Ethereum Signed Message:\n\(messageBytes.count)"
-        var prefixedMessage = Data(prefix.utf8)
-        prefixedMessage.append(messageBytes)
-        
-        // Use keccak256
-        let messageHash = Keccak256.hash(data: prefixedMessage)
-        
-        // Sign with secp256k1
-        return try signWithSecp256k1(hash: messageHash, privateKeyHex: privateKeyHex)
-    }
-    
-    /// Sign typed data (EIP-712)
-    private func signTypedData(_ request: WCSessionRequest) async throws -> String {
-        guard let params = request.params as? [Any],
-              params.count >= 2 else {
-            throw WCError.requestTimeout
-        }
-        
-        // Get the Ethereum private key
-        guard let keys = self.keys else {
-            throw WCError.userRejected
-        }
-        
-        let privateKeyHex = keys.ethereum.privateHex.isEmpty ? keys.ethereumSepolia.privateHex : keys.ethereum.privateHex
-        guard !privateKeyHex.isEmpty else {
-            throw WCError.userRejected
-        }
-        
-        #if DEBUG
-        print("📝 WalletConnect: Typed data sign request")
-        #endif
-        
-        // Extract typed data JSON
-        let typedDataJSON: String
-        if let jsonStr = params[1] as? String {
-            typedDataJSON = jsonStr
-        } else if let jsonDict = params[1] as? [String: Any],
-                  let jsonData = try? JSONSerialization.data(withJSONObject: jsonDict),
-                  let str = String(data: jsonData, encoding: .utf8) {
-            typedDataJSON = str
-        } else {
-            throw WCError.requestTimeout
-        }
-        
-        // For EIP-712, we need to compute the struct hash
-        // This is a simplified implementation - full EIP-712 requires domain separator + struct hash
-        let hash = Keccak256.hash(data: Data(typedDataJSON.utf8))
-        
-        return try signWithSecp256k1(hash: hash, privateKeyHex: privateKeyHex)
-    }
-    
-    /// Sign or send a transaction
-    private func signTransaction(_ request: WCSessionRequest) async throws -> String {
-        guard let params = request.params as? [[String: Any]],
-              let txParams = params.first else {
-            throw WCError.requestTimeout
-        }
-        
-        #if DEBUG
-        print("📝 WalletConnect: Transaction sign request")
-        print("   From: \(txParams["from"] ?? "unknown")")
-        print("   To: \(txParams["to"] ?? "unknown")")
-        print("   Value: \(txParams["value"] ?? "0")")
-        print("   Data: \(txParams["data"] ?? "0x")")
-        #endif
-        
-        // For transaction signing, we should use the SendView flow
-        // For now, return error to indicate user should use app's send UI
-        throw WCError.userRejected
-    }
-    
-    /// Sign a hash using secp256k1 and return Ethereum-compatible signature
-    private func signWithSecp256k1(hash: Data, privateKeyHex: String) throws -> String {
-        // Parse private key
-        let cleanHex = privateKeyHex.hasPrefix("0x") ? String(privateKeyHex.dropFirst(2)) : privateKeyHex
-        var privKeyData = Data()
-        var index = cleanHex.startIndex
-        while index < cleanHex.endIndex {
-            let nextIndex = cleanHex.index(index, offsetBy: 2, limitedBy: cleanHex.endIndex) ?? cleanHex.endIndex
-            if let byte = UInt8(cleanHex[index..<nextIndex], radix: 16) {
-                privKeyData.append(byte)
-            }
-            index = nextIndex
-        }
-        
-        guard privKeyData.count == 32 else {
-            throw WCError.userRejected
-        }
-        
-        // Sign using P256K (secp256k1)
-        let privKey = try P256K.Signing.PrivateKey(dataRepresentation: privKeyData)
-        
-        // Use P256K's HashDigest for pre-hashed data
-        let digest = HashDigest(Array(hash))
-        let signature = try privKey.signature(for: digest)
-        
-        // Get DER encoded signature and extract r,s components
-        let derSig = try signature.derRepresentation
-        
-        // Parse DER signature to extract r and s values
-        // DER format: 0x30 [total-length] 0x02 [r-length] [r] 0x02 [s-length] [s]
-        guard derSig.count >= 8,
-              derSig[0] == 0x30,
-              derSig[2] == 0x02 else {
-            throw WCError.userRejected
-        }
-        
-        let rLength = Int(derSig[3])
-        let rStart = 4
-        var rData = Data(derSig[rStart..<(rStart + rLength)])
-        
-        // Skip the 0x02 marker and s length
-        let sLengthIndex = rStart + rLength + 1
-        guard derSig.count > sLengthIndex else {
-            throw WCError.userRejected
-        }
-        let sLength = Int(derSig[sLengthIndex])
-        let sStart = sLengthIndex + 1
-        var sData = Data(derSig[sStart..<(sStart + sLength)])
-        
-        // Remove leading zero padding if present (DER uses it for positive numbers starting with high bit)
-        if rData.count == 33 && rData[0] == 0x00 {
-            rData = Data(rData.dropFirst())
-        }
-        if sData.count == 33 && sData[0] == 0x00 {
-            sData = Data(sData.dropFirst())
-        }
-        
-        // Pad to 32 bytes if shorter
-        while rData.count < 32 { rData.insert(0x00, at: 0) }
-        while sData.count < 32 { sData.insert(0x00, at: 0) }
-        
-        // Recovery ID (v) - typically 27 or 28 for Ethereum
-        let v: UInt8 = 27
-        
-        // Format: 0x + r (32 bytes) + s (32 bytes) + v (1 byte)
-        return "0x" + rData.map { String(format: "%02x", $0) }.joined() +
-               sData.map { String(format: "%02x", $0) }.joined() +
-               String(format: "%02x", v)
     }
     
     private func openSendSheet() {
