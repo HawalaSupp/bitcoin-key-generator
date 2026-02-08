@@ -678,57 +678,6 @@ struct ContentView: View {
         onboardingCompleted = true
     }
 
-    // MARK: - Privacy Blur Overlay
-    private struct PrivacyBlurOverlay: View {
-        var body: some View {
-            ZStack {
-                // Blur background
-                #if canImport(AppKit)
-                VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
-                #else
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                #endif
-                
-                // Hawala branding
-                VStack(spacing: 16) {
-                    Image(systemName: "lock.shield.fill")
-                        .font(.system(size: 48))
-                        .foregroundStyle(.orange)
-                    
-                    Text("Hawala")
-                        .font(.title)
-                        .fontWeight(.bold)
-                    
-                    Text("Wallet protected")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .ignoresSafeArea()
-        }
-    }
-    
-    #if canImport(AppKit)
-    private struct VisualEffectBlur: NSViewRepresentable {
-        let material: NSVisualEffectView.Material
-        let blendingMode: NSVisualEffectView.BlendingMode
-        
-        func makeNSView(context: Context) -> NSVisualEffectView {
-            let view = NSVisualEffectView()
-            view.material = material
-            view.blendingMode = blendingMode
-            view.state = .active
-            return view
-        }
-        
-        func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-            nsView.material = material
-            nsView.blendingMode = blendingMode
-        }
-    }
-    #endif
-
     @ViewBuilder
     private var contentArea: some View {
         if !hasAcknowledgedSecurityNotice {
@@ -1048,7 +997,6 @@ struct ContentView: View {
         }
     }
 
-
     @MainActor
     private func refreshAllBalances() {
         guard let keys else {
@@ -1060,7 +1008,6 @@ struct ContentView: View {
         refreshTransactionHistory(force: true)
         showStatus("Refreshing balances…", tone: .info)
     }
-
 
     @ViewBuilder
     private func walletActionButton(
@@ -1581,8 +1528,6 @@ struct ContentView: View {
         navigationVM.sendChainContext = chain
     }
 
-
-
     private func loadKeysFromKeychain() {
         // Don't overwrite existing keys
         guard keys == nil else {
@@ -2024,14 +1969,6 @@ struct ContentView: View {
         }
     }
 
-
-
-
-
-
-
-
-    
     /// Reveal private keys with optional biometric authentication
     @MainActor
     private func revealPrivateKeysWithBiometric() async {
