@@ -1,6 +1,4 @@
 import SwiftUI
-import CryptoKit
-import UniformTypeIdentifiers
 import Security
 import LocalAuthentication
 #if canImport(AppKit)
@@ -61,11 +59,8 @@ struct ContentView: View {
     @State private var showPerformanceOverlay = false  // Disabled for screenshot
     #endif
     private let moneroBalancePlaceholder = "View-only · Open Monero GUI wallet for full access"
-    private let sendEnabledChainIDs: Set<String> = [
-        "bitcoin", "bitcoin-testnet", "litecoin", "ethereum", "ethereum-sepolia", "bnb", "solana"
-    ]
+
     private let minimumBalanceRetryDelay: TimeInterval = 0.5
-    private static var cachedWorkspaceRoot: URL?
     private static let historyDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
@@ -319,7 +314,7 @@ struct ContentView: View {
         }
         .sheet(item: $navigationVM.sendChainContext, onDismiss: { navigationVM.sendChainContext = nil }) { chain in
             if let keys {
-                SendView(keys: keys, initialChain: mapToChain(chain.id), onSuccess: { result in
+                SendView(keys: keys, initialChain: SendFlowHelper.mapToChain(chain.id), onSuccess: { result in
                     handleTransactionSuccess(result)
                 })
                 .hawalaModal() // CRITICAL: Prevent accidental dismiss during transaction
@@ -331,7 +326,7 @@ struct ContentView: View {
         .sheet(isPresented: $navigationVM.showSendPicker, onDismiss: presentQueuedSendIfNeeded) {
             if let keys {
                 SendAssetPickerSheet(
-                    chains: sendEligibleChains(from: keys),
+                    chains: SendFlowHelper.sendEligibleChains(from: keys),
                     onSelect: { chain in
                         navigationVM.pendingSendChain = chain
                         navigationVM.showSendPicker = false
@@ -1666,7 +1661,7 @@ struct ContentView: View {
             showStatus("Generate keys before sending.", tone: .info)
             return
         }
-        let available = sendEligibleChains(from: keys)
+        let available = SendFlowHelper.sendEligibleChains(from: keys)
         guard !available.isEmpty else {
             showStatus("No send-ready chains available yet.", tone: .info)
             return
@@ -1687,32 +1682,7 @@ struct ContentView: View {
         navigationVM.sendChainContext = chain
     }
 
-    private func mapToChain(_ chainId: String) -> Chain {
-        if chainId == "bitcoin-testnet" { return .bitcoinTestnet }
-        if chainId == "bitcoin" || chainId == "bitcoin-mainnet" { return .bitcoinMainnet }
-        if chainId == "ethereum-sepolia" { return .ethereumSepolia }
-        if chainId == "ethereum" || chainId == "ethereum-mainnet" { return .ethereumMainnet }
-        if chainId == "polygon" { return .polygon }
-        if chainId == "bnb" { return .bnb }
-        if chainId == "solana-devnet" { return .solanaDevnet }
-        if chainId == "solana" || chainId == "solana-mainnet" { return .solanaMainnet }
-        if chainId == "xrp-testnet" { return .xrpTestnet }
-        if chainId == "xrp" || chainId == "xrp-mainnet" { return .xrpMainnet }
-        if chainId == "monero" { return .monero }
-        return .bitcoinTestnet
-    }
 
-    private func sendEligibleChains(from keys: AllKeys) -> [ChainInfo] {
-        keys.chainInfos.filter { chain in
-            isSendSupported(chainID: chain.id)
-        }
-    }
-
-    private func isSendSupported(chainID: String) -> Bool {
-        if sendEnabledChainIDs.contains(chainID) { return true }
-        if chainID.contains("erc20") { return true }
-        return false
-    }
 
     private func loadKeysFromKeychain() {
         // Don't overwrite existing keys
@@ -1801,26 +1771,6 @@ struct ContentView: View {
         #endif
     }
     
-    /// Save balance to persistent cache
-    private func saveBalanceToCache(chainId: String, balance: String) {
-        // Extract numeric value from balance string (e.g., "0.001 BTC" -> 0.001)
-        let numericValue = extractNumericValue(from: balance)
-        assetCache.cacheBalance(chainId: chainId, balance: balance, numericValue: numericValue)
-    }
-    
-    /// Save price to persistent cache
-    private func savePriceToCache(chainId: String, price: String, numericValue: Double, change24h: Double? = nil) {
-        assetCache.cachePrice(chainId: chainId, price: price, numericValue: numericValue, change24h: change24h)
-    }
-    
-    /// Extract numeric value from a formatted balance string
-    private func extractNumericValue(from balance: String) -> Double {
-        // Remove currency symbols and extract number
-        let cleaned = balance.components(separatedBy: CharacterSet.decimalDigits.inverted.subtracting(CharacterSet(charactersIn: ".")))
-            .joined()
-        return Double(cleaned) ?? 0
-    }
-
     private func runGenerator() async {
         guard canAccessSensitiveData else { return }
         isGenerating = true
@@ -2205,70 +2155,6 @@ struct ContentView: View {
         navigationVM.showAllPrivateKeysSheet = true
     }
 
-    private var workspaceRoot: URL {
-        if let cached = ContentView.cachedWorkspaceRoot {
-            return cached
-        }
-
-        let resolved = resolveWorkspaceRoot()
-        ContentView.cachedWorkspaceRoot = resolved
-        return resolved
-    }
-
-    private var manifestPath: String {
-        workspaceRoot
-            .appendingPathComponent("rust-app")
-            .appendingPathComponent("Cargo.toml")
-            .path
-    }
-
-    private func resolveWorkspaceRoot() -> URL {
-        let fm = FileManager.default
-
-        let candidateDirectories: [URL] = [
-            URL(fileURLWithPath: fm.currentDirectoryPath),
-            URL(fileURLWithPath: Bundle.main.executablePath ?? "").deletingLastPathComponent(),
-            Bundle.main.bundleURL,
-            Bundle.main.bundleURL.deletingLastPathComponent()
-        ]
-
-        for candidate in candidateDirectories {
-            if let root = findWorkspaceRoot(startingAt: candidate) {
-                return root
-            }
-        }
-
-        // Fallback to current directory if nothing else works
-        return URL(fileURLWithPath: fm.currentDirectoryPath)
-    }
-
-    private func findWorkspaceRoot(startingAt initialURL: URL) -> URL? {
-        let fm = FileManager.default
-        var current = initialURL
-            .resolvingSymlinksInPath()
-
-        let maxDepth = 12
-        for _ in 0..<maxDepth {
-            let rustManifest = current
-                .appendingPathComponent("rust-app")
-                .appendingPathComponent("Cargo.toml")
-            let swiftPackage = current
-                .appendingPathComponent("swift-app")
-                .appendingPathComponent("Package.swift")
-
-            if fm.fileExists(atPath: rustManifest.path), fm.fileExists(atPath: swiftPackage.path) {
-                return current
-            }
-
-            let parent = current.deletingLastPathComponent()
-            if parent.path == current.path {
-                break
-            }
-            current = parent
-        }
-
-        return nil
-    }
 }
 
 // BitcoinUTXO, BitcoinFeeEstimates, EthGasSpeed, EthGasEstimates, and BitcoinSendError
