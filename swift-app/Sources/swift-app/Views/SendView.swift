@@ -222,6 +222,11 @@ struct SendView: View {
     // First-time address warning (ROADMAP-05 E5)
     @State private var showingFirstTimeWarning = false
     
+    // Scam address blocking modal (ROADMAP-08 E2)
+    @State private var showingScamBlockingModal = false
+    @State private var scamReasons: [String] = []
+    @State private var scamRiskLevel: AddressRiskLevel = .medium
+    
     // Amount validation (ROADMAP-05 E8-E11)
     @State private var amountValidationError: String?
     
@@ -289,6 +294,21 @@ struct SendView: View {
                 },
                 onCancel: {
                     showingFirstTimeWarning = false
+                }
+            )
+        }
+        .sheet(isPresented: $showingScamBlockingModal) {
+            ScamAddressBlockingModal(
+                address: recipientAddress,
+                riskLevel: scamRiskLevel,
+                reasons: scamReasons,
+                onProceedAnyway: {
+                    showingScamBlockingModal = false
+                    // User explicitly acknowledged — continue to first-time/security check
+                    continueAfterScamCheck()
+                },
+                onCancel: {
+                    showingScamBlockingModal = false
                 }
             )
         }
@@ -2003,6 +2023,56 @@ struct SendView: View {
             return
         }
         
+        // ROADMAP-08 E2: Scam address screening (async)
+        Task { @MainActor in
+            await performScamScreening()
+        }
+    }
+    
+    /// ROADMAP-08 E1/E2: Screen address against GoPlus API + local lists before proceeding
+    private func performScamScreening() async {
+        let manager = AddressIntelligenceManager.shared
+        
+        // Quick local check first (instant)
+        let quickRisk = manager.quickRiskCheck(recipientAddress)
+        
+        if quickRisk == .critical {
+            // Sanctioned address — block immediately
+            scamRiskLevel = .critical
+            scamReasons = ["OFAC Sanctioned Address", "Sending to this address is prohibited by law."]
+            showingScamBlockingModal = true
+            return
+        }
+        
+        if quickRisk == .high {
+            // Known scam from local list
+            scamRiskLevel = .high
+            scamReasons = ["Previously reported scam address"]
+            showingScamBlockingModal = true
+            return
+        }
+        
+        // GoPlus API screening for EVM addresses (async call)
+        if recipientAddress.lowercased().hasPrefix("0x") && recipientAddress.count == 42 {
+            if let goPlusResult = await manager.screenAddress(recipientAddress) {
+                if goPlusResult.isBlacklisted {
+                    scamRiskLevel = .high
+                    scamReasons = goPlusResult.maliciousBehavior.isEmpty
+                        ? ["Flagged as malicious by security screening"]
+                        : goPlusResult.maliciousBehavior
+                    showingScamBlockingModal = true
+                    return
+                }
+            }
+            // If GoPlus returns nil (network error), proceed with warning logged
+        }
+        
+        // Address passed screening — continue to first-time / security check
+        continueAfterScamCheck()
+    }
+    
+    /// Continue the send flow after scam check passes or is acknowledged
+    private func continueAfterScamCheck() {
         // ROADMAP-05 E5: First-time address warning
         if AddressIntelligenceManager.shared.isFirstTimeSend(to: recipientAddress) {
             showingFirstTimeWarning = true

@@ -627,18 +627,134 @@ final class AddressIntelligenceManager: ObservableObject {
     }
     
     private func fetchAddressInfo(_ address: String, blockchain: AddressBlockchain) async -> CachedAddressInfo? {
-        // In a real implementation, this would query blockchain APIs
-        // For now, return basic info
+        // ROADMAP-08 E1/A1: GoPlus Address Security API integration
+        let goPlusResult = await fetchGoPlusAddressRisk(address, blockchain: blockchain)
+        
+        let knownService = lookupKnownService(address)
+        
         return CachedAddressInfo(
             address: address,
             blockchain: blockchain,
             firstSeen: nil,
-            transactionCount: 0,
-            knownServiceName: lookupKnownService(address)?.name,
-            knownServiceType: lookupKnownService(address)?.type,
-            isContract: false,
+            transactionCount: goPlusResult?.transactionCount ?? 0,
+            knownServiceName: knownService?.name ?? goPlusResult?.tag,
+            knownServiceType: knownService?.type,
+            isContract: goPlusResult?.isContract ?? false,
             lastUpdated: Date()
         )
+    }
+    
+    // MARK: - GoPlus Address Security API (ROADMAP-08 E1)
+    
+    struct GoPlusAddressResult {
+        let isBlacklisted: Bool
+        let isContract: Bool
+        let tag: String?
+        let transactionCount: Int
+        let maliciousBehavior: [String]
+    }
+    
+    /// Screen an address using GoPlus Security API
+    /// Returns risk data or nil on network failure (fails open with warning)
+    func screenAddress(_ address: String, chainId: String = "1") async -> GoPlusAddressResult? {
+        return await fetchGoPlusAddressRisk(address, blockchain: AddressBlockchain.detect(from: address))
+    }
+    
+    private func fetchGoPlusAddressRisk(_ address: String, blockchain: AddressBlockchain) async -> GoPlusAddressResult? {
+        // Map blockchain to GoPlus chain ID
+        let chainId: String
+        switch blockchain {
+        case .ethereum: chainId = "1"
+        case .bitcoin: chainId = "0"  // GoPlus doesn't support BTC — use local checks only
+        case .solana: chainId = "solana"
+        case .litecoin, .xrp, .unknown: return nil  // No GoPlus support
+        }
+        
+        // GoPlus Address Security endpoint
+        let urlString = "https://api.gopluslabs.io/api/v1/address_security/\(address)?chain_id=\(chainId)"
+        guard let url = URL(string: urlString) else { return nil }
+        
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8 // Fail fast for UX
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                print("⚠️ GoPlus screening: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+                return nil
+            }
+            
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let code = json["code"] as? Int, code == 1,
+                  let result = json["result"] as? [String: Any] else {
+                return nil
+            }
+            
+            // Parse GoPlus response fields
+            let cybercrime = (result["cybercrime"] as? String) == "1"
+            let moneyLaundering = (result["money_laundering"] as? String) == "1"
+            let financialCrime = (result["financial_crime"] as? String) == "1"
+            let darkweb = (result["darkweb_transactions"] as? String) == "1"
+            let phishing = (result["phishing_activities"] as? String) == "1"
+            let fakeDEX = (result["fake_trading"] as? String) == "1"
+            let blacklistDoubt = (result["blacklist_doubt"] as? String) == "1"
+            let sanctioned = (result["sanctioned"] as? String) == "1"
+            let stealing = (result["stealing_attack"] as? String) == "1"
+            let maliciousMining = (result["malicious_mining_activities"] as? String) == "1"
+            let mixerUse = (result["mixer"] as? String) == "1"
+            let honeypotRelated = (result["honeypot_related_address"] as? String) == "1"
+            let blackmail = (result["blackmail_activities"] as? String) == "1"
+            let contractAddress = (result["contract_address"] as? String) == "1"
+            let tag = result["tag"] as? String
+            
+            let isBlacklisted = cybercrime || moneyLaundering || financialCrime || darkweb ||
+                phishing || fakeDEX || stealing || maliciousMining || honeypotRelated || blackmail ||
+                sanctioned || blacklistDoubt || mixerUse
+            
+            // Build malicious behavior list
+            var behaviors: [String] = []
+            if cybercrime { behaviors.append("Cybercrime") }
+            if moneyLaundering { behaviors.append("Money Laundering") }
+            if financialCrime { behaviors.append("Financial Crime") }
+            if darkweb { behaviors.append("Darkweb Activity") }
+            if phishing { behaviors.append("Phishing") }
+            if fakeDEX { behaviors.append("Fake Trading") }
+            if stealing { behaviors.append("Stealing Attack") }
+            if maliciousMining { behaviors.append("Malicious Mining") }
+            if honeypotRelated { behaviors.append("Honeypot Related") }
+            if blackmail { behaviors.append("Blackmail") }
+            if sanctioned { behaviors.append("OFAC Sanctioned") }
+            if mixerUse { behaviors.append("Mixer Use") }
+            
+            let goPlusResult = GoPlusAddressResult(
+                isBlacklisted: isBlacklisted,
+                isContract: contractAddress,
+                tag: tag?.isEmpty == false ? tag : nil,
+                transactionCount: 0,
+                maliciousBehavior: behaviors
+            )
+            
+            // Auto-add to scam/sanctioned lists if flagged
+            if isBlacklisted {
+                let normalized = address.lowercased()
+                scamAddresses.insert(normalized)
+                saveScamDatabase()
+                print("🚨 GoPlus: Address \(address.prefix(10))... flagged: \(behaviors.joined(separator: ", "))")
+            }
+            if sanctioned {
+                let normalized = address.lowercased()
+                sanctionedAddresses.insert(normalized)
+                print("🚨 GoPlus: Address \(address.prefix(10))... is OFAC sanctioned")
+            }
+            
+            return goPlusResult
+            
+        } catch {
+            print("⚠️ GoPlus address screening failed: \(error.localizedDescription)")
+            return nil // Fail open — local checks still apply
+        }
     }
     
     private func shouldRefreshCache(_ info: CachedAddressInfo) -> Bool {

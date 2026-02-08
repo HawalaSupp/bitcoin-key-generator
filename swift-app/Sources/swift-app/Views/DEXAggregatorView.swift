@@ -53,6 +53,8 @@ struct DEXAggregatorView: View {
         ("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", "WBTC"),
     ]
     
+    @StateObject private var honeypotDetector = HoneypotDetector.shared
+    
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -62,6 +64,9 @@ struct DEXAggregatorView: View {
                 
                 // Transfer tax warning (ROADMAP-07 E11)
                 transferTaxWarning
+                
+                // Honeypot warning (ROADMAP-08 E9)
+                honeypotWarning
                 
                 slippageSection
                 
@@ -80,6 +85,17 @@ struct DEXAggregatorView: View {
             .padding()
         }
         .navigationTitle("DEX Aggregator")
+        .onChange(of: fromToken) { newToken in
+            // ROADMAP-08 E9: Check token for honeypot when selected
+            if !newToken.isEmpty && newToken.hasPrefix("0x") {
+                Task { await honeypotDetector.checkToken(newToken, chainId: String(selectedChain.chainId)) }
+            }
+        }
+        .onChange(of: toToken) { newToken in
+            if !newToken.isEmpty && newToken.hasPrefix("0x") {
+                Task { await honeypotDetector.checkToken(newToken, chainId: String(selectedChain.chainId)) }
+            }
+        }
         .sheet(isPresented: $showQuoteComparison) {
             if let quotes = service.currentQuotes {
                 QuoteComparisonSheet(quotes: quotes, selectedQuote: $selectedQuote)
@@ -358,6 +374,88 @@ struct DEXAggregatorView: View {
             )
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Warning: \(TransferTaxDetector.warningMessage(for: tax))")
+        }
+    }
+    
+    // MARK: - Honeypot Warning (ROADMAP-08 E9)
+    
+    @ViewBuilder
+    private var honeypotWarning: some View {
+        // Check both from and to tokens for honeypot risks
+        let fromResult = honeypotDetector.cachedResult(for: fromToken, chainId: String(selectedChain.chainId))
+        let toResult = honeypotDetector.cachedResult(for: toToken, chainId: String(selectedChain.chainId))
+        
+        let riskyResult = toResult?.riskLevel == .critical ? toResult :
+                          (fromResult?.riskLevel == .critical ? fromResult :
+                          (toResult?.riskLevel == .high ? toResult :
+                          (fromResult?.riskLevel == .high ? fromResult : nil)))
+        
+        if let result = riskyResult, result.riskLevel >= .medium {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: result.riskLevel >= .high ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(result.riskLevel >= .high ? .red : .orange)
+                        .font(.title3)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(result.riskLevel >= .high ? "Honeypot Risk Detected" : "Token Risk Warning")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(result.riskLevel >= .high ? .red : .orange)
+                        
+                        if !result.warningMessage.isEmpty {
+                            Text(result.warningMessage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        // Show specific warnings
+                        ForEach(result.warnings.prefix(3), id: \.self) { warning in
+                            HStack(spacing: 4) {
+                                Circle()
+                                    .fill(Color.red.opacity(0.6))
+                                    .frame(width: 4, height: 4)
+                                Text(warning)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        
+                        if result.sellTax > 0 || result.buyTax > 0 {
+                            HStack(spacing: 12) {
+                                if result.buyTax > 0 {
+                                    Text("Buy tax: \(String(format: "%.1f", result.buyTax))%")
+                                        .font(.caption2.weight(.medium))
+                                        .foregroundStyle(.orange)
+                                }
+                                if result.sellTax > 0 {
+                                    Text("Sell tax: \(String(format: "%.1f", result.sellTax))%")
+                                        .font(.caption2.weight(.medium))
+                                        .foregroundStyle(.red)
+                                }
+                            }
+                            .padding(.top, 2)
+                        }
+                    }
+                }
+            }
+            .padding()
+            .background(result.riskLevel >= .high ? Color.red.opacity(0.08) : Color.orange.opacity(0.08))
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(result.riskLevel >= .high ? Color.red.opacity(0.3) : Color.orange.opacity(0.3), lineWidth: 1)
+            )
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Warning: \(result.warningMessage)")
+        } else if honeypotDetector.isChecking {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .scaleEffect(0.8)
+                Text("Checking token security...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
         }
     }
     

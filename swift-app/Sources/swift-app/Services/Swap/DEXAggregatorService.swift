@@ -398,19 +398,26 @@ final class DEXAggregatorService: ObservableObject {
         )
     }
     
+    /// ROADMAP-08 E3: Approval mode — defaults to exact amount for safety
+    enum ApprovalMode {
+        case exact(String) // Exact amount in smallest unit
+        case unlimited     // Max uint256 — warns user
+    }
+    
     /// Check if token approval is needed for a swap
     func checkApproval(
         chain: SupportedChain,
         token: String,
         wallet: String,
-        provider: DEXProvider
+        provider: DEXProvider,
+        amount: String = "0" // ROADMAP-08 E3: pass exact swap amount
     ) async throws -> TokenApproval {
-        // Mock implementation - calls Rust backend
+        // ROADMAP-08 E3: Default to exact amount, not unlimited
         return TokenApproval(
             token: token,
             spender: getRouterAddress(provider: provider, chain: chain),
             currentAllowance: "0",
-            requiredAllowance: "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+            requiredAllowance: amount, // Exact amount, not max uint256
             needsApproval: true
         )
     }
@@ -478,11 +485,28 @@ final class DEXAggregatorService: ObservableObject {
     ///   - privateKey: The wallet's private key
     ///   - fromAddress: The sender's address
     /// - Returns: The transaction hash of the approval
-    func executeApproval(approval: TokenApproval, chain: SupportedChain, privateKey: String, fromAddress: String) async throws -> String {
+    func executeApproval(approval: TokenApproval, chain: SupportedChain, privateKey: String, fromAddress: String, mode: ApprovalMode? = nil) async throws -> String {
         // ERC-20 approve function signature: approve(address,uint256)
         let spenderPadded = String(approval.spender.dropFirst(2)).leftPadding(toLength: 64, withPad: "0")
-        // Max approval amount (type(uint256).max)
-        let amountPadded = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        
+        // ROADMAP-08 E3: Default to exact amount, not unlimited
+        let amountPadded: String
+        let resolvedMode = mode ?? .exact(approval.requiredAllowance)
+        switch resolvedMode {
+        case .exact(let exactAmount):
+            // Convert the exact amount to hex, left-pad to 64 chars
+            if let val = UInt64(exactAmount) {
+                amountPadded = String(val, radix: 16).leftPadding(toLength: 64, withPad: "0")
+            } else {
+                // Fallback: use the raw string if it's already hex or too large for UInt64
+                let cleaned = exactAmount.hasPrefix("0x") ? String(exactAmount.dropFirst(2)) : exactAmount
+                amountPadded = cleaned.leftPadding(toLength: 64, withPad: "0")
+            }
+        case .unlimited:
+            // Max approval — user explicitly opted for unlimited
+            amountPadded = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+        
         let approveData = "0x095ea7b3" + spenderPadded + amountPadded
         
         let chainId = chain.chainId
