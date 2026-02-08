@@ -944,7 +944,7 @@ struct ContentView: View {
     }
 
     private var totalBalanceDisplay: String {
-        let result = calculatePortfolioTotal()
+        let result = priceService.calculatePortfolioTotal(keys: keys, balanceStates: balanceStates, balanceService: balanceService)
         guard let total = result.total, result.hasData else {
             return "—"
         }
@@ -952,74 +952,7 @@ struct ContentView: View {
     }
 
     private var priceStatusLine: String {
-        if priceService.priceStates.isEmpty {
-            return "Fetching live prices…"
-        }
-
-        if priceService.priceStates.values.contains(where: { state in
-            if case .loading = state { return true }
-            return false
-        }) {
-            return "Fetching live prices…"
-        }
-        if priceService.priceStates.values.contains(where: { state in
-            if case .refreshing = state { return true }
-            return false
-        }) {
-            return "Refreshing live prices…"
-        }
-
-        if priceService.priceStates.values.contains(where: { state in
-            if case .stale = state { return true }
-            return false
-        }) {
-            if let latest = latestPriceUpdate, let relative = relativeTimeDescription(from: latest) {
-                return "Showing cached prices • updated \(relative)"
-            }
-            return "Showing cached prices"
-        }
-
-        if let latest = latestPriceUpdate, let relative = relativeTimeDescription(from: latest) {
-            return "Live estimate • updated \(relative)"
-        }
-
-        return "Live estimate"
-    }
-
-    private var latestPriceUpdate: Date? {
-        priceService.priceStates.values.compactMap { state in
-            switch state {
-            case .loaded(_, let timestamp):
-                return timestamp
-            case .refreshing(_, let timestamp):
-                return timestamp
-            case .stale(_, let timestamp, _):
-                return timestamp
-            default:
-                return nil
-            }
-        }.max()
-    }
-
-    private func calculatePortfolioTotal() -> (total: Double?, hasData: Bool) {
-        guard let keys else { return (nil, false) }
-        var accumulator: Double = 0
-        var hasValue = false
-
-        for chain in keys.chainInfos {
-            let balanceState = balanceStates[chain.id] ?? balanceService.defaultBalanceState(for: chain.id)
-            let priceState = priceService.priceStates[chain.id] ?? priceService.defaultPriceState(for: chain.id)
-
-            guard
-                let balance = balanceService.extractNumericAmount(from: balanceState),
-                let price = extractFiatPrice(from: priceState)
-            else { continue }
-
-            hasValue = true
-            accumulator += balance * price
-        }
-
-        return hasValue ? (accumulator, true) : (nil, false)
+        priceService.priceStatusLine(storedFiatCurrency: storedFiatCurrency)
     }
 
     @ViewBuilder
@@ -1128,21 +1061,6 @@ struct ContentView: View {
         showStatus("Refreshing balances…", tone: .info)
     }
 
-
-    private func extractFiatPrice(from state: ChainPriceState) -> Double? {
-        let value: String
-        switch state {
-        case .loaded(let string, _), .refreshing(let string, _), .stale(let string, _, _):
-            value = string
-        default:
-            return nil
-        }
-
-        let filtered = value.filter { "0123456789.,-".contains($0) }
-        guard !filtered.isEmpty else { return nil }
-        let normalized = filtered.replacingOccurrences(of: ",", with: "")
-        return Double(normalized)
-    }
 
     @ViewBuilder
     private func walletActionButton(
