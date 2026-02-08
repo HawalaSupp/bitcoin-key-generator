@@ -43,6 +43,7 @@ struct ContentView: View {
     @StateObject private var walletVM = WalletViewModel()
     @StateObject private var balanceService = BalanceService.shared
     @StateObject private var priceService = PriceService.shared
+    @StateObject private var backupService = BackupService.shared
     // Phase 3 Feature Sheets
     // Phase 4 Feature Sheets (ERC-4337 Account Abstraction)
     @State private var historyEntries: [HawalaTransactionEntry] = []
@@ -541,7 +542,7 @@ struct ContentView: View {
                 mode: .export,
                 onConfirm: { password in
                     navigationVM.showExportPasswordPrompt = false
-                    performEncryptedExport(with: password)
+                    backupService.performEncryptedExport(keys: keys, password: password)
                 },
                 onCancel: {
                     navigationVM.showExportPasswordPrompt = false
@@ -588,6 +589,9 @@ struct ContentView: View {
             securityVM.refreshBiometricAvailability()
             securityVM.startActivityMonitoringIfNeeded()
             securityVM.recordActivity()
+            backupService.onStatus = { [self] message, tone, autoClear in
+                showStatus(message, tone: tone, autoClear: autoClear)
+            }
         }
         .onChange(of: storedPasscodeHash) { _ in
             securityVM.handlePasscodeChange()
@@ -617,6 +621,34 @@ struct ContentView: View {
         }
     }
     
+    private func importPrivateKey(_ privateKey: String, for chainType: String) async {
+        showStatus("Importing private key for \(chainType)...", tone: .info)
+
+        // For now, show a message that the import functionality requires generating
+        // keys from the Rust backend with custom seeds
+        showStatus("""
+            ⚠️ Private key import requires integration with the Rust key generator.
+
+            Current implementation generates all keys from a single seed.
+            To import individual private keys, you would need to:
+
+            1. Modify the Rust backend to accept custom private keys
+            2. Derive public addresses from the imported private key
+            3. Merge with existing key set
+
+            For now, you can:
+            • Use the imported private key directly in the Bitcoin send flow
+            • Export current keys and manually edit the JSON to include imported keys
+
+            Imported key saved to clipboard for manual use.
+            """, tone: .info, autoClear: false)
+
+        // Copy to clipboard for user to use manually
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(privateKey, forType: .string)
+    }
+
     @MainActor
     private func handleOnboardingComplete(_ result: WalletCreationResult) async {
         // Set all the necessary flags
@@ -1586,20 +1618,6 @@ struct ContentView: View {
         let symbol: String
     }
 
-    private enum StatusTone {
-        case success
-        case info
-        case error
-
-        var color: Color {
-            switch self {
-            case .success: return .green
-            case .info: return .blue
-            case .error: return .red
-            }
-        }
-    }
-
     private func showStatus(_ message: String, tone: StatusTone, autoClear: Bool = true) {
         statusTask?.cancel()
         statusTask = nil
@@ -2073,7 +2091,7 @@ struct ContentView: View {
                         self.keys = loadedKeys
                         // Safely encode keys with error handling
                         if let encoded = try? JSONEncoder().encode(loadedKeys) {
-                            self.rawJSON = self.prettyPrintedJSON(from: encoded)
+                            self.rawJSON = self.backupService.prettyPrintedJSON(from: encoded)
                         }
                         self.priceService.primeStateCaches(for: loadedKeys, balanceService: self.balanceService, storedFiatCurrency: self.storedFiatCurrency)
                         #if DEBUG
@@ -2237,44 +2255,6 @@ struct ContentView: View {
         showStatus("Copied to clipboard. Will auto-clear in 60s.", tone: .success)
     }
 
-    private func performEncryptedExport(with password: String) {
-        guard let keys else {
-            showStatus("Nothing to export yet.", tone: .info)
-            return
-        }
-
-        do {
-            let archive = try buildEncryptedArchive(from: keys, password: password)
-#if canImport(AppKit)
-            DispatchQueue.main.async {
-                let panel = NSSavePanel()
-                var contentTypes: [UTType] = [.json]
-                let customTypes = ["hawala", "hawbackup"].compactMap { UTType(filenameExtension: $0) }
-                contentTypes.append(contentsOf: customTypes)
-                panel.allowedContentTypes = contentTypes
-                panel.nameFieldStringValue = defaultExportFileName()
-                panel.title = "Save Encrypted Hawala Backup"
-                panel.canCreateDirectories = true
-
-                panel.begin { response in
-                    if response == .OK, let url = panel.url {
-                        do {
-                            try archive.write(to: url)
-                            self.showStatus("Encrypted backup saved to \(url.lastPathComponent)", tone: .success)
-                        } catch {
-                            self.showStatus("Failed to write file: \(error.localizedDescription)", tone: .error, autoClear: false)
-                        }
-                    }
-                }
-            }
-#else
-            showStatus("Encrypted export is only supported on macOS.", tone: .error, autoClear: false)
-#endif
-        } catch {
-            showStatus("Export failed: \(error.localizedDescription)", tone: .error, autoClear: false)
-        }
-    }
-
     private func beginEncryptedImport() {
         guard hasAcknowledgedSecurityNotice else {
             navigationVM.showSecurityNotice = true
@@ -2286,32 +2266,12 @@ struct ContentView: View {
             return
         }
 
-#if canImport(AppKit)
-        DispatchQueue.main.async {
-            let panel = NSOpenPanel()
-            var contentTypes: [UTType] = [.json]
-            let customTypes = ["hawala", "hawbackup"].compactMap { UTType(filenameExtension: $0) }
-            contentTypes.append(contentsOf: customTypes)
-            panel.allowedContentTypes = contentTypes
-            panel.allowsMultipleSelection = false
-            panel.canChooseDirectories = false
-            panel.title = "Open Encrypted Hawala Backup"
-
-            panel.begin { response in
-                if response == .OK, let url = panel.url {
-                    do {
-                        let data = try Data(contentsOf: url)
-                        self.navigationVM.pendingImportData = data
-                        self.navigationVM.showImportPasswordPrompt = true
-                    } catch {
-                        self.showStatus("Failed to read file: \(error.localizedDescription)", tone: .error, autoClear: false)
-                    }
-                }
+        backupService.beginEncryptedImport { [self] data in
+            if let data {
+                navigationVM.pendingImportData = data
+                navigationVM.showImportPasswordPrompt = true
             }
         }
-#else
-        showStatus("Encrypted import is only supported on macOS.", tone: .error, autoClear: false)
-#endif
     }
 
     @MainActor
@@ -2327,28 +2287,16 @@ struct ContentView: View {
         #endif
         
         do {
-            let plaintext = try decryptArchive(archiveData, password: password)
-            #if DEBUG
-            print("✅ Decryption successful, plaintext size: \(plaintext.count) bytes")
-            
-            // Debug: print first 200 characters of JSON (only in development)
-            if let jsonString = String(data: plaintext, encoding: .utf8) {
-                print("📄 JSON preview: \(String(jsonString.prefix(200)))...")
-            }
-            #endif
-            
-            let decoder = JSONDecoder()
-            // Don't use convertFromSnakeCase because AllKeys already has custom CodingKeys
-            let importedKeys = try decoder.decode(AllKeys.self, from: plaintext)
+            let importedKeys = try backupService.decryptAndDecode(archiveData: archiveData, password: password)
+            let jsonString = try backupService.decryptToJSON(archiveData: archiveData, password: password)
             #if DEBUG
             print("✅ Keys decoded successfully")
             #endif
             
             keys = importedKeys
-            rawJSON = prettyPrintedJSON(from: plaintext)
+            rawJSON = jsonString
             
             #if DEBUG
-            // Debug imported addresses (only in development)
             print("🔑 Imported Bitcoin Testnet Address: \(importedKeys.bitcoinTestnet.address)")
             print("🔑 Imported Bitcoin Mainnet Address: \(importedKeys.bitcoin.address)")
             #endif
@@ -2394,118 +2342,6 @@ struct ContentView: View {
             #endif
             showStatus("Import failed: \(error.localizedDescription)", tone: .error, autoClear: false)
         }
-    }
-
-    private func buildEncryptedArchive(from keys: AllKeys, password: String) throws -> Data {
-        let encoder = JSONEncoder()
-        // Don't use convertToSnakeCase because AllKeys already has custom CodingKeys
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let plaintext = try encoder.encode(keys)
-        let envelope = try encryptPayload(plaintext, password: password)
-        let archiveEncoder = JSONEncoder()
-        archiveEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        archiveEncoder.dateEncodingStrategy = .iso8601
-        return try archiveEncoder.encode(envelope)
-    }
-
-    private func decryptArchive(_ data: Data, password: String) throws -> Data {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let envelope = try decoder.decode(EncryptedPackage.self, from: data)
-        return try decryptPayload(envelope, password: password)
-    }
-
-    private func encryptPayload(_ plaintext: Data, password: String) throws -> EncryptedPackage {
-        let salt = randomData(count: 16)
-        let key = deriveSymmetricKey(password: password, salt: salt)
-        let nonce = try AES.GCM.Nonce(data: randomData(count: 12))
-        let sealedBox = try AES.GCM.seal(plaintext, using: key, nonce: nonce)
-
-        return EncryptedPackage(
-            formatVersion: 1,
-            createdAt: Date(),
-            salt: salt.base64EncodedString(),
-            nonce: Data(nonce).base64EncodedString(),
-            ciphertext: sealedBox.ciphertext.base64EncodedString(),
-            tag: sealedBox.tag.base64EncodedString()
-        )
-    }
-
-    private func decryptPayload(_ envelope: EncryptedPackage, password: String) throws -> Data {
-        guard
-            let salt = Data(base64Encoded: envelope.salt),
-            let nonceData = Data(base64Encoded: envelope.nonce),
-            let ciphertext = Data(base64Encoded: envelope.ciphertext),
-            let tag = Data(base64Encoded: envelope.tag)
-        else {
-            throw SecureArchiveError.invalidEnvelope
-        }
-
-        let key = deriveSymmetricKey(password: password, salt: salt)
-        let nonce = try AES.GCM.Nonce(data: nonceData)
-        let sealedBox = try AES.GCM.SealedBox(nonce: nonce, ciphertext: ciphertext, tag: tag)
-        return try AES.GCM.open(sealedBox, using: key)
-    }
-
-    private func deriveSymmetricKey(password: String, salt: Data) -> SymmetricKey {
-        let passwordKey = SymmetricKey(data: Data(password.utf8))
-        return HKDF<CryptoKit.SHA256>.deriveKey(
-            inputKeyMaterial: passwordKey,
-            salt: salt,
-            info: Data("hawala-key-backup".utf8),
-            outputByteCount: 32
-        )
-    }
-
-    private func randomData(count: Int) -> Data {
-        Data((0..<count).map { _ in UInt8.random(in: 0...255) })
-    }
-    
-    @MainActor
-    private func importPrivateKey(_ privateKey: String, for chainType: String) async {
-        showStatus("Importing private key for \(chainType)...", tone: .info)
-        
-        // For now, show a message that the import functionality requires generating
-        // keys from the Rust backend with custom seeds
-        showStatus("""
-            ⚠️ Private key import requires integration with the Rust key generator.
-            
-            Current implementation generates all keys from a single seed.
-            To import individual private keys, you would need to:
-            
-            1. Modify the Rust backend to accept custom private keys
-            2. Derive public addresses from the imported private key
-            3. Merge with existing key set
-            
-            For now, you can:
-            • Use the imported private key directly in the Bitcoin send flow
-            • Export current keys and manually edit the JSON to include imported keys
-            
-            Imported key saved to clipboard for manual use.
-            """, tone: .info, autoClear: false)
-        
-        // Copy to clipboard for user to use manually
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(privateKey, forType: .string)
-    }
-
-    private func defaultExportFileName() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        return "hawala-backup-\(formatter.string(from: Date())).hawala"
-    }
-
-    private func prettyPrintedJSON(from data: Data) -> String {
-        guard
-            let jsonObject = try? JSONSerialization.jsonObject(with: data),
-            let prettyData = try? JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted, .sortedKeys]),
-            let prettyString = String(data: prettyData, encoding: .utf8)
-        else {
-            return String(data: data, encoding: .utf8) ?? ""
-        }
-
-        return prettyString
     }
 
     // Note: Cargo-related helper functions (resolveCargoExecutable, candidateCargoPaths, 
