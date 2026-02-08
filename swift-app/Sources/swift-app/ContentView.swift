@@ -1421,35 +1421,16 @@ struct ContentView: View {
     }
     
     private var uniqueHistoryChains: [String] {
-        let chains = Set(historyEntries.compactMap { $0.chainId })
-        return chains.sorted()
+        TransactionHistoryService.uniqueChains(from: historyEntries)
     }
     
     private var filteredHistoryEntries: [HawalaTransactionEntry] {
-        var entries = historyEntries
-        
-        // Filter by chain
-        if let chain = historyFilterChain {
-            entries = entries.filter { $0.chainId == chain }
-        }
-        
-        // Filter by type
-        if let type = historyFilterType {
-            entries = entries.filter { $0.type == type }
-        }
-        
-        // Filter by search text
-        if !historySearchText.isEmpty {
-            let searchLower = historySearchText.lowercased()
-            entries = entries.filter { entry in
-                entry.asset.lowercased().contains(searchLower) ||
-                entry.amountDisplay.lowercased().contains(searchLower) ||
-                (entry.txHash?.lowercased().contains(searchLower) ?? false) ||
-                entry.timestamp.lowercased().contains(searchLower)
-            }
-        }
-        
-        return entries
+        TransactionHistoryService.filteredEntries(
+            historyEntries,
+            chain: historyFilterChain,
+            type: historyFilterType,
+            searchText: historySearchText
+        )
     }
     
     private func showStatus(_ message: String, tone: StatusTone, autoClear: Bool = true) {

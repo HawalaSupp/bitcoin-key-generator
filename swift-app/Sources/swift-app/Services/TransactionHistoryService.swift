@@ -705,6 +705,44 @@ final class TransactionHistoryService: ObservableObject {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: Date())
     }
+
+    // MARK: - Filtering
+
+    /// Unique chain IDs from a set of entries, sorted alphabetically.
+    static func uniqueChains(from entries: [HawalaTransactionEntry]) -> [String] {
+        let chains = Set(entries.compactMap { $0.chainId })
+        return chains.sorted()
+    }
+
+    /// Filter entries by chain, type, and search text.
+    static func filteredEntries(
+        _ entries: [HawalaTransactionEntry],
+        chain: String?,
+        type: String?,
+        searchText: String
+    ) -> [HawalaTransactionEntry] {
+        var result = entries
+
+        if let chain {
+            result = result.filter { $0.chainId == chain }
+        }
+
+        if let type {
+            result = result.filter { $0.type == type }
+        }
+
+        if !searchText.isEmpty {
+            let searchLower = searchText.lowercased()
+            result = result.filter { entry in
+                entry.asset.lowercased().contains(searchLower) ||
+                entry.amountDisplay.lowercased().contains(searchLower) ||
+                (entry.txHash?.lowercased().contains(searchLower) ?? false) ||
+                entry.timestamp.lowercased().contains(searchLower)
+            }
+        }
+
+        return result
+    }
 }
 
 // MARK: - TransactionEntry -> HawalaTransactionEntry Conversion
