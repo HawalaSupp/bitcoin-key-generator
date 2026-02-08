@@ -1266,7 +1266,10 @@ struct ContentView: View {
                     if !historyEntries.isEmpty {
                         Menu {
                             Button {
-                                exportHistoryAsCSV()
+                                let service = self.transactionHistoryService
+                                if let result = service.exportHistoryAsCSV(entries: filteredHistoryEntries) {
+                                    showStatus(result.message, tone: result.tone, autoClear: result.autoClear)
+                                }
                             } label: {
                                 Label("Export as CSV", systemImage: "tablecells")
                             }
@@ -1426,14 +1429,14 @@ struct ContentView: View {
                     }
                     Divider()
                     ForEach(uniqueHistoryChains, id: \.self) { chain in
-                        Button(chainDisplayName(chain)) {
+                        Button(self.transactionHistoryService.chainDisplayName(chain)) {
                             historyFilterChain = chain
                         }
                     }
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "link")
-                        Text(historyFilterChain.map { chainDisplayName($0) } ?? "All Chains")
+                        Text(historyFilterChain.map { self.transactionHistoryService.chainDisplayName($0) } ?? "All Chains")
                         Image(systemName: "chevron.down")
                             .font(.caption2)
                     }
@@ -1509,23 +1512,6 @@ struct ContentView: View {
         return chains.sorted()
     }
     
-    private func chainDisplayName(_ chainId: String) -> String {
-        switch chainId {
-        case "bitcoin": return "Bitcoin"
-        case "bitcoin-testnet": return "Bitcoin Testnet"
-        case "litecoin": return "Litecoin"
-        case "ethereum": return "Ethereum"
-        case "ethereum-sepolia": return "Ethereum Sepolia"
-        case "bnb": return "BNB Chain"
-        case "solana": return "Solana"
-        case "solana-devnet": return "Solana Devnet"
-        case "xrp": return "XRP"
-        case "xrp-testnet": return "XRP Testnet"
-        case "monero": return "Monero"
-        default: return chainId.capitalized
-        }
-    }
-    
     private var filteredHistoryEntries: [HawalaTransactionEntry] {
         var entries = historyEntries
         
@@ -1553,72 +1539,6 @@ struct ContentView: View {
         return entries
     }
     
-    // MARK: - Export Transaction History
-    private func exportHistoryAsCSV() {
-        let entries = filteredHistoryEntries
-        guard !entries.isEmpty else { return }
-        
-        // Build CSV content
-        var csv = "Date,Type,Asset,Amount,Status,Fee,Confirmations,TX Hash,Chain\n"
-        
-        for entry in entries {
-            let date = entry.timestamp.replacingOccurrences(of: ",", with: ";")
-            let type = entry.type
-            let asset = entry.asset
-            let amount = entry.amountDisplay.replacingOccurrences(of: ",", with: "")
-            let status = entry.status
-            let fee = entry.fee ?? ""
-            let confirmations = entry.confirmations.map { String($0) } ?? ""
-            let txHash = entry.txHash ?? ""
-            let chain = entry.chainId ?? ""
-            
-            csv += "\"\(date)\",\"\(type)\",\"\(asset)\",\"\(amount)\",\"\(status)\",\"\(fee)\",\"\(confirmations)\",\"\(txHash)\",\"\(chain)\"\n"
-        }
-        
-        #if canImport(AppKit)
-        let savePanel = NSSavePanel()
-        savePanel.title = "Export Transaction History"
-        savePanel.message = "Save your transaction history as a CSV file"
-        savePanel.nameFieldStringValue = "hawala_transactions_\(formattedExportDate()).csv"
-        savePanel.allowedContentTypes = [.commaSeparatedText]
-        savePanel.canCreateDirectories = true
-        
-        let response = savePanel.runModal()
-        if response == .OK, let url = savePanel.url {
-            do {
-                try csv.write(to: url, atomically: true, encoding: .utf8)
-                showStatus("Exported \(entries.count) transactions to \(url.lastPathComponent)", tone: .success)
-            } catch {
-                showStatus("Export failed: \(error.localizedDescription)", tone: .error)
-            }
-        }
-        #endif
-    }
-    
-    private func formattedExportDate() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Date())
-    }
-
-    // Using shared HawalaTransactionEntry from Models/TransactionModels.swift
-
-    private struct BitcoinHistoryItem: Decodable {
-        let txid: String
-        let amountSats: Int64
-        let confirmed: Bool
-        let timestamp: UInt64?
-        let height: UInt64?
-        let feeSats: UInt64?
-    }
-
-    private struct HistoryChainTarget {
-        let id: String
-        let address: String
-        let displayName: String
-        let symbol: String
-    }
-
     private func showStatus(_ message: String, tone: StatusTone, autoClear: Bool = true) {
         statusTask?.cancel()
         statusTask = nil
@@ -1713,15 +1633,7 @@ struct ContentView: View {
         historyError = nil
         isHistoryLoading = true
 
-        // Convert to service's HistoryTarget format
-        let targets = historyTargets(from: keys).map { target in
-            HistoryTarget(
-                chainId: target.id,
-                address: target.address,
-                displayName: target.displayName,
-                symbol: target.symbol
-            )
-        }
+        let targets = transactionHistoryService.historyTargets(from: keys)
         
         #if DEBUG
         print("📜 History targets: \(targets.map { "\($0.chainId): \($0.address.prefix(10))..." })")
@@ -1749,33 +1661,6 @@ struct ContentView: View {
         }
     }
 
-    private func historyTargets(from keys: AllKeys) -> [HistoryChainTarget] {
-        var targets: [HistoryChainTarget] = []
-
-        func appendTarget(id: String, address: String, displayName: String, symbol: String) {
-            guard !address.isEmpty else { return }
-            // Don't dedupe by address - each chain has its own history even if address is same
-            targets.append(HistoryChainTarget(id: id, address: address, displayName: displayName, symbol: symbol))
-        }
-
-        appendTarget(id: "bitcoin", address: keys.bitcoin.address, displayName: "Bitcoin", symbol: "BTC")
-        appendTarget(id: "bitcoin-testnet", address: keys.bitcoinTestnet.address, displayName: "Bitcoin Testnet", symbol: "tBTC")
-        appendTarget(id: "litecoin", address: keys.litecoin.address, displayName: "Litecoin", symbol: "LTC")
-        // For EVM chains, use ethereum address (same key works on all EVM networks)
-        let evmAddress = keys.ethereum.address.isEmpty ? keys.ethereumSepolia.address : keys.ethereum.address
-        appendTarget(id: "ethereum", address: evmAddress, displayName: "Ethereum", symbol: "ETH")
-        appendTarget(id: "ethereum-sepolia", address: evmAddress, displayName: "Ethereum Sepolia", symbol: "ETH")
-        appendTarget(id: "bnb", address: keys.bnb.address.isEmpty ? evmAddress : keys.bnb.address, displayName: "BNB Chain", symbol: "BNB")
-        // Use same address for both mainnet and devnet Solana
-        appendTarget(id: "solana", address: keys.solana.publicKeyBase58, displayName: "Solana", symbol: "SOL")
-        appendTarget(id: "solana-devnet", address: keys.solana.publicKeyBase58, displayName: "Solana Devnet", symbol: "SOL")
-        // Use same address for both mainnet and testnet XRP
-        appendTarget(id: "xrp", address: keys.xrp.classicAddress, displayName: "XRP Ledger", symbol: "XRP")
-        appendTarget(id: "xrp-testnet", address: keys.xrp.classicAddress, displayName: "XRP Testnet", symbol: "XRP")
-
-        return targets
-    }
-    
     private func openSendSheet() {
         guard let keys else {
             showStatus("Generate keys before sending.", tone: .info)

@@ -1,4 +1,8 @@
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
+import UniformTypeIdentifiers
 
 // MARK: - Transaction History Service
 
@@ -594,6 +598,112 @@ final class TransactionHistoryService: ObservableObject {
     func fetchAllHistoryAsHawala(targets: [HistoryTarget], force: Bool = false) async -> [HawalaTransactionEntry] {
         await fetchAllHistory(targets: targets, force: force)
         return hawalaEntries
+    }
+
+    // MARK: - History Targets Builder
+
+    /// Build the set of chain history targets from the wallet's key set.
+    func historyTargets(from keys: AllKeys) -> [HistoryTarget] {
+        var targets: [HistoryTarget] = []
+
+        func add(id: String, address: String, displayName: String, symbol: String) {
+            guard !address.isEmpty else { return }
+            targets.append(HistoryTarget(chainId: id, address: address, displayName: displayName, symbol: symbol))
+        }
+
+        add(id: "bitcoin", address: keys.bitcoin.address, displayName: "Bitcoin", symbol: "BTC")
+        add(id: "bitcoin-testnet", address: keys.bitcoinTestnet.address, displayName: "Bitcoin Testnet", symbol: "tBTC")
+        add(id: "litecoin", address: keys.litecoin.address, displayName: "Litecoin", symbol: "LTC")
+        let evmAddress = keys.ethereum.address.isEmpty ? keys.ethereumSepolia.address : keys.ethereum.address
+        add(id: "ethereum", address: evmAddress, displayName: "Ethereum", symbol: "ETH")
+        add(id: "ethereum-sepolia", address: evmAddress, displayName: "Ethereum Sepolia", symbol: "ETH")
+        add(id: "bnb", address: keys.bnb.address.isEmpty ? evmAddress : keys.bnb.address, displayName: "BNB Chain", symbol: "BNB")
+        add(id: "solana", address: keys.solana.publicKeyBase58, displayName: "Solana", symbol: "SOL")
+        add(id: "solana-devnet", address: keys.solana.publicKeyBase58, displayName: "Solana Devnet", symbol: "SOL")
+        add(id: "xrp", address: keys.xrp.classicAddress, displayName: "XRP Ledger", symbol: "XRP")
+        add(id: "xrp-testnet", address: keys.xrp.classicAddress, displayName: "XRP Testnet", symbol: "XRP")
+
+        return targets
+    }
+
+    // MARK: - Chain Display Name
+
+    /// Human-readable name for a chain identifier.
+    func chainDisplayName(_ chainId: String) -> String {
+        switch chainId {
+        case "bitcoin": return "Bitcoin"
+        case "bitcoin-testnet": return "Bitcoin Testnet"
+        case "litecoin": return "Litecoin"
+        case "ethereum": return "Ethereum"
+        case "ethereum-sepolia": return "Ethereum Sepolia"
+        case "bnb": return "BNB Chain"
+        case "solana": return "Solana"
+        case "solana-devnet": return "Solana Devnet"
+        case "xrp": return "XRP"
+        case "xrp-testnet": return "XRP Testnet"
+        case "monero": return "Monero"
+        default: return chainId.capitalized
+        }
+    }
+
+    // MARK: - CSV Export
+
+    /// Build CSV content from transaction entries.
+    func buildCSV(from entries: [HawalaTransactionEntry]) -> String {
+        var csv = "Date,Type,Asset,Amount,Status,Fee,Confirmations,TX Hash,Chain\n"
+
+        for entry in entries {
+            let date = entry.timestamp.replacingOccurrences(of: ",", with: ";")
+            let type = entry.type
+            let asset = entry.asset
+            let amount = entry.amountDisplay.replacingOccurrences(of: ",", with: "")
+            let status = entry.status
+            let fee = entry.fee ?? ""
+            let confirmations = entry.confirmations.map { String($0) } ?? ""
+            let txHash = entry.txHash ?? ""
+            let chain = entry.chainId ?? ""
+
+            csv += "\"\(date)\",\"\(type)\",\"\(asset)\",\"\(amount)\",\"\(status)\",\"\(fee)\",\"\(confirmations)\",\"\(txHash)\",\"\(chain)\"\n"
+        }
+
+        return csv
+    }
+
+    /// Export transaction entries to CSV via a save panel.
+    /// Returns a status message tuple: (message, tone, autoClear).
+    @MainActor
+    func exportHistoryAsCSV(entries: [HawalaTransactionEntry]) -> (message: String, tone: StatusTone, autoClear: Bool)? {
+        guard !entries.isEmpty else { return nil }
+
+        let csv = buildCSV(from: entries)
+
+        #if canImport(AppKit)
+        let savePanel = NSSavePanel()
+        savePanel.title = "Export Transaction History"
+        savePanel.message = "Save your transaction history as a CSV file"
+        savePanel.nameFieldStringValue = "hawala_transactions_\(formattedExportDate()).csv"
+        savePanel.allowedContentTypes = [.commaSeparatedText]
+        savePanel.canCreateDirectories = true
+
+        let response = savePanel.runModal()
+        if response == .OK, let url = savePanel.url {
+            do {
+                try csv.write(to: url, atomically: true, encoding: .utf8)
+                return ("Exported \(entries.count) transactions to \(url.lastPathComponent)", .success, true)
+            } catch {
+                return ("Export failed: \(error.localizedDescription)", .error, true)
+            }
+        }
+        #endif
+
+        return nil
+    }
+
+    /// Formatted date string for export file names.
+    func formattedExportDate() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date())
     }
 }
 
