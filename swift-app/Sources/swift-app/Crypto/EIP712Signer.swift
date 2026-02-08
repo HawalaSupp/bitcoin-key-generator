@@ -120,7 +120,7 @@ public struct EIP712TypedData: Codable {
 }
 
 /// EIP-712 signature components
-public struct EIP712Signature {
+public struct EIP712Signature: Sendable {
     public let r: Data
     public let s: Data
     public let v: UInt8

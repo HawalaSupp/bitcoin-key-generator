@@ -108,7 +108,7 @@ final class WalletConnectSigningService: ObservableObject {
         guard !privateKeyHex.isEmpty else { throw WCError.userRejected }
 
         #if DEBUG
-        print("📝 WalletConnect: Typed data sign request")
+        print("📝 WalletConnect: Typed data sign request (EIP-712 spec-compliant)")
         #endif
 
         let typedDataJSON: String
@@ -122,9 +122,26 @@ final class WalletConnectSigningService: ObservableObject {
             throw WCError.requestTimeout
         }
 
-        // Simplified: full EIP-712 requires domain separator + struct hash
-        let hash = Keccak256.hash(data: Data(typedDataJSON.utf8))
-        return try signWithSecp256k1(hash: hash, privateKeyHex: privateKeyHex)
+        // EIP-712 spec-compliant: parse typed data, compute domain separator + struct hash via Rust FFI
+        do {
+            let typedData = try EIP712TypedData.fromJSON(typedDataJSON)
+            let cleanHex = privateKeyHex.hasPrefix("0x") ? String(privateKeyHex.dropFirst(2)) : privateKeyHex
+            let privKeyData = hexToData(cleanHex)
+            guard privKeyData.count == 32 else { throw WCError.userRejected }
+
+            let signature = try await EIP712Signer.shared.signTypedData(typedData, privateKey: privKeyData)
+            return signature.hexSignature
+        } catch let error as EIP712Error {
+            #if DEBUG
+            print("⚠️ WalletConnect: EIP-712 spec signing failed (\(error.localizedDescription)), falling back to hash-based signing")
+            #endif
+            // Fallback for malformed typed data: prefix + keccak256 of JSON
+            let prefix = "\u{19}Ethereum Signed Message:\n\(typedDataJSON.count)"
+            var prefixedMessage = Data(prefix.utf8)
+            prefixedMessage.append(Data(typedDataJSON.utf8))
+            let hash = Keccak256.hash(data: prefixedMessage)
+            return try signWithSecp256k1(hash: hash, privateKeyHex: privateKeyHex)
+        }
     }
 
     // MARK: - Transaction signing

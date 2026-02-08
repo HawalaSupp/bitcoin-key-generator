@@ -282,9 +282,25 @@ private struct SessionRow: View {
             
             // Info
             VStack(alignment: .leading, spacing: 2) {
-                Text(session.peer.name)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                HStack(spacing: 4) {
+                    Text(session.peer.name)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    
+                    // Verification badge
+                    switch DAppRegistry.shared.verify(peer: session.peer) {
+                    case .verified:
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.green)
+                    case .suspicious:
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.red)
+                    case .unknown:
+                        EmptyView()
+                    }
+                }
                 
                 Text(session.peer.url)
                     .font(.caption)
@@ -344,6 +360,10 @@ private struct SessionProposalSheet: View {
     
     @State private var selectedAccounts: Set<String> = []
     
+    private var verificationStatus: DAppRegistry.VerificationStatus {
+        DAppRegistry.shared.verify(peer: proposal.proposer)
+    }
+    
     var body: some View {
         VStack(spacing: 24) {
             // Header
@@ -360,9 +380,14 @@ private struct SessionProposalSheet: View {
                 .frame(width: 64, height: 64)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 
-                Text(proposal.proposer.name)
-                    .font(.title2)
-                    .fontWeight(.semibold)
+                HStack(spacing: 6) {
+                    Text(proposal.proposer.name)
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    
+                    // Verification badge
+                    verificationBadge
+                }
                 
                 Text(proposal.proposer.url)
                     .font(.caption)
@@ -372,6 +397,9 @@ private struct SessionProposalSheet: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+            
+            // Verification status banner
+            verificationBanner
             
             // Permissions
             VStack(alignment: .leading, spacing: 12) {
@@ -448,6 +476,76 @@ private struct SessionProposalSheet: View {
             }
         }
     }
+    
+    // MARK: - Verification Badge
+    
+    @ViewBuilder
+    private var verificationBadge: some View {
+        switch verificationStatus {
+        case .verified:
+            Image(systemName: "checkmark.seal.fill")
+                .foregroundStyle(.green)
+                .help("Verified dApp")
+        case .suspicious:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+                .help("Suspicious dApp")
+        case .unknown:
+            Image(systemName: "questionmark.circle")
+                .foregroundStyle(.secondary)
+                .help("Unverified dApp")
+        }
+    }
+    
+    // MARK: - Verification Banner
+    
+    @ViewBuilder
+    private var verificationBanner: some View {
+        switch verificationStatus {
+        case .verified(let info):
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.seal.fill")
+                    .foregroundStyle(.green)
+                Text("Verified: \(info.name) — \(info.category.rawValue)")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity)
+            .background(Color.green.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        case .suspicious(let reason):
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("⚠️ Suspicious dApp")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.red)
+                    Text(reason)
+                        .font(.caption2)
+                        .foregroundStyle(.red.opacity(0.8))
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity)
+            .background(Color.red.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        case .unknown:
+            HStack(spacing: 8) {
+                Image(systemName: "info.circle")
+                    .foregroundStyle(.orange)
+                Text("This dApp is not in our verified registry. Proceed with caution.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity)
+            .background(Color.orange.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
 }
 
 private struct PermissionRow: View {
@@ -473,6 +571,10 @@ private struct SessionRequestSheet: View {
     let session: WCSession?
     let onApprove: () -> Void
     let onReject: () -> Void
+    
+    @State private var decodedTx: DecodedTransaction?
+    @State private var parsedTypedData: EIP712TypedData?
+    @State private var decodedPersonalMessage: String?
     
     var body: some View {
         VStack(spacing: 24) {
@@ -505,40 +607,30 @@ private struct SessionRequestSheet: View {
                 DetailItem(label: "Method", value: request.method)
                 DetailItem(label: "Chain", value: request.chainId)
                 
-                if let params = request.params {
-                    Text("Parameters")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    
-                    ScrollView {
-                        Text(formatParams(params))
-                            .font(.system(.caption, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(height: 150)
-                    .padding(8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                    )
+                // Decoded transaction view
+                if let decoded = decodedTx {
+                    decodedTransactionSection(decoded)
+                }
+                
+                // Decoded EIP-712 typed data
+                if let typedData = parsedTypedData {
+                    eip712Section(typedData)
+                }
+                
+                // Decoded personal message
+                if let message = decodedPersonalMessage {
+                    personalMessageSection(message)
+                }
+                
+                // Fallback: raw params if nothing decoded
+                if decodedTx == nil && parsedTypedData == nil && decodedPersonalMessage == nil,
+                   let params = request.params {
+                    rawParamsSection(params)
                 }
             }
             
-            // Warning for certain operations
-            if isRiskyOperation {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    
-                    Text("Review carefully before approving")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity)
-                .background(Color.orange.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
+            // Risk warnings
+            warningSection
             
             // Actions
             HStack(spacing: 12) {
@@ -553,10 +645,351 @@ private struct SessionRequestSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .frame(maxWidth: .infinity)
+                .disabled(decodedTx?.riskLevel == .critical)
             }
         }
         .padding(24)
         .frame(width: 450)
+        .onAppear { decodeRequest() }
+    }
+    
+    // MARK: - Decoded Transaction Section
+    
+    @ViewBuilder
+    private func decodedTransactionSection(_ decoded: DecodedTransaction) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Transaction Details", systemImage: "doc.text.magnifyingglass")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            
+            VStack(alignment: .leading, spacing: 6) {
+                // Method name + description
+                HStack(spacing: 6) {
+                    Text(decoded.methodName)
+                        .font(.system(.caption, design: .monospaced))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.blue.opacity(0.15))
+                        .foregroundStyle(.blue)
+                        .clipShape(Capsule())
+                    
+                    Text(decoded.methodDescription)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                
+                // Human-readable summary
+                Text(decoded.humanReadable)
+                    .font(.subheadline)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                    )
+                
+                // Contract info
+                if let contractName = decoded.contractName {
+                    HStack(spacing: 4) {
+                        if decoded.isVerified {
+                            Image(systemName: "checkmark.seal.fill")
+                                .foregroundStyle(.green)
+                                .font(.caption)
+                        }
+                        Text("Contract: \(contractName)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                
+                // Native value
+                if let value = decoded.nativeValue, value != "0" {
+                    DetailItem(label: "Value", value: "\(value) ETH")
+                }
+                
+                // Decoded parameters
+                if !decoded.decodedParams.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Parameters")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        
+                        ForEach(Array(decoded.decodedParams.keys.sorted()), id: \.self) { key in
+                            HStack {
+                                Text(key)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(String(describing: decoded.decodedParams[key] ?? ""))
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                    }
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                    )
+                }
+            }
+        }
+    }
+    
+    // MARK: - EIP-712 Section
+    
+    @ViewBuilder
+    private func eip712Section(_ typedData: EIP712TypedData) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("EIP-712 Typed Data", systemImage: "signature")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            
+            VStack(alignment: .leading, spacing: 8) {
+                // Domain
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Domain")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fontWeight(.medium)
+                    
+                    if let name = typedData.domain.name {
+                        eip712Row("Name", name)
+                    }
+                    if let version = typedData.domain.version {
+                        eip712Row("Version", version)
+                    }
+                    if let chainId = typedData.domain.chainId {
+                        switch chainId {
+                        case .number(let n):
+                            eip712Row("Chain ID", "\(n)")
+                        case .string(let s):
+                            eip712Row("Chain ID", s)
+                        }
+                    }
+                    if let contract = typedData.domain.verifyingContract {
+                        eip712Row("Contract", contract)
+                    }
+                }
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+                
+                // Primary Type
+                HStack {
+                    Text("Primary Type")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(typedData.primaryType)
+                        .font(.system(.caption, design: .monospaced))
+                }
+                
+                // Message fields
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Message")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fontWeight(.medium)
+                    
+                    ForEach(Array(typedData.message.keys.sorted()), id: \.self) { key in
+                        if let value = typedData.message[key] {
+                            eip712Row(key, formatAnyCodable(value))
+                        }
+                    }
+                }
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func eip712Row(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .top) {
+            Text(label)
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 60, alignment: .leading)
+            Text(value)
+                .font(.system(.caption2, design: .monospaced))
+                .lineLimit(2)
+                .truncationMode(.middle)
+        }
+    }
+    
+    private func formatAnyCodable(_ codable: AnyCodable) -> String {
+        let val = codable.value
+        if let str = val as? String { return str }
+        if let num = val as? Int { return "\(num)" }
+        if let num = val as? Double { return "\(num)" }
+        if let bool = val as? Bool { return bool ? "true" : "false" }
+        if let data = try? JSONSerialization.data(withJSONObject: val, options: []),
+           let str = String(data: data, encoding: .utf8) { return str }
+        return String(describing: val)
+    }
+    
+    // MARK: - Personal Message Section
+    
+    @ViewBuilder
+    private func personalMessageSection(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Message to Sign", systemImage: "text.bubble")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            
+            ScrollView {
+                Text(message)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 120)
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
+        }
+    }
+    
+    // MARK: - Raw Params Fallback
+    
+    @ViewBuilder
+    private func rawParamsSection(_ params: Any) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Parameters")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            
+            ScrollView {
+                Text(formatParams(params))
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 150)
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
+        }
+    }
+    
+    // MARK: - Warning Section
+    
+    @ViewBuilder
+    private var warningSection: some View {
+        if let decoded = decodedTx {
+            // Show decoded warnings + risk level
+            VStack(spacing: 8) {
+                if decoded.riskLevel == .critical || decoded.riskLevel == .high {
+                    HStack(spacing: 8) {
+                        Image(systemName: decoded.riskLevel == .critical ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                            .foregroundStyle(decoded.riskLevel == .critical ? .red : .orange)
+                        
+                        Text(decoded.riskLevel == .critical ? "CRITICAL RISK — This transaction is dangerous" : "HIGH RISK — Review carefully")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(decoded.riskLevel == .critical ? .red : .orange)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity)
+                    .background((decoded.riskLevel == .critical ? Color.red : Color.orange).opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                
+                ForEach(decoded.warnings, id: \.self) { warning in
+                    HStack(spacing: 6) {
+                        Text(warning.icon)
+                            .font(.caption2)
+                        Text(warning.rawValue)
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+        } else if isRiskyOperation {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                
+                Text("Review carefully before approving")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity)
+            .background(Color.orange.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
+    
+    // MARK: - Decode Logic
+    
+    private func decodeRequest() {
+        switch request.method {
+        case "eth_sendTransaction", "eth_signTransaction":
+            decodeTransaction()
+        case "eth_signTypedData", "eth_signTypedData_v3", "eth_signTypedData_v4":
+            decodeTypedData()
+        case "personal_sign", "eth_sign":
+            decodePersonalSign()
+        default:
+            break
+        }
+    }
+    
+    private func decodeTransaction() {
+        guard let params = request.params as? [[String: Any]],
+              let txParams = params.first else { return }
+        
+        let data = txParams["data"] as? String ?? "0x"
+        let to = txParams["to"] as? String
+        let value = txParams["value"] as? String
+        
+        decodedTx = TransactionDecoder.shared.decode(data: data, to: to, value: value)
+    }
+    
+    private func decodeTypedData() {
+        guard let params = request.params as? [Any],
+              params.count >= 2 else { return }
+        
+        let jsonStr: String?
+        if let str = params[1] as? String {
+            jsonStr = str
+        } else if let dict = params[1] as? [String: Any],
+                  let jsonData = try? JSONSerialization.data(withJSONObject: dict),
+                  let str = String(data: jsonData, encoding: .utf8) {
+            jsonStr = str
+        } else {
+            jsonStr = nil
+        }
+        
+        if let json = jsonStr {
+            parsedTypedData = try? EIP712TypedData.fromJSON(json)
+        }
+    }
+    
+    private func decodePersonalSign() {
+        guard let params = request.params as? [Any],
+              params.count >= 2,
+              let hexMsg = params[1] as? String else { return }
+        
+        // Try decoding hex to UTF-8
+        if hexMsg.hasPrefix("0x") {
+            let hex = String(hexMsg.dropFirst(2))
+            if let data = Data(hexString: hex), let text = String(data: data, encoding: .utf8) {
+                decodedPersonalMessage = text
+                return
+            }
+        }
+        decodedPersonalMessage = hexMsg
     }
     
     private var isRiskyOperation: Bool {

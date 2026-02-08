@@ -4,8 +4,8 @@ import Foundation
 /// Decodes EVM transaction data into human-readable format
 /// Shows token transfers, approvals, swaps in plain English
 
-public final class TransactionDecoder: ObservableObject {
-    public static let shared = TransactionDecoder()
+public final class TransactionDecoder: ObservableObject, @unchecked Sendable {
+    nonisolated public static let shared = TransactionDecoder()
     
     // MARK: - Published State
     @Published public private(set) var isSimulating = false
@@ -389,7 +389,7 @@ public enum ContractType: String, Codable {
     case unknown = "Unknown"
 }
 
-public struct DecodedTransaction {
+public struct DecodedTransaction: @unchecked Sendable {
     public var methodName: String = ""
     public var methodDescription: String = ""
     public var humanReadable: String = ""
@@ -398,11 +398,11 @@ public struct DecodedTransaction {
     public var isVerified: Bool = false
     public var nativeValue: String?
     public var decodedParams: [String: Any] = [:]
-    public var warnings: [TransactionWarning] = []
-    public var riskLevel: RiskLevel = .low
+    public var warnings: [TxWarning] = []
+    public var riskLevel: TxRiskLevel = .low
 }
 
-public enum TransactionWarning: String, CaseIterable {
+public enum TxWarning: String, CaseIterable, Sendable {
     case unlimitedApproval = "Unlimited token approval requested"
     case approvalForAll = "Approving access to ALL NFTs"
     case unverifiedContract = "Interacting with unverified contract"
@@ -421,7 +421,7 @@ public enum TransactionWarning: String, CaseIterable {
         }
     }
     
-    public var severity: RiskLevel {
+    public var severity: TxRiskLevel {
         switch self {
         case .unlimitedApproval, .approvalForAll: return .high
         case .unverifiedContract, .unknownMethod, .newContract: return .medium
@@ -430,27 +430,27 @@ public enum TransactionWarning: String, CaseIterable {
     }
 }
 
-public enum RiskLevel: String, Codable, Comparable {
+public enum TxRiskLevel: String, Codable, Comparable, Sendable {
     case low = "Low"
     case medium = "Medium"
     case high = "High"
     case critical = "Critical"
     
-    public static func < (lhs: RiskLevel, rhs: RiskLevel) -> Bool {
-        let order: [RiskLevel] = [.low, .medium, .high, .critical]
+    public static func < (lhs: TxRiskLevel, rhs: TxRiskLevel) -> Bool {
+        let order: [TxRiskLevel] = [.low, .medium, .high, .critical]
         return order.firstIndex(of: lhs)! < order.firstIndex(of: rhs)!
     }
 }
 
-public struct SimulationResult {
+public struct SimulationResult: Sendable {
     public let success: Bool
     public let balanceChanges: [BalanceChange]
     public let gasEstimate: String?
-    public let warnings: [TransactionWarning]
+    public let warnings: [TxWarning]
     public let decoded: DecodedTransaction
 }
 
-public struct BalanceChange: Identifiable {
+public struct BalanceChange: Identifiable, Sendable {
     public let id = UUID()
     public let asset: String
     public let amount: String

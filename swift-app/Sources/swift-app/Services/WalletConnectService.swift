@@ -357,6 +357,32 @@ class WalletConnectService: ObservableObject {
             optionalNamespaces: parseNamespaces(params["optionalNamespaces"])
         )
         
+        // Check dApp access (allowlist / blocklist)
+        let accessDecision = DAppAccessManager.shared.checkAccess(peer: proposal.proposer)
+        switch accessDecision {
+        case .blocked(let reason):
+            print("🚫 WalletConnect: Blocked proposal from \(proposal.proposer.name) — \(reason)")
+            Task {
+                try? await sendSessionRejection(proposal: proposal, reason: "dApp is blocked: \(reason)")
+            }
+            return
+        case .allowed:
+            print("✅ WalletConnect: Allowed dApp \(proposal.proposer.name)")
+        case .unknown:
+            print("⚠️ WalletConnect: Unknown dApp \(proposal.proposer.name) — showing proposal for review")
+        }
+        
+        // Check dApp verification
+        let verification = DAppRegistry.shared.verify(peer: proposal.proposer)
+        switch verification {
+        case .verified(let info):
+            print("✅ WalletConnect: Verified dApp — \(info.name) (\(info.category.rawValue))")
+        case .suspicious(let reason):
+            print("⚠️ WalletConnect: Suspicious dApp — \(reason)")
+        case .unknown:
+            print("ℹ️ WalletConnect: Unverified dApp — \(proposal.proposer.url)")
+        }
+        
         pendingProposal = proposal
         print("📥 WalletConnect: Session proposal from \(proposal.proposer.name)")
     }
@@ -375,8 +401,32 @@ class WalletConnectService: ObservableObject {
             params: request["params"]
         )
         
-        pendingRequest = sessionRequest
-        print("📥 WalletConnect: Request - \(sessionRequest.method)")
+        // Rate limit check (10 req/min per dApp topic)
+        Task {
+            let allowed = await DAppRateLimiter.shared.recordRequest(topic: sessionRequest.topic)
+            if !allowed {
+                let waitTime = await DAppRateLimiter.shared.timeUntilNextSlot(for: sessionRequest.topic)
+                print("🚦 WalletConnect: Rate limited request from topic \(sessionRequest.topic.prefix(8))... (wait \(Int(waitTime))s)")
+                try? await sendRequestRejection(
+                    request: sessionRequest,
+                    reason: "Rate limited — too many requests. Try again in \(Int(waitTime)) seconds."
+                )
+                return
+            }
+            
+            // Check dApp access for the session's peer
+            if let session = sessions.first(where: { $0.topic == sessionRequest.topic }) {
+                let accessDecision = DAppAccessManager.shared.checkAccess(peer: session.peer)
+                if case .blocked(let reason) = accessDecision {
+                    print("🚫 WalletConnect: Blocked request from \(session.peer.name) — \(reason)")
+                    try? await sendRequestRejection(request: sessionRequest, reason: "dApp is blocked")
+                    return
+                }
+            }
+            
+            pendingRequest = sessionRequest
+            print("📥 WalletConnect: Request - \(sessionRequest.method)")
+        }
     }
     
     private func handleSessionDelete(_ json: [String: Any]) {
@@ -683,7 +733,7 @@ struct WCSession: Identifiable, Codable {
 
 // MARK: - Errors
 
-enum WCError: LocalizedError {
+enum WCError: LocalizedError, Equatable {
     case invalidURI
     case invalidRelayURL
     case connectionFailed
