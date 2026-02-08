@@ -1,6 +1,4 @@
 import SwiftUI
-import Security
-import LocalAuthentication
 #if canImport(AppKit)
 import AppKit
 #elseif canImport(UIKit)
@@ -13,9 +11,7 @@ struct ContentView: View {
     @State private var keys: AllKeys?
     @State private var rawJSON: String = ""
     @State private var isGenerating = false
-    @State private var errorMessage: String?
     @State private var statusMessage: String?
-    @State private var statusColor: Color = .green
     @State private var statusTask: Task<Void, Never>?
     @AppStorage("hawala.securityAcknowledged") private var hasAcknowledgedSecurityNotice = false
     @AppStorage("hawala.passcodeHash") private var storedPasscodeHash: String?
@@ -30,8 +26,6 @@ struct ContentView: View {
     @State private var hasResetOnboardingState = false
     @State private var balanceStates: [String: ChainBalanceState] = [:]
     @State private var cachedBalances: [String: CachedBalance] = [:]
-    @State private var balanceBackoff: [String: BackoffTracker] = [:]
-    @State private var balanceFetchTasks: [String: Task<Void, Never>] = [:]
     @StateObject private var sparklineCache = SparklineCache.shared
     @StateObject private var assetCache = AssetCache.shared
     @StateObject private var transactionHistoryService = TransactionHistoryService.shared
@@ -179,7 +173,6 @@ struct ContentView: View {
             balanceStates.removeAll()
             priceService.resetState()
             cachedBalances.removeAll()
-            balanceBackoff.removeAll()
             hasResetOnboardingState = true
             
             // Load cached asset data for instant display
@@ -1383,7 +1376,6 @@ struct ContentView: View {
     private func showStatus(_ message: String, tone: StatusTone, autoClear: Bool = true) {
         statusTask?.cancel()
         statusTask = nil
-        statusColor = tone.color
         statusMessage = message
 
         guard autoClear else { return }
@@ -1618,7 +1610,6 @@ struct ContentView: View {
     private func runGenerator() async {
         guard canAccessSensitiveData else { return }
         isGenerating = true
-        errorMessage = nil
         statusTask?.cancel()
         statusTask = nil
         statusMessage = nil
@@ -1656,7 +1647,6 @@ struct ContentView: View {
                 let hasSepolia = result.ethereumSepolia.address.starts(with: "0x")
                 let summary = "Generated \(cardCount) chains • Bitcoin testnet available: \(hasTestnet ? "yes" : "no") • Ethereum Sepolia available: \(hasSepolia ? "yes" : "no")"
                 statusMessage = summary
-                statusColor = .green
                 
                 balanceService.startBalanceFetch(for: result)
                 priceService.startPriceUpdatesIfNeeded(sparklineCache: sparklineCache)
@@ -1664,7 +1654,6 @@ struct ContentView: View {
             }
         } catch {
             await MainActor.run {
-                errorMessage = error.localizedDescription
                 isGenerating = false
                 // Show user-visible error toast
                 showStatus("Failed to generate wallet: \(error.localizedDescription)", tone: .error, autoClear: false)
@@ -1830,7 +1819,6 @@ struct ContentView: View {
         statusTask?.cancel()
         statusTask = nil
         statusMessage = nil
-        errorMessage = nil
         navigationVM.pendingImportData = nil
     navigationVM.pendingSendChain = nil
         navigationVM.showSendPicker = false
@@ -1845,7 +1833,6 @@ struct ContentView: View {
         balanceService.cancelBalanceFetchTasks()
         balanceStates.removeAll()
         cachedBalances.removeAll()
-        balanceBackoff.removeAll()
         priceService.resetState()
         priceService.stopPriceUpdates()
 
