@@ -20,7 +20,7 @@ struct KeyGeneratorApp: App {
                 .environmentObject(navigationCommands)
                 .withTheme()  // Apply theme settings (dark/light/system)
         }
-        .windowStyle(.hiddenTitleBar) // Hide the gray title bar
+        .windowStyle(.titleBar) // ROADMAP-13 E15: Native title bar for dynamic titles
         .commands {
             // ROADMAP-03: Global keyboard shortcuts
             HawalaCommands(navigationCommands: navigationCommands)
@@ -182,18 +182,23 @@ struct AppRootView: View {
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    // ROADMAP-13 E8: Window state restoration keys
+    private static let windowFrameKey = "hawala.windowFrame"
+    
     func applicationDidFinishLaunching(_ notification: Notification) {
         // CRITICAL: Set activation policy to regular to appear in dock and receive keyboard input
         NSApplication.shared.setActivationPolicy(.regular)
         
         if let window = NSApplication.shared.windows.first {
+            // ROADMAP-13 E8: Restore saved window frame
+            restoreWindowFrame(window)
             window.makeKeyAndOrderFront(nil)
             NSApplication.shared.activate(ignoringOtherApps: true)
             
-            // Hide the standard traffic light buttons since we have custom ones
-            window.standardWindowButton(.closeButton)?.isHidden = true
-            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-            window.standardWindowButton(.zoomButton)?.isHidden = true
+            // ROADMAP-13: Show native traffic lights for true macOS feel
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .visible
+            window.isMovableByWindowBackground = true
         }
         
         // ROADMAP-11: Start memory pressure monitoring
@@ -238,11 +243,67 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationWillTerminate(_ notification: Notification) {
+        // ROADMAP-13 E8: Save window frame before quit
         // Clean up network services
         Task { @MainActor in
+            if let window = NSApplication.shared.windows.first {
+                saveWindowFrame(window)
+            }
             WebSocketPriceService.shared.disconnect()
             BackendSyncService.shared.stopAutoSync()
             NotificationManager.shared.stopPriceMonitoring()
+        }
+    }
+    
+    // Also save when window resizes/moves (covers Cmd+Q and crash scenarios)
+    func applicationDidResignActive(_ notification: Notification) {
+        Task { @MainActor in
+            if let window = NSApplication.shared.windows.first {
+                saveWindowFrame(window)
+            }
+        }
+    }
+    
+    // MARK: - ROADMAP-13 E8: Window Frame Persistence
+    
+    @MainActor
+    private func saveWindowFrame(_ window: NSWindow) {
+        let frame = window.frame
+        let dict: [String: Double] = [
+            "x": frame.origin.x,
+            "y": frame.origin.y,
+            "w": frame.size.width,
+            "h": frame.size.height
+        ]
+        UserDefaults.standard.set(dict, forKey: Self.windowFrameKey)
+    }
+    
+    @MainActor
+    private func restoreWindowFrame(_ window: NSWindow) {
+        guard let dict = UserDefaults.standard.dictionary(forKey: Self.windowFrameKey) as? [String: Double],
+              let x = dict["x"], let y = dict["y"],
+              let w = dict["w"], let h = dict["h"] else { return }
+        
+        let savedFrame = NSRect(x: x, y: y, width: max(w, 900), height: max(h, 600))
+        
+        // Verify the saved frame is visible on a connected screen
+        let isOnScreen = NSScreen.screens.contains { screen in
+            screen.visibleFrame.intersects(savedFrame)
+        }
+        
+        if isOnScreen {
+            window.setFrame(savedFrame, display: true, animate: false)
+        } else {
+            // Saved position is offscreen (display disconnected) — center on main
+            if let mainScreen = NSScreen.main {
+                let centered = NSRect(
+                    x: mainScreen.visibleFrame.midX - savedFrame.width / 2,
+                    y: mainScreen.visibleFrame.midY - savedFrame.height / 2,
+                    width: savedFrame.width,
+                    height: savedFrame.height
+                )
+                window.setFrame(centered, display: true, animate: false)
+            }
         }
     }
 }

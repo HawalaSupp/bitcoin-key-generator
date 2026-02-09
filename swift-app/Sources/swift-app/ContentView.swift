@@ -161,6 +161,9 @@ struct ContentView: View {
     
     // MARK: - NavigationSplitView sidebar selection (ROADMAP-03 E8)
     @State private var sidebarSelection: SidebarItem? = .portfolio
+    
+    // ROADMAP-13 E5/E6: Focus management for keyboard navigation
+    @FocusState private var focusedChainIndex: Int?
 
     enum SidebarItem: String, Hashable, CaseIterable, Identifiable {
         case portfolio = "Portfolio"
@@ -174,6 +177,19 @@ struct ContentView: View {
             case .activity:  return "clock.arrow.circlepath"
             case .discover:  return "sparkles"
             }
+        }
+    }
+    
+    // ROADMAP-13 E15: Dynamic window title based on current view
+    private var dynamicTitle: String {
+        if let chain = navigationVM.selectedChain {
+            return "\(chain.title) — Hawala"
+        }
+        switch sidebarSelection {
+        case .portfolio: return "Portfolio — Hawala"
+        case .activity:  return "Activity — Hawala"
+        case .discover:  return "Discover — Hawala"
+        case .none:      return "Hawala"
         }
     }
 
@@ -191,6 +207,7 @@ struct ContentView: View {
             mainDetailContent
         }
         .navigationSplitViewStyle(.balanced)
+        .navigationTitle(dynamicTitle)
         .frame(minWidth: 900, minHeight: 600)
         .background(HawalaTheme.Colors.background)
         .preferredColorScheme(.dark)
@@ -481,7 +498,7 @@ struct ContentView: View {
                         .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
                         
                         LazyVGrid(columns: gridColumns(for: navigationVM.viewportWidth), spacing: 14) {
-                            ForEach(filteredChainInfos(keys.chainInfos)) { chain in
+                            ForEach(Array(filteredChainInfos(keys.chainInfos).enumerated()), id: \.element.id) { index, chain in
                                 Button {
                                     guard canAccessSensitiveData else {
                                         navigationVM.showUnlockSheet = true
@@ -501,6 +518,46 @@ struct ContentView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .transition(cardTransition)
+                                // ROADMAP-13 E5: Keyboard focus ring
+                                .focusable()
+                                .focused($focusedChainIndex, equals: index)
+                                // ROADMAP-13 E12: Right-click context menu
+                                .contextMenu {
+                                    Button {
+                                        navigationVM.selectedChain = chain
+                                    } label: {
+                                        Label("View Details", systemImage: "info.circle")
+                                    }
+                                    if let address = chain.receiveAddress {
+                                        Button {
+                                            copyToClipboard(address)
+                                            showStatus("Address copied", tone: .success, autoClear: true)
+                                        } label: {
+                                            Label("Copy Address", systemImage: "doc.on.doc")
+                                        }
+                                    }
+                                    Divider()
+                                    Button {
+                                        navigationVM.pendingSendChain = chain
+                                        navigationVM.showSendPicker = true
+                                    } label: {
+                                        Label("Send \(chain.title)", systemImage: "arrow.up.circle")
+                                    }
+                                    Button {
+                                        navigationVM.showReceiveSheet = true
+                                    } label: {
+                                        Label("Receive \(chain.title)", systemImage: "arrow.down.circle")
+                                    }
+                                    if let address = chain.receiveAddress,
+                                       let url = URL(string: explorerURL(for: chain.id, address: address)) {
+                                        Divider()
+                                        Button {
+                                            NSWorkspace.shared.open(url)
+                                        } label: {
+                                            Label("View on Explorer", systemImage: "safari")
+                                        }
+                                    }
+                                }
                             }
                         }
                         // Only animate viewport changes, not data changes
@@ -509,6 +566,22 @@ struct ContentView: View {
                         // Removed: .animation(cardAnimation, value: balanceAnimationToken)
                         // Removed: .animation(cardAnimation, value: priceAnimationToken)
                         // These caused jank during scroll as any balance/price update triggered full grid animation
+                        // ROADMAP-13 E6: Arrow key navigation through chain grid
+                        .modifier(ChainGridKeyHandler(
+                            filteredChains: filteredChainInfos(keys.chainInfos),
+                            focusedChainIndex: $focusedChainIndex,
+                            canAccessSensitiveData: canAccessSensitiveData,
+                            onSelectChain: { chain in navigationVM.selectedChain = chain },
+                            onEscape: {
+                                if navigationVM.selectedChain != nil {
+                                    withAnimation(HawalaTheme.Animation.fast) {
+                                        navigationVM.selectedChain = nil
+                                    }
+                                    return true
+                                }
+                                return false
+                            }
+                        ))
                     }
 
                     transactionHistoryPanel
@@ -1056,6 +1129,24 @@ struct ContentView: View {
     private func copyToClipboard(_ text: String) {
         ClipboardHelper.copy(text)
         showStatus("Copied to clipboard.", tone: .success)
+    }
+    
+    // ROADMAP-13 E12: Block explorer URL for chain address
+    private func explorerURL(for chainId: String, address: String) -> String {
+        switch chainId {
+        case "bitcoin":           return "https://mempool.space/address/\(address)"
+        case "bitcoin-testnet":   return "https://mempool.space/testnet/address/\(address)"
+        case "ethereum", "ethereum-sepolia": return "https://etherscan.io/address/\(address)"
+        case "litecoin":          return "https://blockchair.com/litecoin/address/\(address)"
+        case "solana", "solana-devnet": return "https://solscan.io/account/\(address)"
+        case "xrp", "xrp-testnet": return "https://xrpscan.com/account/\(address)"
+        case "bnb":               return "https://bscscan.com/address/\(address)"
+        case "dogecoin":          return "https://blockchair.com/dogecoin/address/\(address)"
+        case "cardano":           return "https://cardanoscan.io/address/\(address)"
+        case "polkadot":          return "https://polkascan.io/polkadot/account/\(address)"
+        case "tron":              return "https://tronscan.org/#/address/\(address)"
+        default:                  return "https://blockchair.com/search?q=\(address)"
+        }
     }
     
     // MARK: - Portfolio Search
