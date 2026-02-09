@@ -21,16 +21,7 @@ public final class TransactionDecoder: ObservableObject, @unchecked Sendable {
         "70a08231": MethodInfo(name: "balanceOf", description: "Check token balance", params: ["address"]),
         "18160ddd": MethodInfo(name: "totalSupply", description: "Get total token supply", params: []),
         
-        // ERC-721 Methods (NFTs)
-        "42842e0e": MethodInfo(name: "safeTransferFrom", description: "Transfer NFT safely", params: ["address", "address", "uint256"]),
-        "b88d4fde": MethodInfo(name: "safeTransferFrom", description: "Transfer NFT with data", params: ["address", "address", "uint256", "bytes"]),
-        "a22cb465": MethodInfo(name: "setApprovalForAll", description: "Approve all NFTs", params: ["address", "bool"]),
-        "081812fc": MethodInfo(name: "getApproved", description: "Get NFT approval", params: ["uint256"]),
-        "e985e9c5": MethodInfo(name: "isApprovedForAll", description: "Check approval for all", params: ["address", "address"]),
-        
-        // ERC-1155 Methods (Multi-token)
-        "f242432a": MethodInfo(name: "safeTransferFrom", description: "Transfer multi-token", params: ["address", "address", "uint256", "uint256", "bytes"]),
-        "2eb2c2d6": MethodInfo(name: "safeBatchTransferFrom", description: "Batch transfer", params: ["address", "address", "uint256[]", "uint256[]", "bytes"]),
+
         
         // Common DEX Methods (Uniswap-style)
         "7ff36ab5": MethodInfo(name: "swapExactETHForTokens", description: "Swap ETH for tokens", params: ["uint256", "address[]", "address", "uint256"]),
@@ -50,9 +41,7 @@ public final class TransactionDecoder: ObservableObject, @unchecked Sendable {
         "d0e30db0": MethodInfo(name: "deposit", description: "Wrap ETH to WETH", params: []),
         "2e1a7d4d": MethodInfo(name: "withdraw", description: "Unwrap WETH to ETH", params: ["uint256"]),
         
-        // OpenSea Seaport
-        "fb0f3ee1": MethodInfo(name: "fulfillBasicOrder", description: "Buy NFT on OpenSea", params: ["tuple"]),
-        "87201b41": MethodInfo(name: "fulfillAdvancedOrder", description: "Buy NFT (advanced)", params: ["tuple", "tuple[]", "bytes32", "address"]),
+
         
         // Permit2
         "2b67b570": MethodInfo(name: "permit", description: "Gasless approval", params: ["address", "tuple", "bytes"]),
@@ -76,8 +65,7 @@ public final class TransactionDecoder: ObservableObject, @unchecked Sendable {
         "0x7a250d5630b4cf539739df2c5dacb4c659f2488d": ContractInfo(name: "Uniswap V2 Router", type: .dex, verified: true),
         "0xe592427a0aece92de3edee1f18e0157c05861564": ContractInfo(name: "Uniswap V3 Router", type: .dex, verified: true),
         "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45": ContractInfo(name: "Uniswap Universal Router", type: .dex, verified: true),
-        "0x00000000006c3852cbef3e08e8df289169ede581": ContractInfo(name: "OpenSea Seaport", type: .nftMarketplace, verified: true),
-        "0x1e0049783f008a0085193e00003d00cd54003c71": ContractInfo(name: "Blur Marketplace", type: .nftMarketplace, verified: true),
+
         
         // Sepolia Testnet
         "0xfff9976782d46cc05630d1f6ebab18b2324d6b14": ContractInfo(name: "WETH (Sepolia)", type: .token, verified: true),
@@ -144,9 +132,6 @@ public final class TransactionDecoder: ObservableObject, @unchecked Sendable {
                 
             case "23b872dd": // transferFrom(address, address, uint256)
                 result = decodeTransferFrom(params: params, result: result)
-                
-            case "a22cb465": // setApprovalForAll(address, bool)
-                result = decodeApprovalForAll(params: params, result: result)
                 
             case "7ff36ab5", "18cbafe5", "38ed1739": // Swaps
                 result = decodeSwap(selector: selector, params: params, result: result, value: result.nativeValue)
@@ -279,28 +264,6 @@ public final class TransactionDecoder: ObservableObject, @unchecked Sendable {
         return result
     }
     
-    private func decodeApprovalForAll(params: String, result: DecodedTransaction) -> DecodedTransaction {
-        var result = result
-        let operator_ = decodeAddress(from: params, offset: 0)
-        let approved = params.count >= 128 && params.suffix(1) == "1"
-        
-        result.decodedParams["operator"] = operator_
-        result.decodedParams["approved"] = approved
-        
-        let operatorName = knownContracts[operator_.lowercased()]?.name ?? shortenAddress(operator_)
-        
-        if approved {
-            result.warnings.append(.approvalForAll)
-            result.humanReadable = "⚠️ Approve ALL NFTs to \(operatorName)"
-            result.riskLevel = .high
-        } else {
-            result.humanReadable = "Revoke NFT approval from \(operatorName)"
-            result.riskLevel = .low
-        }
-        
-        return result
-    }
-    
     private func decodeSwap(selector: String, params: String, result: DecodedTransaction, value: String?) -> DecodedTransaction {
         var result = result
         
@@ -383,7 +346,6 @@ public struct ContractInfo {
 public enum ContractType: String, Codable {
     case token = "Token"
     case dex = "DEX"
-    case nftMarketplace = "NFT Marketplace"
     case lending = "Lending"
     case bridge = "Bridge"
     case unknown = "Unknown"
@@ -404,7 +366,6 @@ public struct DecodedTransaction: @unchecked Sendable {
 
 public enum TxWarning: String, CaseIterable, Sendable {
     case unlimitedApproval = "Unlimited token approval requested"
-    case approvalForAll = "Approving access to ALL NFTs"
     case unverifiedContract = "Interacting with unverified contract"
     case unknownMethod = "Unknown contract method"
     case highValue = "High value transaction"
@@ -413,7 +374,6 @@ public enum TxWarning: String, CaseIterable, Sendable {
     public var icon: String {
         switch self {
         case .unlimitedApproval: return "⚠️"
-        case .approvalForAll: return "🚨"
         case .unverifiedContract: return "❓"
         case .unknownMethod: return "❔"
         case .highValue: return "💰"
@@ -423,7 +383,7 @@ public enum TxWarning: String, CaseIterable, Sendable {
     
     public var severity: TxRiskLevel {
         switch self {
-        case .unlimitedApproval, .approvalForAll: return .high
+        case .unlimitedApproval: return .high
         case .unverifiedContract, .unknownMethod, .newContract: return .medium
         case .highValue: return .low
         }

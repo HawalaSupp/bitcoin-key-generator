@@ -56,12 +56,6 @@ class TransactionPreviewService: ObservableObject {
             category: .lending,
             riskLevel: .medium
         ),
-        // OpenSea Seaport
-        "0x00000000000000adc04c56bf30ac9d3c0aaf14dc": KnownContract(
-            name: "OpenSea Seaport",
-            category: .nft,
-            riskLevel: .medium
-        ),
     ]
     
     // Known function selectors
@@ -72,15 +66,6 @@ class TransactionPreviewService: ObservableObject {
         "095ea7b3": FunctionSignature(name: "approve", description: "Approve token spending", params: ["address", "uint256"]),
         "39509351": FunctionSignature(name: "increaseAllowance", description: "Increase spending allowance", params: ["address", "uint256"]),
         "a457c2d7": FunctionSignature(name: "decreaseAllowance", description: "Decrease spending allowance", params: ["address", "uint256"]),
-        
-        // ERC-721
-        "42842e0e": FunctionSignature(name: "safeTransferFrom", description: "Transfer NFT safely", params: ["address", "address", "uint256"]),
-        "b88d4fde": FunctionSignature(name: "safeTransferFrom", description: "Transfer NFT with data", params: ["address", "address", "uint256", "bytes"]),
-        "a22cb465": FunctionSignature(name: "setApprovalForAll", description: "Approve all NFTs", params: ["address", "bool"]),
-        
-        // ERC-1155
-        "2eb2c2d6": FunctionSignature(name: "safeBatchTransferFrom", description: "Batch transfer tokens", params: ["address", "address", "uint256[]", "uint256[]", "bytes"]),
-        "f242432a": FunctionSignature(name: "safeTransferFrom", description: "Transfer ERC-1155 token", params: ["address", "address", "uint256", "uint256", "bytes"]),
         
         // Uniswap V2
         "38ed1739": FunctionSignature(name: "swapExactTokensForTokens", description: "Swap exact tokens", params: ["uint256", "uint256", "address[]", "address", "uint256"]),
@@ -227,19 +212,6 @@ class TransactionPreviewService: ObservableObject {
                     title: "Unlimited Token Approval",
                     description: "This transaction grants unlimited spending permission. Consider approving only the amount needed.",
                     recommendation: "Set a specific approval amount instead of unlimited"
-                ))
-            }
-        }
-        
-        // Check for setApprovalForAll (NFT)
-        if let call = decodedCall, call.functionName == "setApprovalForAll" {
-            if let boolParam = call.parameters.first(where: { $0.type == "bool" }),
-               boolParam.value == "true" {
-                risks.append(TransactionRisk(
-                    level: .high,
-                    title: "Full NFT Collection Approval",
-                    description: "This grants approval to manage ALL your NFTs in this collection.",
-                    recommendation: "Only approve trusted contracts and marketplaces"
                 ))
             }
         }
@@ -540,7 +512,6 @@ struct KnownContract {
 enum ContractCategory {
     case dex
     case lending
-    case nft
     case bridge
     case unknown
     
@@ -548,7 +519,6 @@ enum ContractCategory {
         switch self {
         case .dex: return "DEX"
         case .lending: return "Lending"
-        case .nft: return "NFT"
         case .bridge: return "Bridge"
         case .unknown: return "Unknown"
         }

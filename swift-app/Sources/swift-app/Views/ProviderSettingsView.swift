@@ -21,6 +21,13 @@ struct ProviderSettingsView: View {
     @AppStorage("provider.price.priority") private var pricePriority = "moralis,coinCap,cryptoCompare,coinGecko"
     @AppStorage("provider.blockchain.priority") private var blockchainPriority = "moralis,alchemy,tatum,mempool,blockchair"
     
+    // Custom RPC
+    @AppStorage("provider.customRPC.url") private var customRPCUrl = ""
+    @AppStorage("provider.customRPC.chain") private var customRPCChain = "Ethereum"
+    @AppStorage("provider.customRPC.enabled") private var customRPCEnabled = false
+    @State private var rpcTestResult: String?
+    @State private var isTestingRPC = false
+    
     // API key editing
     @State private var showMoralisKeyEditor = false
     @State private var moralisKeyInput = ""
@@ -63,6 +70,9 @@ struct ProviderSettingsView: View {
                     
                     // API Keys Section
                     apiKeysSection
+                    
+                    // Custom RPC Endpoint
+                    customRPCSection
                     
                     // Advanced Section
                     advancedSection
@@ -552,6 +562,203 @@ struct ProviderSettingsView: View {
         }
         .padding(HawalaTheme.Spacing.xl)
         .frame(minWidth: 400, minHeight: 220)
+    }
+    
+    // MARK: - Custom RPC Section
+    
+    private static let supportedChains = [
+        "Ethereum", "Polygon", "Arbitrum", "Optimism",
+        "BSC", "Avalanche", "Base", "Sepolia"
+    ]
+    
+    private var customRPCSection: some View {
+        SettingsSection("Custom RPC Endpoint") {
+            // Enable toggle
+            HStack(spacing: HawalaTheme.Spacing.md) {
+                ZStack {
+                    Circle()
+                        .fill(Color.purple.opacity(0.15))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "server.rack")
+                        .font(.system(size: 16))
+                        .foregroundColor(.purple)
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Use Custom RPC")
+                        .font(HawalaTheme.Typography.body)
+                        .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    Text("Override default provider with your own node")
+                        .font(HawalaTheme.Typography.caption)
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                }
+                
+                Spacer()
+                
+                Toggle("", isOn: $customRPCEnabled)
+                    .toggleStyle(SwitchToggleStyle(tint: HawalaTheme.Colors.accent))
+                    .labelsHidden()
+            }
+            .padding(.horizontal, HawalaTheme.Spacing.md)
+            .padding(.vertical, HawalaTheme.Spacing.sm)
+            
+            if customRPCEnabled {
+                Divider().padding(.leading, 56)
+                
+                // Chain picker
+                HStack(spacing: HawalaTheme.Spacing.md) {
+                    Text("Chain")
+                        .font(HawalaTheme.Typography.body)
+                        .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    
+                    Spacer()
+                    
+                    Picker("", selection: $customRPCChain) {
+                        ForEach(Self.supportedChains, id: \.self) { chain in
+                            Text(chain).tag(chain)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 200)
+                }
+                .padding(.horizontal, HawalaTheme.Spacing.md)
+                .padding(.vertical, HawalaTheme.Spacing.xs)
+                
+                Divider().padding(.leading, 56)
+                
+                // URL input
+                VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
+                    Text("RPC URL")
+                        .font(HawalaTheme.Typography.caption)
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    
+                    TextField("https://your-node.example.com", text: $customRPCUrl)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                }
+                .padding(.horizontal, HawalaTheme.Spacing.md)
+                .padding(.vertical, HawalaTheme.Spacing.sm)
+                
+                Divider().padding(.leading, 56)
+                
+                // Action buttons
+                HStack(spacing: HawalaTheme.Spacing.md) {
+                    // Test connection
+                    Button(action: testRPCConnection) {
+                        HStack(spacing: 6) {
+                            if isTestingRPC {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "bolt.fill")
+                                    .font(.system(size: 12))
+                            }
+                            Text("Test")
+                                .font(HawalaTheme.Typography.caption)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(customRPCUrl.isEmpty || isTestingRPC)
+                    
+                    // Clear
+                    Button(action: {
+                        customRPCUrl = ""
+                        customRPCChain = "Ethereum"
+                        customRPCEnabled = false
+                        rpcTestResult = nil
+                        ToastManager.shared.info("Custom RPC cleared")
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 12))
+                            Text("Clear")
+                                .font(HawalaTheme.Typography.caption)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.red)
+                    .disabled(customRPCUrl.isEmpty)
+                    
+                    Spacer()
+                    
+                    // Test result indicator
+                    if let result = rpcTestResult {
+                        HStack(spacing: 4) {
+                            Image(systemName: result.starts(with: "✓") ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundColor(result.starts(with: "✓") ? .green : .red)
+                                .font(.system(size: 14))
+                            Text(result)
+                                .font(HawalaTheme.Typography.caption)
+                                .foregroundColor(result.starts(with: "✓") ? .green : .red)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                .padding(.horizontal, HawalaTheme.Spacing.md)
+                .padding(.vertical, HawalaTheme.Spacing.sm)
+            }
+        }
+    }
+    
+    private func testRPCConnection() {
+        guard let url = URL(string: customRPCUrl) else {
+            rpcTestResult = "✗ Invalid URL"
+            return
+        }
+        
+        isTestingRPC = true
+        rpcTestResult = nil
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+        
+        let body: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "eth_blockNumber",
+            "params": [],
+            "id": 1
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                isTestingRPC = false
+                
+                if let error = error {
+                    rpcTestResult = "✗ \(error.localizedDescription)"
+                    return
+                }
+                
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    rpcTestResult = "✗ No response"
+                    return
+                }
+                
+                guard httpResponse.statusCode == 200 else {
+                    rpcTestResult = "✗ HTTP \(httpResponse.statusCode)"
+                    return
+                }
+                
+                guard let data = data,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let blockHex = json["result"] as? String else {
+                    rpcTestResult = "✗ Invalid JSON-RPC response"
+                    return
+                }
+                
+                // Parse block number from hex
+                let cleanHex = blockHex.hasPrefix("0x") ? String(blockHex.dropFirst(2)) : blockHex
+                if let blockNum = UInt64(cleanHex, radix: 16) {
+                    rpcTestResult = "✓ Connected (block #\(blockNum))"
+                    ToastManager.shared.success("RPC endpoint is working")
+                } else {
+                    rpcTestResult = "✓ Connected"
+                    ToastManager.shared.success("RPC endpoint is working")
+                }
+            }
+        }.resume()
     }
     
     // MARK: - Advanced Section

@@ -30,7 +30,6 @@ final class DAppRegistry: ObservableObject {
     enum DAppCategory: String, CaseIterable, Equatable {
         case dex = "DEX"
         case lending = "Lending"
-        case nftMarketplace = "NFT Marketplace"
         case bridge = "Bridge"
         case derivatives = "Derivatives"
         case yield = "Yield"
@@ -44,7 +43,6 @@ final class DAppRegistry: ObservableObject {
             switch self {
             case .dex: return "arrow.triangle.swap"
             case .lending: return "banknote"
-            case .nftMarketplace: return "photo.artframe"
             case .bridge: return "arrow.left.arrow.right"
             case .derivatives: return "chart.line.uptrend.xyaxis"
             case .yield: return "leaf.fill"
@@ -132,29 +130,6 @@ final class DAppRegistry: ObservableObject {
             category: .lending,
             description: "MakerDAO lending frontend",
             verifiedDomains: ["app.spark.fi", "spark.fi"],
-            chainIds: ["eip155:1"]
-        ),
-        
-        // NFT Marketplaces
-        DAppInfo(
-            name: "OpenSea",
-            category: .nftMarketplace,
-            description: "Largest NFT marketplace",
-            verifiedDomains: ["opensea.io"],
-            chainIds: ["eip155:1", "eip155:137", "eip155:42161"]
-        ),
-        DAppInfo(
-            name: "Blur",
-            category: .nftMarketplace,
-            description: "Professional NFT marketplace",
-            verifiedDomains: ["blur.io"],
-            chainIds: ["eip155:1"]
-        ),
-        DAppInfo(
-            name: "LooksRare",
-            category: .nftMarketplace,
-            description: "Community NFT marketplace",
-            verifiedDomains: ["looksrare.org"],
             chainIds: ["eip155:1"]
         ),
         

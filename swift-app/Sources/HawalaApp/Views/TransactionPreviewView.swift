@@ -316,8 +316,6 @@ struct WarningRow: View {
         switch warning {
         case .unlimitedApproval:
             return "This contract can spend unlimited tokens from your wallet. Consider setting a specific limit."
-        case .approvalForAll:
-            return "This grants access to ALL your NFTs in this collection. Only approve trusted marketplaces."
         case .unverifiedContract:
             return "This contract's source code has not been verified. Proceed with caution."
         case .unknownMethod:

@@ -110,7 +110,6 @@ enum ServiceType: String, Codable {
     case bridge = "Bridge"
     case mixer = "Mixer"
     case gambling = "Gambling"
-    case nftMarketplace = "NFT Marketplace"
     case wallet = "Wallet Service"
     case payment = "Payment Service"
     case scam = "Known Scam"
@@ -125,7 +124,6 @@ enum ServiceType: String, Codable {
         case .bridge: return "arrow.left.arrow.right.circle.fill"
         case .mixer: return "shuffle.circle.fill"
         case .gambling: return "dice.fill"
-        case .nftMarketplace: return "photo.stack.fill"
         case .wallet: return "wallet.pass.fill"
         case .payment: return "creditcard.fill"
         case .scam: return "exclamationmark.shield.fill"
@@ -137,7 +135,7 @@ enum ServiceType: String, Codable {
     var riskLevel: AddressRiskLevel {
         switch self {
         case .exchange, .wallet, .payment: return .safe
-        case .dex, .defi, .bridge, .nftMarketplace: return .low
+        case .dex, .defi, .bridge: return .low
         case .mixer, .gambling: return .medium
         case .scam: return .high
         case .sanctioned: return .critical
@@ -936,10 +934,6 @@ final class AddressIntelligenceManager: ObservableObject {
             
             // Compound
             "0x3d9819210a31b4961b30ef54be2aed79b9c9cd3b": KnownService(name: "Compound Comptroller", type: .defi, website: "compound.finance", isVerified: true, riskWarning: nil),
-            
-            // OpenSea
-            "0x00000000006c3852cbef3e08e8df289169ede581": KnownService(name: "OpenSea Seaport", type: .nftMarketplace, website: "opensea.io", isVerified: true, riskWarning: nil),
-            "0x00000000000000adc04c56bf30ac9d3c0aaf14dc": KnownService(name: "OpenSea Seaport 1.5", type: .nftMarketplace, website: "opensea.io", isVerified: true, riskWarning: nil),
             
             // Bridges
             "0x3ee18b2214aff97000d974cf647e7c347e8fa585": KnownService(name: "Wormhole Bridge", type: .bridge, website: "wormhole.com", isVerified: true, riskWarning: "Bridge transactions may take time to complete"),

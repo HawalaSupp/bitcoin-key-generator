@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Token Approval Manager
 
-/// Service for managing ERC-20 and ERC-721 token approvals
+/// Service for managing ERC-20 token approvals
 /// Allows viewing and revoking spending permissions granted to contracts
 @MainActor
 class TokenApprovalManager: ObservableObject {
@@ -83,16 +83,8 @@ class TokenApprovalManager: ObservableObject {
                 chainId: chainId
             )
             
-            // Fetch ERC-721 (NFT) approval events
-            let nftApprovals = try await fetchERC721Approvals(
-                address: address,
-                endpoint: endpoint,
-                apiKey: apiKey,
-                chainId: chainId
-            )
-            
-            // Combine and sort by timestamp
-            var combined = erc20Approvals + nftApprovals
+            // Sort by timestamp
+            var combined = erc20Approvals
             combined.sort { ($0.timestamp ?? 0) > ($1.timestamp ?? 0) }
             
             approvals = combined
@@ -167,7 +159,6 @@ class TokenApprovalManager: ObservableObject {
                 spenderName: knownSpenders[spenderAddress] ?? nil,
                 approvalAmount: amount,
                 isUnlimited: amount == nil || amount == .max,
-                isNFT: false,
                 chainId: chainId,
                 timestamp: parseTimestamp(log.timeStamp),
                 transactionHash: log.transactionHash
@@ -178,89 +169,15 @@ class TokenApprovalManager: ObservableObject {
         return Array(approvalMap.values).filter { $0.approvalAmount != 0 }
     }
     
-    // MARK: - ERC-721 Approvals
-    
-    private func fetchERC721Approvals(
-        address: String,
-        endpoint: String,
-        apiKey: String,
-        chainId: Int
-    ) async throws -> [TokenApproval] {
-        // ApprovalForAll event topic
-        let approvalForAllTopic = "0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31"
-        let ownerTopic = "0x" + String(repeating: "0", count: 24) + address.dropFirst(2).lowercased()
-        
-        var urlComponents = URLComponents(string: endpoint)!
-        urlComponents.queryItems = [
-            URLQueryItem(name: "module", value: "logs"),
-            URLQueryItem(name: "action", value: "getLogs"),
-            URLQueryItem(name: "topic0", value: approvalForAllTopic),
-            URLQueryItem(name: "topic1", value: ownerTopic),
-            URLQueryItem(name: "apikey", value: apiKey),
-        ]
-        
-        let (data, _) = try await URLSession.shared.data(from: urlComponents.url!)
-        let response = try JSONDecoder().decode(EtherscanLogResponse.self, from: data)
-        
-        guard response.status == "1", let logs = response.result else {
-            return []
-        }
-        
-        var approvalMap: [String: TokenApproval] = [:]
-        
-        for log in logs {
-            guard log.topics.count >= 3 else { continue }
-            
-            let tokenAddress = log.address.lowercased()
-            let spenderAddress = "0x" + log.topics[2].suffix(40).lowercased()
-            
-            // Data contains the bool (approved or not)
-            let isApproved = log.data.hasSuffix("1") || log.data.contains("0000001")
-            
-            if !isApproved { continue } // Skip revocations
-            
-            let key = "\(tokenAddress)-\(spenderAddress)-nft"
-            
-            // Get NFT collection info
-            let tokenInfo = await getTokenInfo(address: tokenAddress, chainId: chainId)
-            
-            approvalMap[key] = TokenApproval(
-                id: key,
-                tokenAddress: tokenAddress,
-                tokenName: tokenInfo?.name ?? "Unknown NFT",
-                tokenSymbol: tokenInfo?.symbol ?? "NFT",
-                tokenDecimals: 0,
-                spenderAddress: spenderAddress,
-                spenderName: knownSpenders[spenderAddress] ?? nil,
-                approvalAmount: nil,
-                isUnlimited: true,
-                isNFT: true,
-                chainId: chainId,
-                timestamp: parseTimestamp(log.timeStamp),
-                transactionHash: log.transactionHash
-            )
-        }
-        
-        return Array(approvalMap.values)
-    }
-    
     // MARK: - Revoke Approval
     
     /// Generate transaction data for revoking an ERC-20 approval
     func generateRevokeData(approval: TokenApproval) -> String {
-        if approval.isNFT {
-            // setApprovalForAll(address,bool) - set to false
-            let selector = "a22cb465"
-            let spender = String(repeating: "0", count: 24) + approval.spenderAddress.dropFirst(2)
-            let value = String(repeating: "0", count: 64) // false
-            return "0x\(selector)\(spender)\(value)"
-        } else {
-            // approve(address,uint256) - set to 0
-            let selector = "095ea7b3"
-            let spender = String(repeating: "0", count: 24) + approval.spenderAddress.dropFirst(2)
-            let value = String(repeating: "0", count: 64) // 0
-            return "0x\(selector)\(spender)\(value)"
-        }
+        // approve(address,uint256) - set to 0
+        let selector = "095ea7b3"
+        let spender = String(repeating: "0", count: 24) + approval.spenderAddress.dropFirst(2)
+        let value = String(repeating: "0", count: 64) // 0
+        return "0x\(selector)\(spender)\(value)"
     }
     
     /// Get gas estimate for revoke transaction
@@ -398,15 +315,11 @@ struct TokenApproval: Identifiable {
     let spenderName: String?
     let approvalAmount: UInt64?
     let isUnlimited: Bool
-    let isNFT: Bool
     let chainId: Int
     let timestamp: TimeInterval?
     let transactionHash: String?
     
     var displayAmount: String {
-        if isNFT {
-            return "All NFTs"
-        }
         if isUnlimited || approvalAmount == .max {
             return "Unlimited"
         }
@@ -418,9 +331,6 @@ struct TokenApproval: Identifiable {
     var riskLevel: ApprovalRiskLevel {
         if isUnlimited || approvalAmount == .max {
             return .high
-        }
-        if isNFT {
-            return .medium
         }
         return .low
     }

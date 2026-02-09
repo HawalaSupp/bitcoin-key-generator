@@ -156,7 +156,6 @@ final class AddressLabelManager: ObservableObject {
             ("Personal", "blue", "person.fill"),
             ("Exchange", "orange", "building.columns"),
             ("DeFi", "purple", "square.stack.3d.up"),
-            ("NFT", "pink", "photo.artframe"),
             ("Contract", "gray", "doc.text"),
             ("Cold Storage", "cyan", "snowflake"),
             ("Hot Wallet", "red", "flame.fill"),

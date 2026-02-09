@@ -291,7 +291,7 @@ enum UserPersona: String, CaseIterable, Identifiable {
     var tagline: String {
         switch self {
         case .beginner: return "Just here to HODL"
-        case .collector: return "NFTs and art lover"
+        case .collector: return "Tokens and collectibles"
         case .trader: return "DeFi and swaps"
         case .builder: return "Developer mode ON"
         }

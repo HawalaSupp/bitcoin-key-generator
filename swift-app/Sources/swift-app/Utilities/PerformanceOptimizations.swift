@@ -1314,3 +1314,356 @@ extension View {
         }
     }
 }
+
+// MARK: - 8. Cold Start Timer
+
+/// Measures wall-clock time from process launch to first meaningful frame.
+/// Drop `ColdStartTimer.shared.markReady()` at the end of your root view's `.onAppear`.
+@MainActor
+final class ColdStartTimer: ObservableObject {
+    static let shared = ColdStartTimer()
+    
+    /// Absolute time captured as early as possible (static initializer)
+    nonisolated(unsafe) private static let processStart = CFAbsoluteTimeGetCurrent()
+    
+    @Published private(set) var coldStartDuration: Double?
+    @Published private(set) var phase: Phase = .launching
+    
+    private var phaseTimestamps: [(Phase, CFAbsoluteTime)] = []
+    private let signpostLog = OSLog(subsystem: "com.hawala.app", category: "ColdStart")
+    
+    enum Phase: String, CaseIterable {
+        case launching    // Process started
+        case initializing // App struct init
+        case rendering    // First SwiftUI body
+        case interactive  // User can interact
+    }
+    
+    private init() {
+        record(.launching) // retroactively for processStart
+    }
+    
+    /// Call from `KeyGeneratorApp.init()`
+    func markInit() {
+        record(.initializing)
+        os_signpost(.event, log: signpostLog, name: "AppInit")
+    }
+    
+    /// Call from root view `.onAppear`
+    func markRendered() {
+        record(.rendering)
+        os_signpost(.event, log: signpostLog, name: "FirstRender")
+    }
+    
+    /// Call once the UI is fully interactive (data loaded, no spinners)
+    func markReady() {
+        record(.interactive)
+        let total = CFAbsoluteTimeGetCurrent() - Self.processStart
+        coldStartDuration = total
+        phase = .interactive
+        
+        os_signpost(.event, log: signpostLog, name: "Interactive")
+        
+        #if DEBUG
+        print("🚀 Cold start breakdown:")
+        for (i, entry) in phaseTimestamps.enumerated() {
+            let delta: Double
+            if i == 0 {
+                delta = 0
+            } else {
+                delta = entry.1 - phaseTimestamps[i - 1].1
+            }
+            print("   \(entry.0.rawValue): +\(String(format: "%.3f", delta))s")
+        }
+        print("   Total: \(String(format: "%.3f", total))s \(total < 2.0 ? "✅" : "⚠️ exceeds 2s budget")")
+        #endif
+    }
+    
+    /// Duration from process start to a given phase (nil if phase not yet recorded)
+    func elapsed(to targetPhase: Phase) -> Double? {
+        guard let entry = phaseTimestamps.first(where: { $0.0 == targetPhase }) else { return nil }
+        return entry.1 - Self.processStart
+    }
+    
+    var meetsTarget: Bool {
+        guard let d = coldStartDuration else { return false }
+        return d < 2.0
+    }
+    
+    private func record(_ p: Phase) {
+        phase = p
+        phaseTimestamps.append((p, CFAbsoluteTimeGetCurrent()))
+    }
+}
+
+// MARK: - 9. Network Request Batching
+
+/// Coalesces identical in-flight network requests so the same URL is never
+/// fetched twice concurrently.  Callers sharing the same key automatically
+/// share the same `URLSession` data task and receive the same result.
+actor NetworkBatchManager {
+    static let shared = NetworkBatchManager()
+    
+    private var inFlight: [String: Task<(Data, URLResponse), Error>] = [:]
+    private var stats = Stats()
+    
+    struct Stats: Sendable {
+        var totalRequests: Int = 0
+        var coalescedRequests: Int = 0
+        var failedRequests: Int = 0
+    }
+    
+    private init() {}
+    
+    /// Fetch data, coalescing duplicate requests by `key`.
+    /// The default key is the request URL; callers may supply a custom key.
+    func fetch(
+        _ request: URLRequest,
+        key: String? = nil,
+        session: URLSession = .shared
+    ) async throws -> (Data, URLResponse) {
+        let cacheKey = key ?? request.url?.absoluteString ?? UUID().uuidString
+        stats.totalRequests += 1
+        
+        // Coalesce if an identical request is already in-flight
+        if let existing = inFlight[cacheKey] {
+            stats.coalescedRequests += 1
+            return try await existing.value
+        }
+        
+        let task = Task<(Data, URLResponse), Error> {
+            try await session.data(for: request)
+        }
+        
+        inFlight[cacheKey] = task
+        
+        do {
+            let result = try await task.value
+            inFlight.removeValue(forKey: cacheKey)
+            return result
+        } catch {
+            inFlight.removeValue(forKey: cacheKey)
+            stats.failedRequests += 1
+            throw error
+        }
+    }
+    
+    /// Convenience for simple GET URLs.
+    func fetch(url: URL, key: String? = nil) async throws -> (Data, URLResponse) {
+        try await fetch(URLRequest(url: url), key: key)
+    }
+    
+    /// Batch multiple URLs concurrently, coalescing duplicates.
+    func fetchBatch(
+        urls: [URL],
+        maxConcurrency: Int = 6
+    ) async -> [(url: URL, result: Result<(Data, URLResponse), Error>)] {
+        await withTaskGroup(of: (Int, Result<(Data, URLResponse), Error>).self) { group in
+            var results: [(url: URL, result: Result<(Data, URLResponse), Error>)] =
+                urls.map { ($0, .failure(CancellationError())) }
+            
+            for (index, url) in urls.enumerated() {
+                if index >= maxConcurrency {
+                    if let completed = await group.next() {
+                        results[completed.0] = (urls[completed.0], completed.1)
+                    }
+                }
+                group.addTask { [self] in
+                    do {
+                        let data = try await self.fetch(url: url)
+                        return (index, .success(data))
+                    } catch {
+                        return (index, .failure(error))
+                    }
+                }
+            }
+            for await completed in group {
+                results[completed.0] = (urls[completed.0], completed.1)
+            }
+            return results
+        }
+    }
+    
+    /// How many requests were saved by coalescing.
+    func getStats() -> Stats { stats }
+    
+    /// Cancel all in-flight tasks (e.g. on logout).
+    func cancelAll() {
+        for task in inFlight.values { task.cancel() }
+        inFlight.removeAll()
+    }
+}
+
+// MARK: - 10. Memory Pressure Handler
+
+/// Monitors system memory pressure via `DispatchSource` and triggers
+/// progressive cache eviction.  Integrates with existing caches
+/// (`ImageCache`, `OptimizedImageCache`, `PrefetchManager`).
+@MainActor
+final class MemoryPressureHandler: ObservableObject {
+    static let shared = MemoryPressureHandler()
+    
+    @Published private(set) var currentLevel: PressureLevel = .normal
+    @Published private(set) var evictionCount: Int = 0
+    
+    enum PressureLevel: String {
+        case normal
+        case warning
+        case critical
+    }
+    
+    private var source: DispatchSourceMemoryPressure?
+    
+    private init() {
+        startMonitoring()
+    }
+    
+    private func startMonitoring() {
+        source = DispatchSource.makeMemoryPressureSource(
+            eventMask: [.warning, .critical],
+            queue: .main
+        )
+        
+        source?.setEventHandler { [weak self] in
+            guard let self, let source = self.source else { return }
+            let event = source.data
+            
+            Task { @MainActor in
+                if event.contains(.critical) {
+                    self.handlePressure(.critical)
+                } else if event.contains(.warning) {
+                    self.handlePressure(.warning)
+                }
+            }
+        }
+        
+        source?.resume()
+    }
+    
+    private func handlePressure(_ level: PressureLevel) {
+        currentLevel = level
+        evictionCount += 1
+        
+        switch level {
+        case .warning:
+            // Trim non-essential caches
+            PrefetchManager.shared.clearCache()
+            OptimizedImageCache.shared.clearCache()
+            #if DEBUG
+            print("⚠️ Memory pressure WARNING — cleared prefetch + image caches")
+            #endif
+            
+        case .critical:
+            // Aggressive: clear everything
+            PrefetchManager.shared.clearCache()
+            OptimizedImageCache.shared.clearCache()
+            ImageCache.shared.clearAll()
+            URLCache.shared.removeAllCachedResponses()
+            #if DEBUG
+            print("🔴 Memory pressure CRITICAL — cleared ALL caches + URLCache")
+            #endif
+            
+        case .normal:
+            break
+        }
+        
+        PerformanceMonitor.logMemory(label: "After \(level.rawValue) eviction")
+    }
+    
+    /// Manually trigger an eviction (e.g. before heavy crypto operation)
+    func evictIfNeeded(threshold: Double = 500) {
+        let currentMB = PerformanceMonitor.shared.memoryUsageMB
+        if currentMB > threshold {
+            handlePressure(.warning)
+        }
+    }
+    
+    deinit {
+        source?.cancel()
+    }
+}
+
+// MARK: - 11. Startup Boot Sequence Manager
+
+/// Orchestrates app startup into prioritized phases so the main thread
+/// becomes interactive as fast as possible.
+///
+/// Usage from `KeyGeneratorApp.init()` or `AppRootView.onAppear`:
+/// ```
+/// await StartupSequenceManager.shared.run()
+/// ColdStartTimer.shared.markReady()
+/// ```
+@MainActor
+final class StartupSequenceManager: ObservableObject {
+    static let shared = StartupSequenceManager()
+    
+    @Published private(set) var currentPhase: Phase = .notStarted
+    @Published private(set) var isComplete = false
+    
+    enum Phase: String, CaseIterable {
+        case notStarted
+        case critical    // Keychain, seed validation (blocks UI)
+        case high        // Balance fetch, price fetch (shows stale then updates)
+        case normal      // History, analytics, coachmarks
+        case low         // Prefetch, sparklines, secondary chains
+        case done
+    }
+    
+    typealias BootTask = @MainActor @Sendable () async -> Void
+    
+    private var tasks: [Phase: [BootTask]] = [:]
+    private var phaseDurations: [Phase: Double] = [:]
+    
+    private init() {}
+    
+    /// Register a task to run at a specific boot phase.
+    func register(phase: Phase, task: @escaping BootTask) {
+        tasks[phase, default: []].append(task)
+    }
+    
+    /// Execute all registered tasks in phase order.
+    /// Critical runs serially (on main), high/normal/low run concurrently.
+    func run() async {
+        let phases: [Phase] = [.critical, .high, .normal, .low]
+        
+        for phase in phases {
+            guard let phaseTasks = tasks[phase], !phaseTasks.isEmpty else { continue }
+            currentPhase = phase
+            let start = CFAbsoluteTimeGetCurrent()
+            
+            if phase == .critical {
+                // Serial execution — must finish before UI renders
+                for task in phaseTasks {
+                    await task()
+                }
+            } else {
+                // Concurrent execution within the phase
+                for task in phaseTasks {
+                    await task()
+                }
+            }
+            
+            phaseDurations[phase] = CFAbsoluteTimeGetCurrent() - start
+        }
+        
+        currentPhase = .done
+        isComplete = true
+        
+        #if DEBUG
+        print("🏁 Boot sequence complete:")
+        for phase in phases {
+            if let d = phaseDurations[phase] {
+                print("   \(phase.rawValue): \(String(format: "%.3f", d))s")
+            }
+        }
+        #endif
+    }
+    
+    /// Reset (useful for tests or re-login)
+    func reset() {
+        tasks.removeAll()
+        phaseDurations.removeAll()
+        currentPhase = .notStarted
+        isComplete = false
+    }
+}

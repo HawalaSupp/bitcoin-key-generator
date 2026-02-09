@@ -33,6 +33,7 @@ final class NavigationViewModel: ObservableObject {
     @Published var showExportPasswordPrompt = false
     @Published var showImportPasswordPrompt = false
     @Published var showImportPrivateKeySheet = false
+    @Published var showPrivateKeyPasswordPrompt = false
     @Published var pendingImportData: Data?
     
     // MARK: - Feature Sheets
@@ -138,6 +139,7 @@ final class NavigationViewModel: ObservableObject {
         showExportPasswordPrompt = false
         showImportPasswordPrompt = false
         showImportPrivateKeySheet = false
+        showPrivateKeyPasswordPrompt = false
         showContactsSheet = false
         showStakingSheet = false
         showNotificationsSheet = false

@@ -473,7 +473,7 @@ struct TransactionSafetyTests {
         let unlimited = TokenApproval(
             id: "1", tokenAddress: "0xA0b8", tokenName: "USDC", tokenSymbol: "USDC",
             tokenDecimals: 6, spenderAddress: "0xRouter", spenderName: "Uniswap",
-            approvalAmount: UInt64.max, isUnlimited: true, isNFT: false,
+            approvalAmount: UInt64.max, isUnlimited: true,
             chainId: 1, timestamp: nil, transactionHash: nil
         )
         #expect(unlimited.displayAmount == "Unlimited")
@@ -482,20 +482,11 @@ struct TransactionSafetyTests {
         let exact = TokenApproval(
             id: "2", tokenAddress: "0xA0b8", tokenName: "USDC", tokenSymbol: "USDC",
             tokenDecimals: 6, spenderAddress: "0xRouter", spenderName: "Uniswap",
-            approvalAmount: 1_000_000, isUnlimited: false, isNFT: false,
+            approvalAmount: 1_000_000, isUnlimited: false,
             chainId: 1, timestamp: nil, transactionHash: nil
         )
         #expect(exact.displayAmount == "1.0000")
         #expect(exact.riskLevel == .low)
-        
-        let nft = TokenApproval(
-            id: "3", tokenAddress: "0xNFT", tokenName: "Bored Apes", tokenSymbol: "BAYC",
-            tokenDecimals: 0, spenderAddress: "0xOpenSea", spenderName: "OpenSea",
-            approvalAmount: nil, isUnlimited: false, isNFT: true,
-            chainId: 1, timestamp: nil, transactionHash: nil
-        )
-        #expect(nft.displayAmount == "All NFTs")
-        #expect(nft.riskLevel == .medium)
     }
     
     @Test("ApprovalRiskLevel has correct colors and icons")

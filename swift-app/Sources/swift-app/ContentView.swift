@@ -1356,26 +1356,27 @@ struct ContentView: View {
         }
     }
 
-    /// Reveal private keys with optional biometric authentication
+    /// Reveal private keys with biometric + password authentication
     @MainActor
     private func revealPrivateKeysWithBiometric() async {
-        // Check biometric authentication if enabled
+        // Step 1: Check biometric authentication if enabled
         if BiometricAuthHelper.shouldRequireBiometric(settingEnabled: biometricForKeyReveal) {
             let result = await BiometricAuthHelper.authenticate(reason: "Authenticate to view private keys")
             switch result {
             case .success:
-                break // Continue to show keys
+                break // Continue to password step
             case .cancelled:
                 return // User cancelled
             case .failed(let message):
                 showStatus("Authentication failed: \(message)", tone: .error)
                 return
             case .notAvailable:
-                break // Biometric not available, continue anyway
+                break // Biometric not available, continue with password only
             }
         }
         
-        navigationVM.showAllPrivateKeysSheet = true
+        // Step 2: Show password prompt
+        navigationVM.showPrivateKeyPasswordPrompt = true
     }
 
 }

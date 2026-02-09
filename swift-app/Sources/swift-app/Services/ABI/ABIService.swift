@@ -296,20 +296,6 @@ final class ABIService: ObservableObject {
     ]
     """
     
-    /// ERC-721 NFT Standard ABI
-    static let erc721ABI = """
-    [
-        {"type":"function","name":"name","inputs":[],"outputs":[{"name":"","type":"string"}],"stateMutability":"view"},
-        {"type":"function","name":"symbol","inputs":[],"outputs":[{"name":"","type":"string"}],"stateMutability":"view"},
-        {"type":"function","name":"tokenURI","inputs":[{"name":"tokenId","type":"uint256"}],"outputs":[{"name":"","type":"string"}],"stateMutability":"view"},
-        {"type":"function","name":"balanceOf","inputs":[{"name":"owner","type":"address"}],"outputs":[{"name":"","type":"uint256"}],"stateMutability":"view"},
-        {"type":"function","name":"ownerOf","inputs":[{"name":"tokenId","type":"uint256"}],"outputs":[{"name":"","type":"address"}],"stateMutability":"view"},
-        {"type":"function","name":"approve","inputs":[{"name":"to","type":"address"},{"name":"tokenId","type":"uint256"}],"outputs":[],"stateMutability":"nonpayable"},
-        {"type":"function","name":"transferFrom","inputs":[{"name":"from","type":"address"},{"name":"to","type":"address"},{"name":"tokenId","type":"uint256"}],"outputs":[],"stateMutability":"nonpayable"},
-        {"type":"function","name":"safeTransferFrom","inputs":[{"name":"from","type":"address"},{"name":"to","type":"address"},{"name":"tokenId","type":"uint256"}],"outputs":[],"stateMutability":"nonpayable"}
-    ]
-    """
-    
     // MARK: - Parsing
     
     /// Parse JSON ABI string
@@ -390,14 +376,6 @@ final class ABIService: ObservableObject {
         encodeFunctionCall(
             signature: "approve(address,uint256)",
             values: [.address(spender), .uint(amount)]
-        )
-    }
-    
-    /// Encode ERC-721 safeTransferFrom
-    func encodeERC721Transfer(from: String, to: String, tokenId: String) -> String {
-        encodeFunctionCall(
-            signature: "safeTransferFrom(address,address,uint256)",
-            values: [.address(from), .address(to), .uint(tokenId)]
         )
     }
     

@@ -83,6 +83,28 @@ struct SheetCoordinator: ViewModifier {
                     NoKeysPlaceholderView()
                 }
             }
+            // Private key password gate
+            .sheet(isPresented: $navigationVM.showPrivateKeyPasswordPrompt) {
+                PasswordPromptView(
+                    mode: .privateKeyExport,
+                    onConfirm: { password in
+                        // Verify against stored passcode
+                        if let expected = storedPasscodeHash {
+                            let hashed = securityVM.hashPasscode(password)
+                            guard hashed == expected else {
+                                // Wrong password — don't reveal keys
+                                return
+                            }
+                        }
+                        // Password verified (or no passcode set) — show keys
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            navigationVM.showAllPrivateKeysSheet = true
+                        }
+                    },
+                    onCancel: {}
+                )
+                .hawalaModal()
+            }
             // Receive
             .sheet(isPresented: $navigationVM.showReceiveSheet) {
                 if let keys {
@@ -123,11 +145,20 @@ struct SheetCoordinator: ViewModifier {
                     )
                 }
             }
-            // Seed phrase
+            // Seed phrase (view saved or generate new)
             .sheet(isPresented: $navigationVM.showSeedPhraseSheet) {
-                SeedPhraseSheet(onCopy: { value in
-                    onCopyToClipboard(value)
-                })
+                Group {
+                    if SecureSeedStorage.hasSeedPhrase(),
+                       let savedWords = try? SecureSeedStorage.loadSeedPhrase() {
+                        SeedPhraseSheet(savedPhrase: savedWords, onCopy: { value in
+                            onCopyToClipboard(value)
+                        })
+                    } else {
+                        SeedPhraseSheet(onCopy: { value in
+                            onCopyToClipboard(value)
+                        })
+                    }
+                }
                 .hawalaModal()
             }
             // Transaction history

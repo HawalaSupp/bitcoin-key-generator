@@ -7,6 +7,7 @@ struct KeyGeneratorApp: App {
     @StateObject private var navigationCommands = NavigationCommandsManager.shared
     
     init() {
+        ColdStartTimer.shared.markInit()
         print("Hawala Wallet Starting...")
         // Register custom fonts
         ClashGrotesk.registerFont()
@@ -159,6 +160,8 @@ struct AppRootView: View {
         .animation(.easeInOut(duration: 0.3), value: passcodeManager.isLocked)
         .animation(.easeInOut(duration: 0.3), value: passcodeManager.showSetupPrompt)
         .onAppear {
+            ColdStartTimer.shared.markRendered()
+            
             // Small delay to let app initialize
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 passcodeManager.checkPasscodeStatus()
@@ -167,6 +170,12 @@ struct AppRootView: View {
             // ROADMAP-01: Check Rust health after launch
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 rustHealthFailed = !RustService.shared.isHealthy
+            }
+            
+            // ROADMAP-11: Prioritized startup boot sequence
+            Task { @MainActor in
+                await StartupSequenceManager.shared.run()
+                ColdStartTimer.shared.markReady()
             }
         }
     }
@@ -187,21 +196,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.standardWindowButton(.zoomButton)?.isHidden = true
         }
         
-        // Start network services
-        Task { @MainActor in
-            // ROADMAP-01: Verify Rust FFI backend is healthy before anything else
-            let rustHealthy = RustService.shared.performHealthCheck()
-            if !rustHealthy {
+        // ROADMAP-11: Start memory pressure monitoring
+        _ = MemoryPressureHandler.shared
+        
+        // ROADMAP-11: Register startup boot tasks by priority
+        let boot = StartupSequenceManager.shared
+        
+        boot.register(phase: .critical) {
+            // Rust FFI health — must pass before signing/key ops
+            let ok = RustService.shared.performHealthCheck()
+            if !ok {
                 print("⚠️ WARNING: Rust FFI health check failed — \(RustService.shared.healthCheckError ?? "unknown")")
             }
-            
-            // Start WebSocket for live prices
+        }
+        
+        boot.register(phase: .high) {
+            // Live price WebSocket
             WebSocketPriceService.shared.connect()
-            
-            // Start background sync
+        }
+        
+        boot.register(phase: .normal) {
+            // Background sync
             BackendSyncService.shared.startAutoSync(interval: 60)
-            
-            // Start notification price monitoring
+        }
+        
+        boot.register(phase: .normal) {
+            // Notification price alerts
             NotificationManager.shared.startPriceMonitoring()
         }
     }

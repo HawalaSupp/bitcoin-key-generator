@@ -446,7 +446,6 @@ struct TransactionIntentView: View {
         case .tokenApproval: return .orange
         case .contractCall: return .purple
         case .swap: return .green
-        case .nftTransfer: return .pink
         case .stake, .unstake: return .indigo
         case .wrap, .unwrap: return .teal
         case .bridge: return .cyan

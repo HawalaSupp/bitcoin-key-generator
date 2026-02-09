@@ -382,8 +382,6 @@ final class FeeEstimationService: ObservableObject {
             return 65000
         case .erc20Approval:
             return 50000
-        case .nftTransfer:
-            return 100000
         case .contractInteraction:
             return 150000
         case .swap:
@@ -750,7 +748,6 @@ enum EVMTransactionType {
     case ethTransfer       // Simple ETH/BNB/MATIC transfer
     case erc20Transfer     // ERC-20 token transfer
     case erc20Approval     // Token approval
-    case nftTransfer       // ERC-721/ERC-1155 transfer
     case contractInteraction // Generic contract call
     case swap              // DEX swap
 }

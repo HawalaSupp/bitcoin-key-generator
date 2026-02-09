@@ -344,14 +344,9 @@ struct DAppRegistryTests {
             Issue.record("app.uniswap.org should be verified")
         }
         
-        // OpenSea
+        // OpenSea - removed from registry (no longer an NFT marketplace entry)
         let opensea = registry.verify(url: "https://opensea.io/assets")
-        if case .verified(let info) = opensea {
-            #expect(info.name == "OpenSea")
-            #expect(info.category == .nftMarketplace)
-        } else {
-            Issue.record("opensea.io should be verified")
-        }
+        #expect(opensea == .unknown)
         
         // Aave
         let aave = registry.verify(url: "https://app.aave.com")

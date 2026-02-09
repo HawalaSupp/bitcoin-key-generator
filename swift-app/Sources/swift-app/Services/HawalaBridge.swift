@@ -2349,7 +2349,7 @@ public final class HawalaBridge: @unchecked Sendable {
         case expense
         case transfer
         case swap
-        case nft
+        case collectible = "nft"  // Legacy raw value preserved for backwards compatibility
         case airdrop
         case stake
         case unstake

@@ -279,12 +279,12 @@ private struct ApprovalCard: View {
             // Token Icon
             ZStack {
                 Circle()
-                    .fill(approval.isNFT ? Color.purple.opacity(0.2) : HawalaTheme.Colors.accent.opacity(0.2))
+                    .fill(HawalaTheme.Colors.accent.opacity(0.2))
                     .frame(width: 44, height: 44)
                 
                 Text(approval.tokenSymbol.prefix(2).uppercased())
                     .font(HawalaTheme.Typography.label)
-                    .foregroundColor(approval.isNFT ? .purple : HawalaTheme.Colors.accent)
+                    .foregroundColor(HawalaTheme.Colors.accent)
             }
             
             // Info
@@ -294,16 +294,6 @@ private struct ApprovalCard: View {
                         .font(HawalaTheme.Typography.body)
                         .foregroundColor(HawalaTheme.Colors.textPrimary)
                         .lineLimit(1)
-                    
-                    if approval.isNFT {
-                        Text("NFT")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.purple)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.purple.opacity(0.15))
-                            .clipShape(Capsule())
-                    }
                 }
                 
                 HStack(spacing: 4) {

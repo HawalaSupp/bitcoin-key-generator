@@ -389,7 +389,6 @@ struct TransactionPreviewSheet: View {
         switch category {
         case .dex: return "arrow.left.arrow.right"
         case .lending: return "percent"
-        case .nft: return "photo.artframe"
         case .bridge: return "arrow.triangle.branch"
         case .unknown: return "questionmark.circle"
         }

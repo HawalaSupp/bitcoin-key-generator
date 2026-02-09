@@ -33,7 +33,7 @@ struct TransactionNotesView: View {
     @State private var exportFormat = "json"
     
     private let allCategories: [HawalaBridge.NoteCategory] = [
-        .income, .expense, .transfer, .swap, .nft,
+        .income, .expense, .transfer, .swap,
         .airdrop, .stake, .unstake, .gas, .fee, .other
     ]
     
@@ -232,12 +232,12 @@ struct TransactionNotesView: View {
         case .expense: return "arrow.up.circle"
         case .transfer: return "arrow.left.arrow.right"
         case .swap: return "arrow.triangle.2.circlepath"
-        case .nft: return "photo.artframe"
         case .airdrop: return "gift"
         case .stake: return "lock"
         case .unstake: return "lock.open"
         case .gas: return "fuelpump"
         case .fee: return "percent"
+        case .collectible: return "square.grid.2x2"
         case .other: return "ellipsis.circle"
         }
     }

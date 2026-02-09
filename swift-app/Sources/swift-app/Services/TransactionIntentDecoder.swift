@@ -11,7 +11,6 @@ enum IntentTransactionType: String, Codable {
     case tokenApproval = "Token Approval"
     case contractCall = "Contract Call"
     case swap = "Swap"
-    case nftTransfer = "NFT Transfer"
     case stake = "Stake"
     case unstake = "Unstake"
     case wrap = "Wrap"
@@ -26,7 +25,6 @@ enum IntentTransactionType: String, Codable {
         case .tokenApproval: return "checkmark.seal.fill"
         case .contractCall: return "doc.text.fill"
         case .swap: return "arrow.triangle.2.circlepath.circle.fill"
-        case .nftTransfer: return "photo.fill"
         case .stake: return "lock.fill"
         case .unstake: return "lock.open.fill"
         case .wrap: return "gift.fill"
@@ -42,7 +40,6 @@ enum IntentTransactionType: String, Codable {
         case .tokenApproval: return "orange"
         case .contractCall: return "purple"
         case .swap: return "green"
-        case .nftTransfer: return "pink"
         case .stake, .unstake: return "indigo"
         case .wrap, .unwrap: return "teal"
         case .bridge: return "cyan"
@@ -155,8 +152,6 @@ struct DecodedTransactionIntent: Identifiable {
             }
         case .swap:
             return "Swap \(formatAmount(amount)) \(token.symbol)"
-        case .nftTransfer:
-            return "Transfer NFT to \(toAddressLabel ?? shortAddress(toAddress))"
         case .stake:
             return "Stake \(formatAmount(amount)) \(token.symbol)"
         case .unstake:
@@ -747,14 +742,6 @@ final class TransactionIntentDecoder: ObservableObject {
                 address: "0x3d9819210a31b4961b30ef54be2aed79b9c9cd3b",
                 name: "Compound Comptroller",
                 category: "Lending",
-                isVerified: true
-            ),
-            
-            // OpenSea
-            "0x00000000006c3852cbef3e08e8df289169ede581": KnownContract(
-                address: "0x00000000006c3852cbef3e08e8df289169ede581",
-                name: "OpenSea Seaport",
-                category: "NFT Marketplace",
                 isVerified: true
             ),
         ]

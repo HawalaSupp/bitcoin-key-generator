@@ -1,15 +1,17 @@
 import SwiftUI
 
-/// Password prompt for encrypted backup export/import
+/// Password prompt for encrypted backup export/import and sensitive data access
 struct PasswordPromptView: View {
     enum Mode {
         case export
         case `import`
+        case privateKeyExport
 
         var title: String {
             switch self {
             case .export: return "Encrypt Backup"
             case .import: return "Unlock Backup"
+            case .privateKeyExport: return "Export Private Keys"
             }
         }
 
@@ -17,6 +19,7 @@ struct PasswordPromptView: View {
             switch self {
             case .export: return "Export"
             case .import: return "Import"
+            case .privateKeyExport: return "Reveal Keys"
             }
         }
 
@@ -26,7 +29,13 @@ struct PasswordPromptView: View {
                 return "Choose a strong passphrase. You will need it to restore this backup later."
             case .import:
                 return "Enter the passphrase that was used when this backup was created."
+            case .privateKeyExport:
+                return "Enter your wallet passphrase to reveal private keys. Never share these with anyone."
             }
+        }
+
+        var requiresConfirmation: Bool {
+            self == .export
         }
     }
 
@@ -50,7 +59,7 @@ struct PasswordPromptView: View {
                     SecureField("Passphrase", text: $password)
                         .textContentType(.password)
 
-                    if mode == .export {
+                    if mode.requiresConfirmation {
                         SecureField("Confirm passphrase", text: $confirmation)
                             .textContentType(.password)
                     }
@@ -78,7 +87,7 @@ struct PasswordPromptView: View {
                 }
             }
         }
-        .frame(minWidth: 360, minHeight: mode == .export ? 280 : 240)
+        .frame(minWidth: 360, minHeight: mode.requiresConfirmation ? 280 : 240)
     }
 
     private func confirmAction() {
@@ -88,7 +97,7 @@ struct PasswordPromptView: View {
             return
         }
 
-        if mode == .export {
+        if mode.requiresConfirmation {
             let confirmTrimmed = confirmation.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed == confirmTrimmed else {
                 errorMessage = "Passphrases do not match."

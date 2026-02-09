@@ -58,7 +58,6 @@ struct ContractCallView: View {
             ToolbarItem(placement: .automatic) {
                 Menu {
                     Button("ERC-20 Token") { loadKnownABI(.erc20) }
-                    Button("ERC-721 NFT") { loadKnownABI(.erc721) }
                     Divider()
                     Button("Saved Contracts...") { showSavedContracts = true }
                 } label: {
@@ -145,8 +144,6 @@ struct ContractCallView: View {
                         .foregroundColor(.secondary)
                     Spacer()
                     Button("Load ERC-20") { loadKnownABI(.erc20) }
-                        .font(.caption)
-                    Button("Load ERC-721") { loadKnownABI(.erc721) }
                         .font(.caption)
                 }
                 
@@ -540,8 +537,6 @@ struct ContractCallView: View {
         switch type {
         case .erc20:
             abiJson = ABIService.erc20ABI
-        case .erc721:
-            abiJson = ABIService.erc721ABI
         }
         parseABI()
     }
@@ -559,7 +554,7 @@ struct ContractCallView: View {
     }
     
     private enum KnownABIType {
-        case erc20, erc721
+        case erc20
     }
 }
 
