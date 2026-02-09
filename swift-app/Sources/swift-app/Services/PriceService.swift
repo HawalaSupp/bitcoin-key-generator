@@ -225,6 +225,8 @@ final class PriceService: ObservableObject {
                         let formatted = formatPrice(price)
                         cachedPrices[chainId] = CachedPrice(value: formatted, lastUpdated: timestamp)
                         priceStates[chainId] = .loaded(value: formatted, lastUpdated: timestamp)
+                        // Persist to disk cache for instant cold-start display
+                        AssetCache.shared.cachePrice(chainId: chainId, price: formatted, numericValue: price, change24h: nil)
                         break
                     }
                 }

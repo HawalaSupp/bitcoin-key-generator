@@ -180,6 +180,8 @@ final class BalanceService: ObservableObject {
             cachedBalances[chainId] = CachedBalance(value: displayValue, lastUpdated: now)
             balanceStates[chainId] = .loaded(value: displayValue, lastUpdated: now)
             balanceBackoff[chainId] = nil
+            // Persist to disk cache for instant cold-start display
+            AssetCache.shared.cacheBalance(chainId: chainId, balance: displayValue, numericValue: extractNumericBalance(displayValue))
             // Notify for persistent cache saving
             NotificationCenter.default.post(name: .balanceUpdated, object: nil, userInfo: [
                 "chainId": chainId,
@@ -778,12 +780,17 @@ final class BalanceService: ObservableObject {
     func extractNumericAmount(from state: ChainBalanceState) -> Double? {
         switch state {
         case .loaded(let value, _), .refreshing(let value, _), .stale(let value, _, _):
-            let numericString = value.components(separatedBy: CharacterSet.decimalDigits.inverted.subtracting(CharacterSet(charactersIn: ".")))
-                .joined()
-            return Double(numericString)
+            return extractNumericBalance(value)
         case .idle, .loading, .failed:
             return nil
         }
+    }
+    
+    /// Parse a numeric value from a formatted balance string like "0.00123 BTC"
+    func extractNumericBalance(_ displayValue: String) -> Double {
+        let numericString = displayValue.components(separatedBy: CharacterSet.decimalDigits.inverted.subtracting(CharacterSet(charactersIn: ".")))
+            .joined()
+        return Double(numericString) ?? 0
     }
 }
 

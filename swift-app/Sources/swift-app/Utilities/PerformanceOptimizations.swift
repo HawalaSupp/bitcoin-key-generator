@@ -417,15 +417,19 @@ class OptimizedImageCache {
         
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
-            guard let image = NSImage(data: data) else {
-                pendingURLs.remove(cacheKey as String)
-                return nil
-            }
             
             let finalImage: NSImage
             if let size = targetSize {
-                finalImage = NSImage.resizedSync(image, to: size)
+                // Use ImageIO downsampling — decodes only at target size, saving memory
+                finalImage = ImageDownsampler.downsample(data: data, maxPixelSize: max(size.width, size.height) * 2) ?? NSImage(data: data) ?? {
+                    pendingURLs.remove(cacheKey as String)
+                    return NSImage()
+                }()
             } else {
+                guard let image = NSImage(data: data) else {
+                    pendingURLs.remove(cacheKey as String)
+                    return nil
+                }
                 finalImage = image
             }
             
@@ -1312,6 +1316,75 @@ extension View {
         self.onAppear {
             PrefetchManager.shared.prefetchTab(tabId, loader: loader)
         }
+    }
+}
+
+// MARK: - ImageIO Downsampling
+
+import ImageIO
+
+/// High-performance image downsampling using ImageIO (never decodes full bitmap).
+/// Use instead of `NSImage.resizedSync` for loading remote/disk images at display size.
+enum ImageDownsampler {
+    /// Downsample image data to a maximum pixel dimension without decoding full resolution.
+    /// This is the most memory-efficient way to load large images at a smaller display size.
+    static func downsample(data: Data, maxPixelSize: CGFloat) -> NSImage? {
+        let options: [CFString: Any] = [
+            kCGImageSourceShouldCache: false  // Don't cache full-size decoded bitmap
+        ]
+        guard let source = CGImageSourceCreateWithData(data as CFData, options as CFDictionary) else {
+            return nil
+        }
+        return downsample(source: source, maxPixelSize: maxPixelSize)
+    }
+    
+    /// Downsample from a file URL.
+    static func downsample(url: URL, maxPixelSize: CGFloat) -> NSImage? {
+        let options: [CFString: Any] = [
+            kCGImageSourceShouldCache: false
+        ]
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, options as CFDictionary) else {
+            return nil
+        }
+        return downsample(source: source, maxPixelSize: maxPixelSize)
+    }
+    
+    private static func downsample(source: CGImageSource, maxPixelSize: CGFloat) -> NSImage? {
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,     // Decode at thumbnail size immediately
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {
+            return nil
+        }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+}
+
+// MARK: - Background JSON Decoder
+
+/// Moves JSON decoding off the main thread. Returns decoded value on caller's context.
+/// Usage: `let prices = try await JSONDecodeOffMain.decode([String: Double].self, from: data)`
+enum JSONDecodeOffMain {
+    /// Sendable wrapper for `Any` results from JSONSerialization
+    private struct AnyBox: @unchecked Sendable {
+        let value: Any
+    }
+    
+    static func decode<T: Decodable & Sendable>(_ type: T.Type, from data: Data) async throws -> T {
+        try await Task.detached(priority: .userInitiated) {
+            try JSONDecoder().decode(type, from: data)
+        }.value
+    }
+    
+    static func decodeJSON(_ data: Data) async throws -> Any {
+        let box = try await Task.detached(priority: .userInitiated) {
+            let result = try JSONSerialization.jsonObject(with: data, options: [])
+            return AnyBox(value: result)
+        }.value
+        return box.value
     }
 }
 

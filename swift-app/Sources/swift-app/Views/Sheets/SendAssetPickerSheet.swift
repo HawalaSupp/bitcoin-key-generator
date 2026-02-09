@@ -123,6 +123,7 @@ struct SendAssetPickerSheet: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 16))
                             }
                             .buttonStyle(.plain)
+                            .frame(height: 68)
                         }
                     }
                     .padding(.horizontal)

@@ -1,13 +1,21 @@
 import SwiftUI
 
 /// Card view displaying chain balance/price info in the main grid
-struct ChainCard: View {
+struct ChainCard: View, Equatable {
     let chain: ChainInfo
     let balanceState: ChainBalanceState
     let priceState: ChainPriceState
     var sparklineData: [Double] = []
 
     @State private var skeletonPhase: CGFloat = -0.8
+
+    // Equatable — only re-render when data actually changes
+    nonisolated static func == (lhs: ChainCard, rhs: ChainCard) -> Bool {
+        lhs.chain == rhs.chain &&
+        lhs.balanceState == rhs.balanceState &&
+        lhs.priceState == rhs.priceState &&
+        lhs.sparklineData == rhs.sparklineData
+    }
 
     private var pricePrimary: String {
         switch priceState {
@@ -159,7 +167,7 @@ struct ChainCard: View {
                                     .font(.caption)
                                     .fontWeight(.medium)
                                 if !sparklineData.isEmpty {
-                                    SparklineView(dataPoints: sparklineData, lineColor: chain.accentColor)
+                                    OptimizedSparklineView(dataPoints: sparklineData, lineColor: chain.accentColor)
                                 }
                             }
                         }

@@ -28,14 +28,14 @@ struct ContentView: View {
     @State private var cachedBalances: [String: CachedBalance] = [:]
     @StateObject private var sparklineCache = SparklineCache.shared
     @StateObject private var assetCache = AssetCache.shared
-    @StateObject private var transactionHistoryService = TransactionHistoryService.shared
+    private let transactionHistoryService = TransactionHistoryService.shared
     @StateObject private var navigationVM = NavigationViewModel()
     @StateObject private var securityVM = SecurityViewModel()
     @StateObject private var walletVM = WalletViewModel()
     @StateObject private var balanceService = BalanceService.shared
     @StateObject private var priceService = PriceService.shared
-    @StateObject private var backupService = BackupService.shared
-    @StateObject private var wcSigningService = WalletConnectSigningService.shared
+    private let backupService = BackupService.shared
+    private let wcSigningService = WalletConnectSigningService.shared
     // Phase 3 Feature Sheets
     // Phase 4 Feature Sheets (ERC-4337 Account Abstraction)
     @State private var historyEntries: [HawalaTransactionEntry] = []
