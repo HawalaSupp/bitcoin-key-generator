@@ -173,7 +173,7 @@ struct WalletConnectView: View {
                     HStack(spacing: 8) {
                         ProgressView()
                             .controlSize(.small)
-                        Text("Connecting...")
+                        Text("Connecting to dApp…")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

@@ -101,13 +101,13 @@ struct DEXAggregatorView: View {
                 QuoteComparisonSheet(quotes: quotes, selectedQuote: $selectedQuote)
             }
         }
-        .alert("Swap Successful", isPresented: $showTxSuccess) {
-            Button("OK") {
+        .alert("Swap Complete!", isPresented: $showTxSuccess) {
+            Button("Done") {
                 txHash = nil
                 service.clearCache()
             }
         } message: {
-            Text("Transaction hash: \(txHash ?? "")")
+            Text("Your swap was submitted successfully. It may take a few moments to confirm on-chain.")
         }
     }
     
@@ -319,9 +319,11 @@ struct DEXAggregatorView: View {
                 }
                 
                 Slider(value: $slippage, in: 0.1...5.0, step: 0.1)
+                    .help("Higher slippage increases success rate but may result in a worse price")
             }
             .padding(.top, 8)
         }
+        .help("Maximum price impact you're willing to accept on this swap")
         .padding()
         .background(Color.gray.opacity(0.05))
         .cornerRadius(12)

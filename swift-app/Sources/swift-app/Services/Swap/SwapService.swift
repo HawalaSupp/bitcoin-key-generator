@@ -623,11 +623,11 @@ struct SwapView: View {
                     SwapProgressSheet(swap: swap)
                 }
             }
-            .alert("Error", isPresented: .init(
+            .alert("Swap Issue", isPresented: .init(
                 get: { swapService.errorMessage != nil },
                 set: { if !$0 { swapService.errorMessage = nil } }
             )) {
-                Button("OK") { }
+                Button("Dismiss") { }
             } message: {
                 Text(swapService.errorMessage ?? "")
             }

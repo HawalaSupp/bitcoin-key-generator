@@ -36,8 +36,8 @@ struct DeadMansSwitchView: View {
         }
         .frame(minWidth: 600, minHeight: 650)
         .background(Color(NSColor.windowBackgroundColor))
-        .alert("Error", isPresented: .constant(errorMessage != nil)) {
-            Button("OK") { errorMessage = nil }
+        .alert("Something Went Wrong", isPresented: .constant(errorMessage != nil)) {
+            Button("Dismiss") { errorMessage = nil }
         } message: {
             if let error = errorMessage {
                 Text(error)

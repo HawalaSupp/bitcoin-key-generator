@@ -92,7 +92,7 @@ struct StealthAddressView: View {
                 HStack(spacing: 6) {
                     ProgressView()
                         .scaleEffect(0.7)
-                    Text("Scanning...")
+                    Text(LoadingCopy.stealth)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }

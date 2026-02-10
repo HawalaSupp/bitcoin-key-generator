@@ -537,12 +537,12 @@ struct BatchTransactionView: View {
         }
         .alert("Confirm Batch Transaction", isPresented: $showConfirmation) {
             Toggle("Use Testnet", isOn: $useTestnet)
-            Button("Cancel", role: .cancel) { }
-            Button("Send") {
+            Button("Go Back", role: .cancel) { }
+            Button("Send \(manager.selectedChain.symbol)") {
                 executeBatch()
             }
         } message: {
-            Text("Send \(String(format: "%.6f", manager.totalAmount)) \(manager.selectedChain.symbol) to \(manager.validRecipientsCount) recipients?")
+            Text("You're about to send \(String(format: "%.6f", manager.totalAmount)) \(manager.selectedChain.symbol) to \(manager.validRecipientsCount) recipients. This action cannot be undone.")
         }
     }
     
@@ -626,6 +626,7 @@ struct BatchTransactionView: View {
                 .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm))
             }
             .buttonStyle(.plain)
+            .help("Import addresses and amounts from a CSV file")
             
             // Clear all
             Button {
@@ -681,6 +682,7 @@ struct BatchTransactionView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .help("Send on \(chain.symbol)")
             }
             
             Spacer()

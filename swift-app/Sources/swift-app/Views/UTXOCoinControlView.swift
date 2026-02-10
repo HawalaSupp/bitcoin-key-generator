@@ -320,7 +320,7 @@ struct UTXOCoinControlView: View {
     private var loadingView: some View {
         VStack(spacing: 16) {
             ProgressView()
-            Text("Loading UTXOs...")
+            Text(LoadingCopy.utxos)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

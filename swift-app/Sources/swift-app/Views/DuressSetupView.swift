@@ -59,8 +59,8 @@ struct DuressSetupView: View {
         }
         .frame(minWidth: 500, minHeight: 600)
         .background(Color(NSColor.windowBackgroundColor))
-        .alert("Error", isPresented: .constant(errorMessage != nil)) {
-            Button("OK") { errorMessage = nil }
+        .alert("Setup Issue", isPresented: .constant(errorMessage != nil)) {
+            Button("Dismiss") { errorMessage = nil }
         } message: {
             if let error = errorMessage {
                 Text(error)
@@ -252,6 +252,7 @@ struct DuressSetupView: View {
                     SecureField("Enter 4+ digit PIN", text: $duressPin)
                         .textFieldStyle(.roundedBorder)
                         .font(.title2)
+                        .help("This PIN opens the decoy wallet — must differ from your real passcode")
                 }
                 
                 VStack(alignment: .leading, spacing: 8) {
@@ -262,6 +263,7 @@ struct DuressSetupView: View {
                     SecureField("Confirm PIN", text: $confirmPin)
                         .textFieldStyle(.roundedBorder)
                         .font(.title2)
+                        .help("Re-enter the duress PIN to confirm")
                 }
                 
                 if !duressPin.isEmpty && !confirmPin.isEmpty && duressPin != confirmPin {
@@ -372,7 +374,9 @@ struct DuressSetupView: View {
                     .foregroundColor(.secondary)
                 
                 Toggle("Include deposit transactions", isOn: $config.includeDeposits)
+                    .help("Show fake incoming transactions to make the decoy wallet more believable")
                 Toggle("Include send transactions", isOn: $config.includeSends)
+                    .help("Show fake outgoing transactions in the decoy wallet")
                 
                 Text("Realistic transaction history makes the decoy more believable")
                     .font(.caption)
@@ -428,6 +432,7 @@ struct DuressSetupView: View {
             }
             
             Toggle("Enable silent alert", isOn: $silentAlertEnabled)
+                .help("Silently notify a trusted person when the duress passcode is used")
                 .padding()
                 .background(Color.gray.opacity(0.1))
                 .cornerRadius(8)
@@ -455,6 +460,7 @@ struct DuressSetupView: View {
                             Text("Signal").tag(EmergencyContact.AlertMethod.signal)
                         }
                         .pickerStyle(.segmented)
+                        .help("How the emergency contact will be notified — Signal is most private")
                     }
                     
                     // Contact info

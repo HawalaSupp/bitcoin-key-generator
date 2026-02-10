@@ -439,7 +439,7 @@ struct AddressIntelligenceView: View {
         VStack(spacing: 16) {
             ProgressView()
                 .scaleEffect(1.5)
-            Text("Analyzing address...")
+            Text(LoadingCopy.addresses)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity)

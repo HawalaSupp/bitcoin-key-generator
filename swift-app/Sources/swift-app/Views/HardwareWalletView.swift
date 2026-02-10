@@ -32,8 +32,8 @@ struct HardwareWalletView: View {
             }
         }
         .frame(minWidth: 550, idealWidth: 600, minHeight: 450, idealHeight: 500)
-        .alert("Error", isPresented: .constant(errorMessage != nil)) {
-            Button("OK") { errorMessage = nil }
+        .alert("Hardware Wallet Issue", isPresented: .constant(errorMessage != nil)) {
+            Button("Dismiss") { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
         }

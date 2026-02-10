@@ -47,7 +47,7 @@ struct SecurityPoliciesView: View {
             }
             .onAppear { viewModel.loadSettings() }
             .alert("Security Alert", isPresented: $viewModel.showAlert) {
-                Button("OK") { }
+                Button("Dismiss") { }
             } message: {
                 Text(viewModel.alertMessage)
             }
@@ -285,12 +285,14 @@ struct ThreatProtectionSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Toggle("Enable Threat Detection", isOn: $viewModel.threatProtectionEnabled)
+                .help("Scans transactions against known scam databases before broadcasting")
                 .onChange(of: viewModel.threatProtectionEnabled) { _ in
                     viewModel.saveThreatSettings()
                 }
             
             if viewModel.threatProtectionEnabled {
                 Toggle("Auto-block known scam addresses", isOn: $viewModel.autoBlockScams)
+                    .help("Automatically rejects sends to addresses flagged in scam databases")
                     .onChange(of: viewModel.autoBlockScams) { _ in
                         viewModel.saveThreatSettings()
                     }
@@ -305,6 +307,7 @@ struct ThreatProtectionSection: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .help("Controls how aggressively suspicious transactions are flagged")
                     .onChange(of: viewModel.threatSensitivity) { _ in
                         viewModel.saveThreatSettings()
                     }
@@ -356,12 +359,13 @@ struct SpendingLimitsSection: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
             
-            LimitTextField(label: "Per Transaction", placeholder: "e.g., 0.1 BTC", value: $viewModel.perTxLimit)
-            LimitTextField(label: "Daily Limit", placeholder: "e.g., 0.5 BTC", value: $viewModel.dailyLimit)
-            LimitTextField(label: "Weekly Limit", placeholder: "e.g., 2.0 BTC", value: $viewModel.weeklyLimit)
-            LimitTextField(label: "Monthly Limit", placeholder: "e.g., 5.0 BTC", value: $viewModel.monthlyLimit)
+            LimitTextField(label: "Per Transaction", placeholder: "e.g., 0.1 BTC", value: $viewModel.perTxLimit, tooltip: "Maximum amount allowed per single transaction")
+            LimitTextField(label: "Daily Limit", placeholder: "e.g., 0.5 BTC", value: $viewModel.dailyLimit, tooltip: "Maximum total amount allowed within a 24-hour window")
+            LimitTextField(label: "Weekly Limit", placeholder: "e.g., 2.0 BTC", value: $viewModel.weeklyLimit, tooltip: "Maximum total amount allowed within a 7-day window")
+            LimitTextField(label: "Monthly Limit", placeholder: "e.g., 5.0 BTC", value: $viewModel.monthlyLimit, tooltip: "Maximum total amount allowed within a 30-day window")
             
             Toggle("Require whitelisted recipient", isOn: $viewModel.requireWhitelist)
+                .help("Only allows sends to pre-approved addresses in your whitelist")
             
             HStack {
                 Spacer()
@@ -384,6 +388,7 @@ struct LimitTextField: View {
     let label: String
     let placeholder: String
     @Binding var value: String
+    var tooltip: String = ""
     
     var body: some View {
         HStack {
@@ -392,6 +397,7 @@ struct LimitTextField: View {
             TextField(placeholder, text: $value)
                 .textFieldStyle(.roundedBorder)
         }
+        .help(tooltip)
     }
 }
 

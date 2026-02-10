@@ -60,7 +60,7 @@ struct OrdinalsView: View {
     private var loadingView: some View {
         VStack(spacing: 16) {
             ProgressView()
-            Text("Loading Ordinals...")
+            Text(LoadingCopy.ordinals)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }

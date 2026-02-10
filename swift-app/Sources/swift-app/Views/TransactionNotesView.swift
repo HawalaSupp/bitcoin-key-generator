@@ -413,7 +413,7 @@ struct TransactionNotesView: View {
             Spacer()
             ProgressView()
                 .scaleEffect(1.5)
-            Text("Loading notes...")
+            Text(LoadingCopy.notes)
                 .font(HawalaTheme.Typography.caption)
                 .foregroundColor(HawalaTheme.Colors.textSecondary)
                 .padding(.top)

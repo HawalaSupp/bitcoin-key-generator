@@ -31,8 +31,8 @@ struct TimeLockedVaultsView: View {
         .sheet(item: $selectedVault) { vault in
             VaultDetailSheet(vault: vault)
         }
-        .alert("Error", isPresented: .constant(errorMessage != nil)) {
-            Button("OK") { errorMessage = nil }
+        .alert("Vault Error", isPresented: .constant(errorMessage != nil)) {
+            Button("Dismiss") { errorMessage = nil }
         } message: {
             if let error = errorMessage {
                 Text(error)

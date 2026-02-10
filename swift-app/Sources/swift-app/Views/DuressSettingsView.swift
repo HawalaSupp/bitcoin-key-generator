@@ -120,9 +120,11 @@ struct DuressSettingsView: View {
         .formStyle(.grouped)
         .navigationTitle("Duress Protection")
         .alert("Error", isPresented: .constant(errorMessage != nil)) {
-            Button("OK") { errorMessage = nil }
+            Button("Dismiss") { errorMessage = nil }
         } message: {
-            Text(errorMessage ?? "")
+            if let msg = errorMessage {
+                Text(HawalaUserError.from(message: msg, context: .duress)?.message ?? msg)
+            }
         }
         .alert("Disable Duress Protection?", isPresented: $showDisableConfirmation) {
             Button("Cancel", role: .cancel) { }

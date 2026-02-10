@@ -63,7 +63,7 @@ struct StakingView: View {
             }
         }
         .alert("Staking Error", isPresented: .constant(errorMessage != nil)) {
-            Button("OK") { errorMessage = nil }
+            Button("Dismiss") { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
         }
@@ -379,6 +379,7 @@ struct ValidatorRow: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
+            .help("Delegate tokens to this validator")
         }
         .padding()
         .background(Color.primary.opacity(0.03))
@@ -452,6 +453,7 @@ struct StakeInputSheet: View {
                     TextField("0.0", text: $amount)
                         .font(.system(size: 36, weight: .medium, design: .rounded))
                         .multilineTextAlignment(.center)
+                        .help("Amount to lock in staking — funds are illiquid during the unbonding period")
                     
                     Text(symbol)
                         .font(.title2)
@@ -465,6 +467,7 @@ struct StakeInputSheet: View {
                     .font(.caption)
                     .buttonStyle(.plain)
                     .foregroundStyle(.blue)
+                    .help("Stake maximum balance — reserves a small amount for transaction fees")
                 }
             }
             .padding()

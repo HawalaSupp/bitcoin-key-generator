@@ -177,7 +177,7 @@ struct FeeIntelligenceView: View {
                         )
                     }
                 } else {
-                    Text("Loading fees...")
+                    Text(LoadingCopy.prices)
                         .foregroundColor(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 20)
@@ -687,6 +687,16 @@ struct FeeIntelPresetCard: View {
         .padding(.vertical, 12)
         .background(colorForPreset.opacity(0.1))
         .cornerRadius(12)
+        .help(tooltipText)
+    }
+    
+    private var tooltipText: String {
+        switch preset {
+        case .economy: return "Lowest fee — may take longer to confirm during congestion"
+        case .normal: return "Balanced fee — recommended for most transactions"
+        case .priority: return "Highest fee — fastest confirmation, ideal for time-sensitive transfers"
+        case .custom: return "Set your own fee — advanced users only"
+        }
     }
     
     private var colorForPreset: Color {
