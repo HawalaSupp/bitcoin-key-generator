@@ -19,6 +19,7 @@ struct KeyGeneratorApp: App {
                 .environmentObject(passcodeManager)
                 .environmentObject(navigationCommands)
                 .withTheme()  // Apply theme settings (dark/light/system)
+                .highContrastAware()  // ROADMAP-14 E11: Swap tokens when Increase Contrast is on
         }
         .windowStyle(.titleBar) // ROADMAP-13 E15: Native title bar for dynamic titles
         .commands {

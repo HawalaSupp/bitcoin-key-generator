@@ -183,17 +183,21 @@ struct ChainCard: View, Equatable {
                 }
             }
         }
-        .padding(14)
+        .padding(HawalaTheme.Spacing.lg)
         .frame(maxWidth: .infinity, minHeight: 150)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
                 .fill(Color.primary.opacity(0.03))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
                 .stroke(chain.accentColor.opacity(0.15), lineWidth: 1)
         )
         // GPU-accelerated compositing for smooth scrolling
         .drawingGroup(opaque: false)
+        // ROADMAP-14 E12: VoiceOver accessibility
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(chain.title), balance: \(balancePrimary), price: \(pricePrimary)")
+        .accessibilityHint("Double-tap to view \(chain.title) details")
     }
 }

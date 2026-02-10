@@ -96,15 +96,15 @@ struct SettingsView: View {
                         // Danger zone at bottom
                         dangerZoneCard
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 32)
+                    .padding(.horizontal, HawalaTheme.Spacing.xl)
+                    .padding(.bottom, HawalaTheme.Spacing.xxl)
                 }
                 .opacity(contentOpacity)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.xl, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.xl, style: .continuous)
                 .strokeBorder(
                     LinearGradient(
                         colors: [Color.white.opacity(0.1), Color.white.opacity(0.03)],
@@ -286,12 +286,12 @@ struct SettingsView: View {
             )
         }
         .background(Color.white.opacity(0.03))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
         )
-        .padding(.bottom, 8)
+        .padding(.bottom, HawalaTheme.Spacing.sm)
         
         // Demo Mode Amount Configuration (only show when demo mode is enabled)
         if portfolioTestMode {
@@ -369,14 +369,14 @@ struct SettingsView: View {
             )
         }
         .background(Color.white.opacity(0.03))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
         )
-        .padding(.bottom, 8)
+        .padding(.bottom, HawalaTheme.Spacing.sm)
         .transition(.opacity.combined(with: .move(edge: .top)))
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: portfolioTestMode)
+        .animation(HawalaTheme.Animation.spring, value: portfolioTestMode)
     }
     
     // MARK: - Settings Grid
@@ -539,12 +539,12 @@ struct SettingsView: View {
             }
         }
         .background(Color.white.opacity(0.03))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
         )
-        .padding(.top, 8)
+        .padding(.top, HawalaTheme.Spacing.sm)
     }
     
     // MARK: - Danger Zone Card
@@ -575,17 +575,17 @@ struct SettingsView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(Color.red.opacity(0.4))
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.horizontal, HawalaTheme.Spacing.lg)
+            .padding(.vertical, HawalaTheme.Spacing.lg)
         }
         .buttonStyle(.plain)
         .background(Color.red.opacity(0.05))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
                 .strokeBorder(Color.red.opacity(0.15), lineWidth: 1)
         )
-        .padding(.top, 16)
+        .padding(.top, HawalaTheme.Spacing.lg)
     }
     
     // MARK: - Security Section
@@ -715,6 +715,10 @@ struct SettingsQuickToggle: View {
         .padding(.vertical, 14)
         .background(isHovered ? Color.white.opacity(0.02) : Color.clear)
         .onHover { isHovered = $0 }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title), \(subtitle)")
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityHint("Double-tap to toggle")
     }
 }
 
@@ -840,19 +844,22 @@ struct SettingsGridCard: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
+            .padding(HawalaTheme.Spacing.lg)
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
                     .fill(Color.white.opacity(isHovered ? 0.06 : 0.03))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
                     .strokeBorder(Color.white.opacity(isHovered ? 0.12 : 0.06), lineWidth: 1)
             )
             .scaleEffect(isPressed ? 0.97 : 1)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
+        .accessibilityLabel(title)
+        .accessibilityHint(subtitle)
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -892,6 +899,8 @@ struct SettingsListRow: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(.isButton)
     }
 }
 

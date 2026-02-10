@@ -199,10 +199,14 @@ struct ContentView: View {
             List(SidebarItem.allCases, selection: $sidebarSelection) { item in
                 Label(item.rawValue, systemImage: item.icon)
                     .tag(item)
+                    // ROADMAP-14 E12: VoiceOver label for sidebar items
+                    .accessibilityLabel(item.rawValue)
+                    .accessibilityHint("Show \(item.rawValue) view")
             }
             .listStyle(.sidebar)
             .navigationTitle("Hawala")
             .frame(minWidth: 160, idealWidth: 180)
+            .accessibilityLabel("Navigation sidebar")
         } detail: {
             mainDetailContent
         }

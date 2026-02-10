@@ -72,11 +72,11 @@ struct OnboardingCard<Content: View>: View {
         content
             .padding(padding)
             .background {
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
                     .fill(Color.white.opacity(isSelected ? 0.12 : 0.05))
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
                     .stroke(
                         isSelected ? Color.white.opacity(0.4) : Color.white.opacity(0.1),
                         lineWidth: isSelected ? 1.5 : 1
@@ -123,25 +123,28 @@ struct OnboardingPrimaryButton: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled || isLoading)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityValue(isLoading ? "Loading" : "")
         .scaleEffect(isLoading ? 0.98 : 1.0)
-        .animation(.easeInOut(duration: 0.1), value: isLoading)
+        .animation(HawalaTheme.Animation.fast, value: isLoading)
     }
     
     @ViewBuilder
     private var backgroundView: some View {
         switch style {
         case .filled:
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
                 .fill(isDisabled ? Color.white.opacity(0.3) : Color.white)
         case .glass:
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
                 .fill(Color.white.opacity(0.15))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 14)
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
                         .stroke(Color.white.opacity(0.3), lineWidth: 1)
                 }
         case .accent:
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
                 .fill(Color(hex: "#32D74B").opacity(isDisabled ? 0.3 : 1.0))
         }
     }
@@ -193,8 +196,10 @@ struct OnboardingSecondaryButton: View {
             .foregroundColor(.white.opacity(isHovered ? 0.9 : 0.7))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(.isButton)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(HawalaTheme.Animation.fast) {
                 isHovered = hovering
             }
         }
@@ -276,7 +281,7 @@ struct OnboardingToggleRow: View {
                 .tint(Color(hex: "#32D74B"))
                 .scaleEffect(0.85)
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, HawalaTheme.Spacing.md)
     }
 }
 
@@ -332,8 +337,8 @@ struct ChipView: View {
                 Text(label)
                     .font(.custom("ClashGrotesk-Medium", size: 13))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.horizontal, HawalaTheme.Spacing.lg)
+            .padding(.vertical, HawalaTheme.Spacing.sm)
             .background {
                 Capsule()
                     .fill(isSelected ? Color.white.opacity(0.2) : Color.white.opacity(isHovered ? 0.08 : 0.05))
@@ -346,7 +351,7 @@ struct ChipView: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(HawalaTheme.Animation.fast) {
                 isHovered = hovering
             }
         }
@@ -367,7 +372,7 @@ struct OnboardingDotsIndicator: View {
                     .frame(width: index == currentStep ? 10 : 6, height: index == currentStep ? 10 : 6)
             }
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: currentStep)
+        .animation(HawalaTheme.Animation.spring, value: currentStep)
     }
 }
 
@@ -416,7 +421,7 @@ struct SecurityScoreRing: View {
             }
         }
         .frame(width: size, height: size)
-        .animation(.easeInOut(duration: 0.8), value: score)
+        .animation(HawalaTheme.Animation.slow, value: score)
     }
 }
 
@@ -476,14 +481,14 @@ struct WordCell: View {
             
             Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, HawalaTheme.Spacing.md)
+        .padding(.vertical, HawalaTheme.Spacing.md)
         .background {
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm)
                 .fill(Color.white.opacity(0.05))
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm)
                 .stroke(Color.white.opacity(0.1), lineWidth: 1)
         }
     }

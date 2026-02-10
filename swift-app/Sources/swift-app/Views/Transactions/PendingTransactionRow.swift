@@ -103,5 +103,8 @@ struct PendingTransactionRow: View {
             }
         }
         .padding(.vertical, 10)
+        // ROADMAP-14 E12: VoiceOver accessibility
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Pending transaction, \(transaction.chainName), \(transaction.amount) to \(transaction.recipient.prefix(8))")
     }
 }

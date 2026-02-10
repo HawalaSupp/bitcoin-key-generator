@@ -134,13 +134,13 @@ struct RecoveryPhraseScreen: View {
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(.white.opacity(0.4))
                     }
-                    .padding(16)
+                    .padding(HawalaTheme.Spacing.lg)
                     .background {
-                        RoundedRectangle(cornerRadius: 12)
+                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
                             .fill(Color.white.opacity(0.05))
                     }
                     .overlay {
-                        RoundedRectangle(cornerRadius: 12)
+                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
                             .stroke(Color.white.opacity(0.1), lineWidth: 1)
                     }
                     .foregroundColor(.white)

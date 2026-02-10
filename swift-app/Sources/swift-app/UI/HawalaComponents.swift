@@ -776,6 +776,9 @@ struct HawalaPrimaryButton: View {
             .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityValue(isLoading ? "Loading" : "")
         .onHover { hovering in
             withAnimation(HawalaTheme.Animation.fast) {
                 isHovered = hovering

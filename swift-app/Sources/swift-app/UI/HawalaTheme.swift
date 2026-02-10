@@ -8,38 +8,32 @@ import AppKit
 
 struct HawalaTheme {
     // MARK: - Dynamic Colors (Theme-Aware)
+    // ROADMAP-14 E1: Removed dead Color("hawala.*") asset catalog lookups — colors are code-defined
     struct Colors {
         // Background hierarchy - adapts to color scheme
         static var background: Color {
-            Color("hawala.background", bundle: nil)
-                .orDefault(dark: Color(hex: "0D0D0D"), light: Color(hex: "F5F5F7"))
+            AdaptiveColor(dark: Color(hex: "0D0D0D"), light: Color(hex: "F5F5F7")).color
         }
         static var backgroundSecondary: Color {
-            Color("hawala.backgroundSecondary", bundle: nil)
-                .orDefault(dark: Color(hex: "1A1A1A"), light: Color(hex: "FFFFFF"))
+            AdaptiveColor(dark: Color(hex: "1A1A1A"), light: Color(hex: "FFFFFF")).color
         }
         static var backgroundTertiary: Color {
-            Color("hawala.backgroundTertiary", bundle: nil)
-                .orDefault(dark: Color(hex: "252525"), light: Color(hex: "E8E8ED"))
+            AdaptiveColor(dark: Color(hex: "252525"), light: Color(hex: "E8E8ED")).color
         }
         static var backgroundHover: Color {
-            Color("hawala.backgroundHover", bundle: nil)
-                .orDefault(dark: Color(hex: "2D2D2D"), light: Color(hex: "DEDEE3"))
+            AdaptiveColor(dark: Color(hex: "2D2D2D"), light: Color(hex: "DEDEE3")).color
         }
         
         // Text hierarchy
         static var textPrimary: Color {
-            Color("hawala.textPrimary", bundle: nil)
-                .orDefault(dark: Color.white, light: Color(hex: "1D1D1F"))
+            AdaptiveColor(dark: Color.white, light: Color(hex: "1D1D1F")).color
         }
         static var textSecondary: Color {
-            Color("hawala.textSecondary", bundle: nil)
-                .orDefault(dark: Color(hex: "A0A0A0"), light: Color(hex: "6E6E73"))
+            AdaptiveColor(dark: Color(hex: "A0A0A0"), light: Color(hex: "6E6E73")).color
         }
         // WCAG AA compliant: 4.5:1 contrast on both dark (#252525) and light (#F5F5F7) backgrounds
         static var textTertiary: Color {
-            Color("hawala.textTertiary", bundle: nil)
-                .orDefault(dark: Color(hex: "8E8E8E"), light: Color(hex: "6B6B70"))
+            AdaptiveColor(dark: Color(hex: "8E8E8E"), light: Color(hex: "6B6B70")).color
         }
         
         // Accent colors - same across themes (used for large text/buttons, 3:1 acceptable)
@@ -72,45 +66,55 @@ struct HawalaTheme {
         
         // Borders and dividers - adapts to color scheme
         static var border: Color {
-            Color("hawala.border", bundle: nil)
-                .orDefault(dark: Color.white.opacity(0.08), light: Color.black.opacity(0.08))
+            AdaptiveColor(dark: Color.white.opacity(0.08), light: Color.black.opacity(0.08)).color
         }
         static var borderHover: Color {
-            Color("hawala.borderHover", bundle: nil)
-                .orDefault(dark: Color.white.opacity(0.15), light: Color.black.opacity(0.15))
+            AdaptiveColor(dark: Color.white.opacity(0.15), light: Color.black.opacity(0.15)).color
         }
         static var divider: Color {
-            Color("hawala.divider", bundle: nil)
-                .orDefault(dark: Color.white.opacity(0.06), light: Color.black.opacity(0.06))
+            AdaptiveColor(dark: Color.white.opacity(0.06), light: Color.black.opacity(0.06)).color
+        }
+        
+        // ROADMAP-14 E11: High Contrast alternatives — used when macOS Increase Contrast is on
+        static var textTertiaryHighContrast: Color {
+            AdaptiveColor(dark: Color(hex: "B0B0B0"), light: Color(hex: "505055")).color
+        }
+        static var borderHighContrast: Color {
+            AdaptiveColor(dark: Color.white.opacity(0.20), light: Color.black.opacity(0.20)).color
+        }
+        static var dividerHighContrast: Color {
+            AdaptiveColor(dark: Color.white.opacity(0.15), light: Color.black.opacity(0.15)).color
         }
     }
     
-    // MARK: - Typography
+    // MARK: - Typography (ROADMAP-14 E5: Dynamic Type)
+    // Uses SwiftUI semantic text styles that scale with user's Dynamic Type setting.
+    // Legacy fixed-size API preserved via static funcs for callers that need exact control.
     struct Typography {
-        // Display - Large hero numbers
+        // Display — Large hero numbers (scales from .largeTitle)
         static func display(_ size: CGFloat = 48) -> Font {
             .system(size: size, weight: .semibold, design: .rounded)
         }
         
-        // Headings
-        static let h1 = Font.system(size: 28, weight: .semibold, design: .default)
-        static let h2 = Font.system(size: 22, weight: .semibold, design: .default)
-        static let h3 = Font.system(size: 18, weight: .medium, design: .default)
-        static let h4 = Font.system(size: 16, weight: .medium, design: .default)
+        // Headings — map to semantic SwiftUI text styles for Dynamic Type
+        static let h1: Font = .title.weight(.semibold)              // ~28pt, scales
+        static let h2: Font = .title2.weight(.semibold)             // ~22pt, scales
+        static let h3: Font = .title3.weight(.medium)               // ~20pt, scales
+        static let h4: Font = .headline                              // ~17pt, scales
         
-        // Body text
-        static let bodyLarge = Font.system(size: 16, weight: .regular, design: .default)
-        static let body = Font.system(size: 14, weight: .regular, design: .default)
-        static let bodySmall = Font.system(size: 13, weight: .regular, design: .default)
+        // Body text — scales with Dynamic Type
+        static let bodyLarge: Font = .body                           // ~17pt, scales
+        static let body: Font = .callout                             // ~16pt, scales
+        static let bodySmall: Font = .subheadline                    // ~15pt, scales
         
-        // Mono for addresses/keys
-        static let mono = Font.system(size: 13, weight: .regular, design: .monospaced)
-        static let monoSmall = Font.system(size: 11, weight: .regular, design: .monospaced)
+        // Mono for addresses/keys — scales with Dynamic Type
+        static var mono: Font { .system(.callout, design: .monospaced) }
+        static var monoSmall: Font { .system(.caption, design: .monospaced) }
         
-        // Captions and labels
-        static let caption = Font.system(size: 12, weight: .regular, design: .default)
-        static let captionBold = Font.system(size: 12, weight: .semibold, design: .default)
-        static let label = Font.system(size: 11, weight: .medium, design: .default)
+        // Captions and labels — scales with Dynamic Type
+        static let caption: Font = .caption                          // ~12pt, scales
+        static let captionBold: Font = .caption.weight(.semibold)
+        static let label: Font = .caption2.weight(.medium)           // ~11pt, scales
     }
     
     // MARK: - Spacing
@@ -146,6 +150,67 @@ struct HawalaTheme {
         static let slow = SwiftUI.Animation.easeInOut(duration: 0.4)
         static let spring = SwiftUI.Animation.spring(response: 0.35, dampingFraction: 0.7)
     }
+}
+
+// MARK: - ROADMAP-14 E11: High Contrast View Modifier
+/// Reads the system's "Increase Contrast" setting and swaps low-contrast
+/// theme tokens (textTertiary, border, divider) for bolder alternatives.
+struct HighContrastAwareModifier: ViewModifier {
+    @Environment(\.colorSchemeContrast) private var contrast
+    
+    func body(content: Content) -> some View {
+        content
+            .environment(\.hawalaTextTertiary, contrast == .increased
+                         ? HawalaTheme.Colors.textTertiaryHighContrast
+                         : HawalaTheme.Colors.textTertiary)
+            .environment(\.hawalaBorder, contrast == .increased
+                         ? HawalaTheme.Colors.borderHighContrast
+                         : HawalaTheme.Colors.border)
+            .environment(\.hawalaDivider, contrast == .increased
+                         ? HawalaTheme.Colors.dividerHighContrast
+                         : HawalaTheme.Colors.divider)
+    }
+}
+
+// Environment keys for high-contrast-aware colors
+private struct HawalaTextTertiaryKey: EnvironmentKey {
+    static let defaultValue: Color = HawalaTheme.Colors.textTertiary
+}
+private struct HawalaBorderKey: EnvironmentKey {
+    static let defaultValue: Color = HawalaTheme.Colors.border
+}
+private struct HawalaDividerKey: EnvironmentKey {
+    static let defaultValue: Color = HawalaTheme.Colors.divider
+}
+
+extension EnvironmentValues {
+    var hawalaTextTertiary: Color {
+        get { self[HawalaTextTertiaryKey.self] }
+        set { self[HawalaTextTertiaryKey.self] = newValue }
+    }
+    var hawalaBorder: Color {
+        get { self[HawalaBorderKey.self] }
+        set { self[HawalaBorderKey.self] = newValue }
+    }
+    var hawalaDivider: Color {
+        get { self[HawalaDividerKey.self] }
+        set { self[HawalaDividerKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Apply high-contrast-aware theming. Place on root view.
+    func highContrastAware() -> some View {
+        modifier(HighContrastAwareModifier())
+    }
+}
+
+// MARK: - ROADMAP-14 E5: Scaled Metric Helpers
+/// Pre-built @ScaledMetric wrappers for common fixed sizes that need to scale
+struct ScaledSpacing {
+    @ScaledMetric(relativeTo: .body) var iconSize: CGFloat = 40
+    @ScaledMetric(relativeTo: .body) var cardMinHeight: CGFloat = 150
+    @ScaledMetric(relativeTo: .caption) var smallIcon: CGFloat = 24
 }
 
 // MARK: - Color Extension

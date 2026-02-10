@@ -243,7 +243,7 @@ struct HawalaMainView: View {
         // Sync sidebar selection into local tab (ROADMAP-03 E8)
         .onChange(of: sidebarTab) { newTab in
             if let tab = NavigationTab(rawValue: newTab), tab != selectedTab {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                withAnimation(HawalaTheme.Animation.spring) {
                     selectedTab = tab
                 }
             }
@@ -336,7 +336,7 @@ struct HawalaMainView: View {
         Group {
             // Tab navigation: Cmd+1, Cmd+2, Cmd+3
             Button("") {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                withAnimation(HawalaTheme.Animation.spring) {
                     selectedTab = .portfolio
                 }
             }
@@ -344,7 +344,7 @@ struct HawalaMainView: View {
             .opacity(0)
             
             Button("") {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                withAnimation(HawalaTheme.Animation.spring) {
                     selectedTab = .activity
                 }
             }
@@ -352,7 +352,7 @@ struct HawalaMainView: View {
             .opacity(0)
             
             Button("") {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                withAnimation(HawalaTheme.Animation.spring) {
                     selectedTab = .discover
                 }
             }
@@ -483,7 +483,7 @@ struct HawalaMainView: View {
         let isHovered = hoveredTab == tab
         
         return Button(action: {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+            withAnimation(HawalaTheme.Animation.spring) {
                 selectedTab = tab
             }
         }) {
@@ -558,6 +558,8 @@ struct HawalaMainView: View {
             }
             .buttonStyle(.plain)
             .help(tooltip ?? "")
+            .accessibilityLabel(tooltip ?? icon)
+            .accessibilityAddTraits(.isButton)
             .onHover { hovering in
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
                     isHovered = hovering
@@ -693,7 +695,7 @@ struct HawalaMainView: View {
         HStack(spacing: 6) {
             ForEach(PortfolioTimeRange.allCases, id: \.self) { range in
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(HawalaTheme.Animation.normal) {
                         selectedTimeRange = range
                     }
                     // Refresh sparklines with new range
@@ -730,7 +732,7 @@ struct HawalaMainView: View {
                 
                 // Fiat show/hide toggle (ROADMAP-04 E4)
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { showFiatValues.toggle() }
+                    withAnimation(HawalaTheme.Animation.normal) { showFiatValues.toggle() }
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: showFiatValues ? "dollarsign.circle.fill" : "dollarsign.circle")
@@ -751,7 +753,7 @@ struct HawalaMainView: View {
                 
                 // Hide zero balances toggle (ROADMAP-04 E5)
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { hideZeroBalances.toggle() }
+                    withAnimation(HawalaTheme.Animation.normal) { hideZeroBalances.toggle() }
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: hideZeroBalances ? "eye.slash.fill" : "eye.fill")

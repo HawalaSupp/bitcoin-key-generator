@@ -82,6 +82,10 @@ struct TransactionHistoryRow: View {
                     }
                 }
             }
+            // ROADMAP-14 E12: VoiceOver accessibility
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(entry.type) \(entry.asset), \(entry.amountDisplay), \(entry.status)")
+            .accessibilityHint(hasDetails ? "Double-tap to expand details" : "")
             
             // Expandable details section
             if isExpanded {

@@ -54,7 +54,7 @@ struct SecuritySetupScreen: View {
                 }
             }
             .modifier(ShakeEffect(shakes: showError ? 3.0 : 0.0))
-            .padding(.vertical, 32)
+            .padding(.vertical, HawalaTheme.Spacing.xxl)
             .coachmarkAnchor(.passcodeEntry)
             .onChange(of: currentPasscode.count) { newCount in
                 // Provide feedback for each digit
@@ -117,8 +117,8 @@ struct SecuritySetupScreen: View {
                         icon: "icloud.fill"
                     )
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 16)
+                .padding(.horizontal, HawalaTheme.Spacing.xl)
+                .padding(.top, HawalaTheme.Spacing.lg)
                 .opacity(animateContent ? 1 : 0)
             }
             
@@ -139,8 +139,8 @@ struct SecuritySetupScreen: View {
                 
                 OnboardingSecondaryButton(title: "Clear", icon: "xmark", action: handleClear)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 50)
+            .padding(.horizontal, HawalaTheme.Spacing.xl)
+            .padding(.bottom, HawalaTheme.Spacing.xxxl)
             .opacity(animateContent ? 1 : 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -622,13 +622,13 @@ struct SettingsSectionCard<Content: View>: View {
             
             content
         }
-        .padding(20)
+        .padding(HawalaTheme.Spacing.xl)
         .background {
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
                 .fill(Color.white.opacity(0.04))
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
                 .stroke(Color.white.opacity(0.08), lineWidth: 1)
         }
     }
@@ -665,7 +665,7 @@ struct CompactToggleRow: View {
                 .labelsHidden()
                 .scaleEffect(0.85)
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, HawalaTheme.Spacing.md)
     }
 }
 
@@ -685,14 +685,14 @@ struct ChainChip: View {
                     .font(.system(size: 12, weight: .medium))
             }
             .foregroundColor(isSelected ? .white : .white.opacity(0.5))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, HawalaTheme.Spacing.md)
+            .padding(.vertical, HawalaTheme.Spacing.sm)
             .background {
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm)
                     .fill(isSelected ? Color.white.opacity(0.15) : Color.white.opacity(0.04))
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm)
                     .stroke(isSelected ? Color.white.opacity(0.3) : Color.clear, lineWidth: 1)
             }
         }
