@@ -46,6 +46,8 @@ enum NetworkStatus: Equatable {
 
 @MainActor
 final class NetworkMonitor: ObservableObject {
+    static let shared = NetworkMonitor()
+    
     @Published private(set) var status: NetworkStatus = .checking
 
     private let monitor: NWPathMonitor

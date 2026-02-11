@@ -227,7 +227,7 @@ struct AnalyticsServicePropertyTests {
         let service = AnalyticsService.shared
         let initialCount = service.eventCount
         service.isEnabled = false
-        service.track("test_event", properties: ["key": "value"])
+        service.track(AnalyticsService.EventName.settingsChanged, properties: ["key": "value"])
         #expect(service.eventCount == initialCount || service.eventCount == 0,
                 "Event count should not increase when disabled")
     }
@@ -238,7 +238,7 @@ struct AnalyticsServicePropertyTests {
         service.isEnabled = true
         
         // Track with sensitive-looking properties
-        service.track("test", properties: [
+        service.track(AnalyticsService.EventName.sendCompleted, properties: [
             "address": "0x1234",
             "private_key": "secret",
             "screen": "dashboard" // This should NOT be redacted

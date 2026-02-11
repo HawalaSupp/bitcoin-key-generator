@@ -1217,6 +1217,9 @@ final class BackupVerificationManager: ObservableObject {
         
         // Update security score
         SecurityScoreManager.shared.complete(.backupVerified)
+        
+        // ROADMAP-20: Track backup completed
+        AnalyticsService.shared.track(AnalyticsService.EventName.backupCompleted)
     }
     
     func markSkipped() {
@@ -1224,6 +1227,9 @@ final class BackupVerificationManager: ObservableObject {
         skippedDate = Date()
         UserDefaults.standard.set(true, forKey: skippedKey)
         UserDefaults.standard.set(Date(), forKey: skippedDateKey)
+        
+        // ROADMAP-20: Track backup skipped
+        AnalyticsService.shared.track(AnalyticsService.EventName.backupSkipped)
     }
     
     /// Check if a send amount is allowed given verification status

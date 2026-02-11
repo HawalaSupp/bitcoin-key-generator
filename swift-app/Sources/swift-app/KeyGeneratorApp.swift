@@ -204,6 +204,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // CRITICAL: Set activation policy to regular to appear in dock and receive keyboard input
         NSApplication.shared.setActivationPolicy(.regular)
         
+        // ROADMAP-20: Track app launch
+        AnalyticsService.shared.track(AnalyticsService.EventName.appLaunch)
+        
         if let window = NSApplication.shared.windows.first {
             // ROADMAP-13 E8: Restore saved window frame
             restoreWindowFrame(window)

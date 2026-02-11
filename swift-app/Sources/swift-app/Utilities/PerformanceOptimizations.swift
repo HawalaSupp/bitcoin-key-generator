@@ -1437,6 +1437,12 @@ final class ColdStartTimer: ObservableObject {
         
         os_signpost(.event, log: signpostLog, name: "Interactive")
         
+        // ROADMAP-20 E7: Track cold start performance
+        AnalyticsService.shared.track(AnalyticsService.EventName.coldStart, properties: [
+            "duration_ms": String(Int(total * 1000)),
+            "meets_target": total < 2.0 ? "true" : "false"
+        ])
+        
         #if DEBUG
         print("🚀 Cold start breakdown:")
         for (i, entry) in phaseTimestamps.enumerated() {

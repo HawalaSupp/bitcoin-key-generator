@@ -254,6 +254,9 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            // ROADMAP-20: Track portfolio screen view
+            AnalyticsService.shared.trackScreen("portfolio")
+            
             prepareSecurityState()
             triggerAutoGenerationIfNeeded()
             priceService.startPriceUpdatesIfNeeded(sparklineCache: sparklineCache)

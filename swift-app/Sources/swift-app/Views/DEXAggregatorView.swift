@@ -664,6 +664,11 @@ struct DEXAggregatorView: View {
     private func executeSwap() async {
         guard let quote = selectedQuote else { return }
         
+        // ROADMAP-20: Track swap initiated
+        AnalyticsService.shared.track(AnalyticsService.EventName.swapInitiated, properties: [
+            "from": fromToken, "to": toToken
+        ])
+        
         // Check biometric authentication if enabled
         if BiometricAuthHelper.shouldRequireBiometric(settingEnabled: biometricForSends) {
             let result = await BiometricAuthHelper.authenticate(
@@ -707,7 +712,16 @@ struct DEXAggregatorView: View {
             )
             txHash = hash
             showTxSuccess = true
+            
+            // ROADMAP-20: Track swap completed
+            AnalyticsService.shared.track(AnalyticsService.EventName.swapCompleted, properties: [
+                "from": fromToken, "to": toToken
+            ])
         } catch {
+            // ROADMAP-20: Track swap failed
+            AnalyticsService.shared.track(AnalyticsService.EventName.swapFailed, properties: [
+                "error": error.localizedDescription.prefix(100).description
+            ])
             service.error = error.localizedDescription
         }
     }

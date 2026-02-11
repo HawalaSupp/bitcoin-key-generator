@@ -56,6 +56,11 @@ final class WalletViewModel: ObservableObject {
             
             showStatus("Keys generated successfully", tone: .success)
             
+            // ROADMAP-20: Track wallet creation
+            AnalyticsService.shared.track(AnalyticsService.EventName.walletCreated, properties: [
+                "chain_count": "\(generatedKeys.chainInfos.count)"
+            ])
+            
             #if DEBUG
             print("✅ Generated and saved keys to Keychain")
             #endif
@@ -164,6 +169,9 @@ final class WalletViewModel: ObservableObject {
         }
         
         showStatus("Wallet restored successfully", tone: .success)
+        
+        // ROADMAP-20: Track wallet import
+        AnalyticsService.shared.track(AnalyticsService.EventName.walletImported)
     }
     
     // MARK: - Clear Data

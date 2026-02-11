@@ -776,6 +776,9 @@ struct ReceiveViewModern: View {
         ClipboardHelper.copySensitive(address, timeout: 60)
         onCopy(address)
         showToast("Address copied! Auto-clears in 60s.")
+        
+        // ROADMAP-20: Track receive address copied
+        AnalyticsService.shared.track(AnalyticsService.EventName.receiveViewed)
     }
     
     private func copyPaymentLink(chain: ChainInfo, address: String) {

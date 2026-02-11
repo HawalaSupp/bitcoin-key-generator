@@ -2402,6 +2402,11 @@ struct SendView: View {
     @State private var showBackupRequiredSheet = false
     
     private func sendTransaction() {
+        // ROADMAP-20: Track send initiated
+        AnalyticsService.shared.track(AnalyticsService.EventName.sendInitiated, properties: [
+            "chain": selectedChain.chainId
+        ])
+        
         #if DEBUG
         print("[SendView] sendTransaction() called")
         #endif
@@ -2530,6 +2535,11 @@ struct SendView: View {
             // ROADMAP-19 #30: Record send for duplicate detection
             EdgeCaseGuards.recordSend(to: recipientAddress, chain: selectedChain.chainId)
             
+            // ROADMAP-20: Track send completed
+            AnalyticsService.shared.track(AnalyticsService.EventName.sendCompleted, properties: [
+                "chain": selectedChain.chainId
+            ])
+            
             // ROADMAP-16 E13: Prompt to save contact if address is new
             if !ContactsManager.shared.hasContact(forAddress: recipientAddress) {
                 savedRecipientAddress = recipientAddress
@@ -2565,6 +2575,10 @@ struct SendView: View {
             TransactionConfirmationTracker.shared.track(txid: txId, chainId: selectedChain.chainId)
             
         } catch let error as RustServiceError {
+            // ROADMAP-20: Track send failure
+            AnalyticsService.shared.track(AnalyticsService.EventName.sendFailed, properties: [
+                "chain": selectedChain.chainId, "error_type": "rust_service"
+            ])
             #if DEBUG
             print("[SendView] RUST SERVICE ERROR: \(error)")
             #endif
@@ -2582,6 +2596,10 @@ struct SendView: View {
             self.isLoading = false
             
         } catch let error as BroadcastError {
+            // ROADMAP-20: Track send failure
+            AnalyticsService.shared.track(AnalyticsService.EventName.sendFailed, properties: [
+                "chain": selectedChain.chainId, "error_type": "broadcast"
+            ])
             #if DEBUG
             print("[SendView] BROADCAST ERROR: \(error)")
             #endif
@@ -2604,6 +2622,10 @@ struct SendView: View {
             self.isLoading = false
             
         } catch {
+            // ROADMAP-20: Track send failure
+            AnalyticsService.shared.track(AnalyticsService.EventName.sendFailed, properties: [
+                "chain": selectedChain.chainId, "error_type": "generic"
+            ])
             #if DEBUG
             print("[SendView] ERROR: \(error)")
             #endif

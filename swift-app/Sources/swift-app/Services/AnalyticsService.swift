@@ -8,12 +8,14 @@ struct AnalyticsEvent: Codable, Sendable {
     let properties: [String: String]
     let timestamp: Date
     let sessionId: String
+    let deviceId: String  // ROADMAP-20 E4: Persistent anonymous device ID
     
-    init(name: String, properties: [String: String] = [:], timestamp: Date = Date(), sessionId: String) {
+    init(name: String, properties: [String: String] = [:], timestamp: Date = Date(), sessionId: String, deviceId: String) {
         self.name = name
         self.properties = properties
         self.timestamp = timestamp
         self.sessionId = sessionId
+        self.deviceId = deviceId
     }
 }
 
@@ -77,9 +79,28 @@ final class AnalyticsService: ObservableObject {
     private var pendingEvents: [AnalyticsEvent] = []
     private var providers: [any AnalyticsProvider] = []
     private let sessionId: String
+    private let deviceId: String  // ROADMAP-20 E4: Persistent anonymous ID
     private var flushTask: Task<Void, Never>?
     private let analyticsEnabledKey = "hawala.analytics.enabled"
     private let analyticsOptInShownKey = "hawala.analytics.optInShown"
+    private static let deviceIdKey = "hawala.analytics.deviceId"
+    private static let offlineQueueKey = "hawala.analytics.offlineQueue"
+    
+    // MARK: - Validated Event Names (ROADMAP-20 E11)
+    
+    /// Set of all known valid event names for validation
+    private static let validEventNames: Set<String> = [
+        EventName.appLaunch, EventName.walletCreated, EventName.walletImported,
+        EventName.sendInitiated, EventName.sendCompleted, EventName.sendFailed,
+        EventName.receiveViewed, EventName.swapInitiated, EventName.swapCompleted,
+        EventName.swapFailed, EventName.bridgeInitiated, EventName.navigationTransition,
+        EventName.deepLinkOpened, EventName.settingsChanged, EventName.securityScoreViewed,
+        EventName.backupCompleted, EventName.backupSkipped, EventName.walletConnectSession,
+        EventName.feeEstimateViewed, EventName.historyExported, EventName.contactAdded,
+        EventName.hardwareWalletConnected, EventName.errorOccurred, EventName.screenViewed,
+        EventName.coldStart, EventName.onboardingStarted, EventName.onboardingCompleted,
+        EventName.portfolioViewed
+    ]
     
     // MARK: - Event Names (type-safe)
     
@@ -93,12 +114,14 @@ final class AnalyticsService: ObservableObject {
         static let receiveViewed = "receive_viewed"
         static let swapInitiated = "swap_initiated"
         static let swapCompleted = "swap_completed"
+        static let swapFailed = "swap_failed"
         static let bridgeInitiated = "bridge_initiated"
         static let navigationTransition = "navigation_transition"
         static let deepLinkOpened = "deep_link_opened"
         static let settingsChanged = "settings_changed"
         static let securityScoreViewed = "security_score_viewed"
         static let backupCompleted = "backup_completed"
+        static let backupSkipped = "backup_skipped"
         static let walletConnectSession = "wallet_connect_session"
         static let feeEstimateViewed = "fee_estimate_viewed"
         static let historyExported = "history_exported"
@@ -106,13 +129,31 @@ final class AnalyticsService: ObservableObject {
         static let hardwareWalletConnected = "hw_wallet_connected"
         static let errorOccurred = "error_occurred"
         static let screenViewed = "screen_viewed"
+        // ROADMAP-20: Additional events
+        static let coldStart = "app_cold_start"
+        static let onboardingStarted = "onboarding_started"
+        static let onboardingCompleted = "onboarding_completed"
+        static let portfolioViewed = "portfolio_viewed"
     }
     
     // MARK: - Init
     
     private init() {
         self.sessionId = UUID().uuidString
+        
+        // ROADMAP-20 E4: Persistent anonymous device ID across sessions
+        if let existingId = UserDefaults.standard.string(forKey: Self.deviceIdKey) {
+            self.deviceId = existingId
+        } else {
+            let newId = UUID().uuidString
+            UserDefaults.standard.set(newId, forKey: Self.deviceIdKey)
+            self.deviceId = newId
+        }
+        
         self.isEnabled = UserDefaults.standard.bool(forKey: analyticsEnabledKey)
+        
+        // ROADMAP-20 E13: Load any events queued from a previous offline session
+        loadOfflineQueue()
         
         #if DEBUG
         // Always add console provider in debug builds
@@ -132,6 +173,13 @@ final class AnalyticsService: ObservableObject {
     func track(_ eventName: String, properties: [String: String] = [:]) {
         guard isEnabled else { return }
         
+        // ROADMAP-20 E11: Validate event name in debug builds
+        #if DEBUG
+        if !Self.validEventNames.contains(eventName) {
+            assertionFailure("[Analytics] Unknown event name: \(eventName). Add it to EventName and validEventNames.")
+        }
+        #endif
+        
         // Strip any PII from properties
         let sanitized = sanitizeProperties(properties)
         
@@ -139,7 +187,8 @@ final class AnalyticsService: ObservableObject {
             name: eventName,
             properties: sanitized,
             timestamp: Date(),
-            sessionId: sessionId
+            sessionId: sessionId,
+            deviceId: deviceId
         )
         
         pendingEvents.append(event)
@@ -165,10 +214,23 @@ final class AnalyticsService: ObservableObject {
     }
     
     /// Flush all pending events to providers
+    /// ROADMAP-20 E13: Respects network status — queues to disk when offline
     func flush() {
         guard !pendingEvents.isEmpty else { return }
+        
+        // ROADMAP-20 E13: If offline, persist events to disk and bail
+        if !NetworkMonitor.shared.status.isReachable {
+            saveOfflineQueue()
+            #if DEBUG
+            print("[Analytics] Offline — \(pendingEvents.count) events saved to disk queue")
+            #endif
+            return
+        }
+        
         let eventsToSend = pendingEvents
         pendingEvents.removeAll()
+        // Clear disk queue since we're about to send
+        clearOfflineQueue()
         
         Task {
             for provider in providers {
@@ -178,6 +240,11 @@ final class AnalyticsService: ObservableObject {
                     #if DEBUG
                     print("[Analytics] Failed to send to \(provider.name): \(error)")
                     #endif
+                    // Re-queue failed events for next attempt
+                    await MainActor.run {
+                        self.pendingEvents.insert(contentsOf: eventsToSend, at: 0)
+                        self.saveOfflineQueue()
+                    }
                 }
             }
         }
@@ -200,6 +267,16 @@ final class AnalyticsService: ObservableObject {
         eventCount = 0
         isEnabled = false
         hasShownOptIn = false
+        clearOfflineQueue()
+    }
+    
+    // MARK: - User Properties (ROADMAP-20 E4)
+    
+    /// Set a user property (anonymized — no PII)
+    func setUserProperty(_ key: String, value: String) {
+        // Properties are attached to events, not stored separately
+        // Use a special "user_properties_updated" event (or tag future events)
+        track(EventName.settingsChanged, properties: ["property": key, "value": value])
     }
     
     // MARK: - Private Helpers
@@ -233,5 +310,32 @@ final class AnalyticsService: ObservableObject {
                 self?.flush()
             }
         }
+    }
+    
+    // MARK: - ROADMAP-20 E13: Offline Queue Persistence
+    
+    /// Save pending events to disk for offline resilience
+    private func saveOfflineQueue() {
+        guard !pendingEvents.isEmpty else { return }
+        if let data = try? JSONEncoder().encode(pendingEvents) {
+            UserDefaults.standard.set(data, forKey: Self.offlineQueueKey)
+        }
+    }
+    
+    /// Load events saved from a previous offline session
+    private func loadOfflineQueue() {
+        guard let data = UserDefaults.standard.data(forKey: Self.offlineQueueKey) else { return }
+        if let saved = try? JSONDecoder().decode([AnalyticsEvent].self, from: data) {
+            pendingEvents.append(contentsOf: saved)
+            #if DEBUG
+            print("[Analytics] Loaded \(saved.count) events from offline queue")
+            #endif
+        }
+        clearOfflineQueue()
+    }
+    
+    /// Clear the persisted offline queue
+    private func clearOfflineQueue() {
+        UserDefaults.standard.removeObject(forKey: Self.offlineQueueKey)
     }
 }
