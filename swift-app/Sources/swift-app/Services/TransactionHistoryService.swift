@@ -714,11 +714,19 @@ final class TransactionHistoryService: ObservableObject {
         return chains.sorted()
     }
 
-    /// Filter entries by chain, type, and search text.
+    /// Unique asset/token names from a set of entries, sorted alphabetically (E5).
+    static func uniqueTokens(from entries: [HawalaTransactionEntry]) -> [String] {
+        let tokens = Set(entries.map { $0.asset })
+        return tokens.sorted()
+    }
+
+    /// Filter entries by chain, type, token, date range, and search text.
     static func filteredEntries(
         _ entries: [HawalaTransactionEntry],
         chain: String?,
         type: String?,
+        token: String? = nil,
+        dateRange: TransactionDateRange = .all,
         searchText: String
     ) -> [HawalaTransactionEntry] {
         var result = entries
@@ -729,6 +737,19 @@ final class TransactionHistoryService: ObservableObject {
 
         if let type {
             result = result.filter { $0.type == type }
+        }
+
+        if let token {
+            result = result.filter { $0.asset == token }
+        }
+
+        // Date range filter (E6)
+        if dateRange != .all, let cutoff = dateRange.cutoffDate {
+            let cutoffInterval = cutoff.timeIntervalSince1970
+            result = result.filter { entry in
+                guard let ts = entry.sortTimestamp else { return true }
+                return ts >= cutoffInterval
+            }
         }
 
         if !searchText.isEmpty {

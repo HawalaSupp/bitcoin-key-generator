@@ -46,6 +46,8 @@ struct ContentView: View {
     @State private var historySearchText: String = ""
     @State private var historyFilterChain: String? = nil
     @State private var historyFilterType: String? = nil
+    @State private var historyFilterToken: String? = nil
+    @State private var historyFilterDateRange: TransactionDateRange = .all
     @State private var pendingTransactions: [PendingTransactionManager.PendingTransaction] = []
     @State private var pendingTxRefreshTask: Task<Void, Never>?
     // Debug: Show FPS performance overlay in DEBUG builds
@@ -807,6 +809,8 @@ struct ContentView: View {
             historySearchText: $historySearchText,
             historyFilterChain: $historyFilterChain,
             historyFilterType: $historyFilterType,
+            historyFilterToken: $historyFilterToken,
+            historyFilterDateRange: $historyFilterDateRange,
             onRefresh: { refreshTransactionHistory(force: true) },
             onSpeedUp: { navigationVM.speedUpTransaction = $0 },
             onCancel: { navigationVM.cancelTransaction = $0 },
@@ -821,7 +825,7 @@ struct ContentView: View {
     
     // MARK: - History Filtering Logic
     private var hasActiveHistoryFilters: Bool {
-        !historySearchText.isEmpty || historyFilterChain != nil || historyFilterType != nil
+        !historySearchText.isEmpty || historyFilterChain != nil || historyFilterType != nil || historyFilterToken != nil || historyFilterDateRange != .all
     }
     
     private var uniqueHistoryChains: [String] {
@@ -833,6 +837,8 @@ struct ContentView: View {
             historyEntries,
             chain: historyFilterChain,
             type: historyFilterType,
+            token: historyFilterToken,
+            dateRange: historyFilterDateRange,
             searchText: historySearchText
         )
     }

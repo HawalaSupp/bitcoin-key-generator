@@ -8,6 +8,7 @@ import AppKit
 /// A detailed view for displaying all information about a single transaction
 struct TransactionDetailSheet: View {
     let transaction: HawalaTransactionEntry
+    var onRetryTransaction: ((HawalaTransactionEntry) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var showCopiedToast = false
     
@@ -23,7 +24,12 @@ struct TransactionDetailSheet: View {
                     
                     // Details card
                     detailsCard
-                    
+
+                    // Failed transaction explanation (E10)
+                    if transaction.status.lowercased() == "failed" {
+                        failedExplanationSection
+                    }
+
                     // Actions
                     actionsSection
                     
@@ -260,6 +266,80 @@ struct TransactionDetailSheet: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
+            }
+
+            // Retry Failed Transaction (E11)
+            if transaction.status.lowercased() == "failed", let onRetry = onRetryTransaction {
+                Button {
+                    dismiss()
+                    onRetry(transaction)
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.counterclockwise")
+                        Text("Retry Transaction")
+                        Spacer()
+                        Image(systemName: "arrow.right")
+                            .font(.subheadline)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(Color.orange.opacity(0.15))
+                    .foregroundStyle(.orange)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("retry_transaction_button")
+            }
+        }
+    }
+    
+    // MARK: - Failed Explanation Section (E10)
+    
+    private var failedExplanationSection: some View {
+        let explanation = TransactionFailureReason.explanation(
+            status: transaction.status,
+            chainId: transaction.chainId,
+            fee: transaction.fee
+        )
+        
+        return Group {
+            if let explanation {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 8) {
+                        Image(systemName: explanation.icon)
+                            .font(.title3)
+                            .foregroundStyle(.red)
+                        Text(explanation.reason)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                    }
+                    
+                    Text(explanation.explanation)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    
+                    HStack(spacing: 6) {
+                        Image(systemName: "lightbulb.fill")
+                            .font(.caption)
+                            .foregroundStyle(.yellow)
+                        Text(explanation.suggestion)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 4)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.red.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.red.opacity(0.2), lineWidth: 1)
+                )
+                .accessibilityIdentifier("failed_transaction_explanation")
             }
         }
     }

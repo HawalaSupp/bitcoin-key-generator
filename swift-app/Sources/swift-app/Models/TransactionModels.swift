@@ -131,6 +131,86 @@ public enum TransactionStatusColor {
     case neutral
 }
 
+// MARK: - Transaction Date Range Filter (ROADMAP-18 E6)
+
+/// Date range options for filtering transaction history
+public enum TransactionDateRange: String, CaseIterable, Identifiable {
+    case all = "All Time"
+    case today = "Today"
+    case week = "Last 7 Days"
+    case month = "Last 30 Days"
+    case quarter = "Last 90 Days"
+    case year = "Last Year"
+
+    public var id: String { rawValue }
+    public var label: String { rawValue }
+
+    /// Returns the cutoff date for this range, or nil for `.all`.
+    public var cutoffDate: Date? {
+        let cal = Calendar.current
+        let now = Date()
+        switch self {
+        case .all: return nil
+        case .today: return cal.startOfDay(for: now)
+        case .week: return cal.date(byAdding: .day, value: -7, to: now)
+        case .month: return cal.date(byAdding: .day, value: -30, to: now)
+        case .quarter: return cal.date(byAdding: .day, value: -90, to: now)
+        case .year: return cal.date(byAdding: .year, value: -1, to: now)
+        }
+    }
+}
+
+// MARK: - Failed Transaction Error Reasons (ROADMAP-18 E10)
+
+/// Provides human-readable explanations for common transaction failure reasons.
+public enum TransactionFailureReason {
+    /// Analyze a failed transaction's status string and return a user-friendly explanation.
+    public static func explanation(
+        status: String,
+        chainId: String?,
+        fee: String?
+    ) -> TransactionFailureExplanation? {
+        guard status.lowercased() == "failed" else { return nil }
+
+        // Check for gas-related failures
+        if let feeStr = fee, feeStr.lowercased().contains("out of gas") {
+            return TransactionFailureExplanation(
+                reason: "Ran out of gas",
+                explanation: "The transaction used all available gas before completing. Try again with a higher gas limit.",
+                suggestion: "Increase gas limit and retry",
+                icon: "fuelpump.exclamationmark.fill"
+            )
+        }
+
+        // Chain-specific default explanations
+        let isEVM = chainId == "ethereum" || chainId == "ethereum-sepolia" || chainId == "bnb" || chainId == "polygon"
+
+        if isEVM {
+            return TransactionFailureExplanation(
+                reason: "Transaction Failed",
+                explanation: "The contract execution reverted or the transaction ran out of gas. This can happen when conditions change between submission and execution.",
+                suggestion: "Check contract conditions and retry with higher gas",
+                icon: "xmark.octagon.fill"
+            )
+        }
+
+        return TransactionFailureExplanation(
+            reason: "Transaction Failed",
+            explanation: "The transaction could not be completed by the network. This may be due to insufficient funds, an invalid address, or network issues.",
+            suggestion: "Verify details and try again",
+            icon: "xmark.octagon.fill"
+        )
+    }
+}
+
+/// Structured explanation for a failed transaction.
+public struct TransactionFailureExplanation {
+    public let reason: String
+    public let explanation: String
+    public let suggestion: String
+    public let icon: String
+}
+
 // MARK: - Transaction History Response (JSON Format)
 
 /// Response format for transaction history API

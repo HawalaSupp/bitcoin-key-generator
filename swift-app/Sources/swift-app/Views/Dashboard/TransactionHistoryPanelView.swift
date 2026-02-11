@@ -13,6 +13,8 @@ struct TransactionHistoryPanelView: View {
     @Binding var historySearchText: String
     @Binding var historyFilterChain: String?
     @Binding var historyFilterType: String?
+    @Binding var historyFilterToken: String?
+    @Binding var historyFilterDateRange: TransactionDateRange
 
     // MARK: - Callbacks
     var onRefresh: () -> Void = {}
@@ -20,6 +22,7 @@ struct TransactionHistoryPanelView: View {
     var onCancel: (PendingTransactionManager.PendingTransaction) -> Void = { _ in }
     var onSelectTransaction: (HawalaTransactionEntry) -> Void = { _ in }
     var onExportCSV: () -> Void = {}
+    var onRetryTransaction: (HawalaTransactionEntry) -> Void = { _ in }
 
     // MARK: - Services (read-only, for display names)
     @ObservedObject private var transactionHistoryService = TransactionHistoryService.shared
@@ -241,6 +244,8 @@ struct TransactionHistoryPanelView: View {
                 historySearchText = ""
                 historyFilterChain = nil
                 historyFilterType = nil
+                historyFilterToken = nil
+                historyFilterDateRange = .all
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -274,12 +279,16 @@ struct TransactionHistoryPanelView: View {
             HStack(spacing: 8) {
                 chainFilterMenu
                 typeFilterMenu
+                tokenFilterMenu
+                dateFilterMenu
                 Spacer()
                 if hasActiveFilters {
                     Button {
                         historySearchText = ""
                         historyFilterChain = nil
                         historyFilterType = nil
+                        historyFilterToken = nil
+                        historyFilterDateRange = .all
                     } label: {
                         HStack(spacing: 4) {
                             Text("Clear")
@@ -325,6 +334,8 @@ struct TransactionHistoryPanelView: View {
             Divider()
             Button("Received") { historyFilterType = "Received" }
             Button("Sent") { historyFilterType = "Sent" }
+            Button("Swap") { historyFilterType = "Swap" }
+            Button("Approve") { historyFilterType = "Approve" }
             Button("Contract") { historyFilterType = "Contract" }
         } label: {
             HStack(spacing: 4) {
@@ -342,13 +353,67 @@ struct TransactionHistoryPanelView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Token Filter Menu (E5)
+    private var tokenFilterMenu: some View {
+        Menu {
+            Button("All Tokens") { historyFilterToken = nil }
+            Divider()
+            ForEach(uniqueHistoryTokens, id: \.self) { token in
+                Button(token) {
+                    historyFilterToken = token
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "bitcoinsign.circle")
+                Text(historyFilterToken ?? "All Tokens")
+                Image(systemName: "chevron.down").font(.caption2)
+            }
+            .font(.caption)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(historyFilterToken != nil ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.05))
+            .foregroundStyle(historyFilterToken != nil ? Color.accentColor : .primary)
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Date Filter Menu (E6)
+    private var dateFilterMenu: some View {
+        Menu {
+            ForEach(TransactionDateRange.allCases) { range in
+                Button(range.label) {
+                    historyFilterDateRange = range
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "calendar")
+                Text(historyFilterDateRange.label)
+                Image(systemName: "chevron.down").font(.caption2)
+            }
+            .font(.caption)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(historyFilterDateRange != .all ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.05))
+            .foregroundStyle(historyFilterDateRange != .all ? Color.accentColor : .primary)
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Filtering Logic
     private var hasActiveFilters: Bool {
-        !historySearchText.isEmpty || historyFilterChain != nil || historyFilterType != nil
+        !historySearchText.isEmpty || historyFilterChain != nil || historyFilterType != nil || historyFilterToken != nil || historyFilterDateRange != .all
     }
 
     private var uniqueHistoryChains: [String] {
         TransactionHistoryService.uniqueChains(from: historyEntries)
+    }
+
+    private var uniqueHistoryTokens: [String] {
+        TransactionHistoryService.uniqueTokens(from: historyEntries)
     }
 
     private var filteredHistoryEntries: [HawalaTransactionEntry] {
@@ -356,6 +421,8 @@ struct TransactionHistoryPanelView: View {
             historyEntries,
             chain: historyFilterChain,
             type: historyFilterType,
+            token: historyFilterToken,
+            dateRange: historyFilterDateRange,
             searchText: historySearchText
         )
     }
