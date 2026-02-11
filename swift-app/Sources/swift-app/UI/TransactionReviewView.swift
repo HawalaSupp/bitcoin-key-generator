@@ -130,6 +130,18 @@ struct TransactionReviewView: View {
                 .foregroundColor(.secondary)
             
             VStack(alignment: .leading, spacing: 6) {
+                // ROADMAP-16 E12: Show saved contact name if available
+                if let contact = ContactsManager.shared.contact(forAddress: transaction.recipientAddress) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.caption)
+                            .foregroundColor(HawalaTheme.Colors.accent)
+                        Text(contact.name)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    }
+                }
+                
                 // Show ENS/domain name if available
                 if let displayName = transaction.recipientDisplayName {
                     HStack(spacing: 6) {

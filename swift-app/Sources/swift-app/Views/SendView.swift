@@ -227,6 +227,16 @@ struct SendView: View {
     @State private var scamReasons: [String] = []
     @State private var scamRiskLevel: AddressRiskLevel = .medium
     
+    // ROADMAP-16 E11: Contact picker integration
+    @State private var showingContactPicker = false
+    
+    // ROADMAP-16 E13: Auto-save contact prompt after send
+    @State private var showingSaveContactPrompt = false
+    @State private var saveContactName = ""
+    @State private var saveContactNotes = ""
+    @State private var savedRecipientAddress = ""
+    @State private var savedRecipientChain = ""
+    
     // Amount validation (ROADMAP-05 E8-E11)
     @State private var amountValidationError: String?
     
@@ -309,6 +319,43 @@ struct SendView: View {
                 },
                 onCancel: {
                     showingScamBlockingModal = false
+                }
+            )
+        }
+        // ROADMAP-16 E11: Contact picker sheet
+        .sheet(isPresented: $showingContactPicker) {
+            ContactPickerSheet(
+                chain: selectedChain.chainId,
+                contacts: ContactsManager.shared.contacts,
+                onSelect: { contact in
+                    recipientAddress = contact.address
+                    showingContactPicker = false
+                    validateAddressAsync()
+                },
+                onCancel: {
+                    showingContactPicker = false
+                }
+            )
+        }
+        // ROADMAP-16 E13: Auto-save contact prompt after sending to new address
+        .sheet(isPresented: $showingSaveContactPrompt) {
+            SaveContactPromptView(
+                address: savedRecipientAddress,
+                chainId: savedRecipientChain,
+                onSave: { name, notes in
+                    let contact = Contact(
+                        name: name,
+                        address: savedRecipientAddress,
+                        chainId: savedRecipientChain,
+                        notes: notes
+                    )
+                    ContactsManager.shared.addContact(contact)
+                    showingSaveContactPrompt = false
+                    finishAfterSuccess()
+                },
+                onSkip: {
+                    showingSaveContactPrompt = false
+                    finishAfterSuccess()
                 }
             )
         }
@@ -492,6 +539,16 @@ struct SendView: View {
                     keys: keys,
                     onDone: {
                         showingSuccessSheet = false
+                        
+                        // ROADMAP-16 E13: Show save-contact prompt if address is new
+                        if !savedRecipientAddress.isEmpty && !ContactsManager.shared.hasContact(forAddress: savedRecipientAddress) {
+                            // Small delay to allow sheet dismiss animation
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                self.showingSaveContactPrompt = true
+                            }
+                            return
+                        }
+                        
                         dismiss()
                         let result = TransactionBroadcastResult(
                             txid: details.txId,
@@ -740,6 +797,18 @@ struct SendView: View {
                 .accessibilityLabel("Paste address")
                 .accessibilityHint("Paste wallet address from clipboard")
                 .accessibilityIdentifier("send_paste_address_button")
+                
+                // ROADMAP-16 E11: Contact picker button
+                Button(action: { showingContactPicker = true }) {
+                    Image(systemName: "person.crop.circle")
+                        .font(.system(size: 14))
+                        .foregroundColor(HawalaTheme.Colors.accent)
+                }
+                .buttonStyle(.plain)
+                .help("Pick from contacts")
+                .accessibilityLabel("Pick from contacts")
+                .accessibilityHint("Select a recipient from your address book")
+                .accessibilityIdentifier("send_contact_picker_button")
             }
             .padding(HawalaTheme.Spacing.md)
             .background(HawalaTheme.Colors.backgroundTertiary)
@@ -2270,6 +2339,24 @@ struct SendView: View {
     
     // MARK: - Send Transaction
     
+    // ROADMAP-16 E13: Shared dismiss-after-success logic (used by save-contact prompt callbacks)
+    private func finishAfterSuccess() {
+        dismiss()
+        if let details = successTransactionDetails {
+            let result = TransactionBroadcastResult(
+                txid: details.txId,
+                chainId: details.chain.chainId,
+                chainName: details.chain.displayName,
+                amount: details.amount,
+                recipient: details.recipient,
+                isRBFEnabled: details.isRBFEnabled,
+                feeRate: details.feeRate,
+                nonce: details.nonce
+            )
+            onSuccess?(result)
+        }
+    }
+    
     @State private var showBackupRequiredSheet = false
     
     private func sendTransaction() {
@@ -2389,6 +2476,12 @@ struct SendView: View {
             
             // ROADMAP-05 E5: Record successful send for address history
             AddressIntelligenceManager.shared.recordSend(to: recipientAddress)
+            
+            // ROADMAP-16 E13: Prompt to save contact if address is new
+            if !ContactsManager.shared.hasContact(forAddress: recipientAddress) {
+                savedRecipientAddress = recipientAddress
+                savedRecipientChain = selectedChain.chainId
+            }
             
             #if DEBUG
             print("[SendView] Setting showingSuccessSheet = true")
@@ -3274,12 +3367,17 @@ struct TransactionSuccessView: View {
                 Divider()
                     .background(HawalaTheme.Colors.border)
                 
-                // Recipient
+                // Recipient — ROADMAP-16 E12: Show contact name if available
                 detailRow(
                     icon: "person.circle.fill",
                     iconColor: HawalaTheme.Colors.accent,
                     title: "To",
-                    value: truncateAddress(details.recipient),
+                    value: {
+                        if let contact = ContactsManager.shared.contact(forAddress: details.recipient) {
+                            return "\(contact.name) (\(truncateAddress(details.recipient)))"
+                        }
+                        return truncateAddress(details.recipient)
+                    }(),
                     isAddress: true
                 )
                 

@@ -8,6 +8,8 @@ struct ContactsView: View {
     @State private var showAddContact = false
     @State private var editingContact: Contact?
     @State private var contactToDelete: Contact?
+    @State private var showImportAlert = false
+    @State private var importCount = 0
     
     var body: some View {
         VStack(spacing: 0) {
@@ -25,6 +27,20 @@ struct ContactsView: View {
                     .font(.headline)
                 
                 Spacer()
+                
+                // ROADMAP-16 E14: Import from history button
+                let unsavedCount = contactsManager.unsavedRecentAddresses().count
+                if unsavedCount > 0 {
+                    Button {
+                        importCount = contactsManager.importAllFromHistory()
+                        showImportAlert = true
+                    } label: {
+                        Label("Import (\(unsavedCount))", systemImage: "square.and.arrow.down")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Import \(unsavedCount) recent addresses from send history")
+                }
                 
                 Button {
                     showAddContact = true
@@ -123,6 +139,12 @@ struct ContactsView: View {
             if let contact = contactToDelete {
                 Text("Are you sure you want to delete \"\(contact.name)\"?")
             }
+        }
+        // ROADMAP-16 E14: Import result alert
+        .alert("Contacts Imported", isPresented: $showImportAlert) {
+            Button("OK") { }
+        } message: {
+            Text("Imported \(importCount) address\(importCount == 1 ? "" : "es") from your send history.")
         }
     }
     

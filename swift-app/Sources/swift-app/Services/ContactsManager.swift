@@ -109,6 +109,34 @@ class ContactsManager: ObservableObject {
         contacts.contains { $0.address.lowercased() == address.lowercased() }
     }
     
+    // MARK: - ROADMAP-16 E14: Import from transaction history
+    
+    /// Returns unique sent-to addresses from history that are NOT yet saved as contacts.
+    func unsavedRecentAddresses() -> [(address: String, count: Int)] {
+        let recents = AddressIntelligenceManager.shared.getRecentRecipients(limit: 50)
+        return recents.filter { !hasContact(forAddress: $0.address) }
+            .map { (address: $0.address, count: $0.count) }
+    }
+    
+    /// Import an address from history as a new contact with a default name.
+    @discardableResult
+    func importFromHistory(address: String, chainId: String, name: String? = nil) -> Contact {
+        let contactName = name ?? "Recipient \(String(address.prefix(6)))"
+        let contact = Contact(name: contactName, address: address, chainId: chainId)
+        addContact(contact)
+        return contact
+    }
+    
+    /// Bulk-import all unsaved recent addresses. Returns the count of imported contacts.
+    @discardableResult
+    func importAllFromHistory(chainId: String = "bitcoin") -> Int {
+        let unsaved = unsavedRecentAddresses()
+        for entry in unsaved {
+            importFromHistory(address: entry.address, chainId: chainId)
+        }
+        return unsaved.count
+    }
+    
     private func loadContacts() {
         guard let data = UserDefaults.standard.data(forKey: contactsKey),
               let decoded = try? JSONDecoder().decode([Contact].self, from: data) else {
