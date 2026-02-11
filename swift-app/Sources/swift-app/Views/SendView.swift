@@ -1076,6 +1076,27 @@ struct SendView: View {
                 }
             }
             
+            // ROADMAP-17 E11: Fee spike warning banner
+            if feeEstimator.isFeeSpike(forChainId: selectedChain.chainId) {
+                HStack(spacing: 8) {
+                    Image(systemName: "flame.fill")
+                        .foregroundColor(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Fees are unusually high")
+                            .font(HawalaTheme.Typography.captionBold)
+                            .foregroundColor(.orange)
+                        Text("Current rates are more than 2× the recent average. Consider waiting.")
+                            .font(.system(size: 10))
+                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    }
+                    Spacer()
+                }
+                .padding(HawalaTheme.Spacing.sm)
+                .background(Color.orange.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm, style: .continuous))
+                .accessibilityIdentifier("fee_spike_warning_banner")
+            }
+            
             // Custom Fee Toggle
             HStack {
                 Toggle(isOn: $useCustomFee) {
@@ -2032,7 +2053,8 @@ struct SendView: View {
             amount: amountSats,
             fee: estimatedFee,
             feeRate: currentFeeRate,
-            currentFeeEstimates: bitcoinEstimate
+            currentFeeEstimates: bitcoinEstimate,
+            isFeeSpike: feeEstimator.isBitcoinFeeSpike
         )
     }
     
@@ -2062,7 +2084,8 @@ struct SendView: View {
             gasPrice: gasPriceWei,
             gasLimit: currentGasLimit,
             chainId: selectedChain.chainId,
-            currentFeeEstimates: ethereumEstimate
+            currentFeeEstimates: ethereumEstimate,
+            isFeeSpike: feeEstimator.isEthereumFeeSpike
         )
     }
     
@@ -2172,6 +2195,19 @@ struct SendView: View {
         let amountValue = Double(amount) ?? 0
         let (feeValue, feeRateValue, feeUnit, estimatedTime) = calculateFeeDetails()
         
+        // ROADMAP-17 E6/E14: Compute fiat values from FeeEstimator price data
+        let currentEstimate = getEstimate(for: selectedFeePriority)
+        let fiatFeeValue: Double? = {
+            guard let est = currentEstimate, let fiat = est.fiatValue, est.estimatedFee > 0 else { return nil }
+            // Scale: fiatValue corresponds to est.estimatedFee, we want fiatFee for feeValue
+            return (fiat / est.estimatedFee) * feeValue
+        }()
+        let fiatAmountValue: Double? = {
+            guard let est = currentEstimate, let fiat = est.fiatValue, est.estimatedFee > 0 else { return nil }
+            let pricePerUnit = fiat / est.estimatedFee // price per native unit
+            return pricePerUnit * amountValue
+        }()
+        
         reviewData = TransactionReviewData(
             chainId: selectedChain.chainId,
             chainName: chainDisplayName,
@@ -2185,8 +2221,8 @@ struct SendView: View {
             fee: feeValue,
             feePriority: selectedFeePriority,
             estimatedTime: estimatedTime,
-            fiatAmount: nil,
-            fiatFee: nil,
+            fiatAmount: fiatAmountValue,
+            fiatFee: fiatFeeValue,
             currentBalance: nil
         )
         
@@ -3709,6 +3745,13 @@ struct SendFeePriorityCard: View {
                     Text(chain.isBitcoin ? "sat/vB" : "Gwei")
                         .font(.system(size: 9))
                         .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    
+                    // ROADMAP-17 E6: Show USD equivalent if available
+                    if let fiat = est.fiatValue {
+                        Text(fiat < 0.01 ? "<$0.01" : String(format: "$%.2f", fiat))
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    }
                 } else {
                     Text("--")
                         .font(HawalaTheme.Typography.monoSmall)

@@ -57,6 +57,7 @@ struct FeeWarning: Identifiable {
         case mempoolCongestion      // Mempool size above threshold
         case gasLimitLow            // EVM: gas limit seems too low
         case insufficientForFee     // Can't cover amount + fee
+        case feeSpike               // ROADMAP-17 E11: Current fees > 2× recent average
     }
     
     enum Severity {
@@ -100,9 +101,20 @@ final class FeeWarningService: ObservableObject {
         amount: Int64,          // satoshis
         fee: Int64,             // satoshis
         feeRate: Int64,         // sat/vB
-        currentFeeEstimates: BitcoinFeeEstimate?
+        currentFeeEstimates: BitcoinFeeEstimate?,
+        isFeeSpike: Bool = false
     ) -> [FeeWarning] {
         var warnings: [FeeWarning] = []
+        
+        // ROADMAP-17 E11: Fee spike warning
+        if isFeeSpike {
+            warnings.append(FeeWarning(
+                type: .feeSpike,
+                title: "Network Fees Are High",
+                message: "Bitcoin fees are unusually high right now — more than double the recent average. Consider waiting for fees to drop.",
+                severity: .warning
+            ))
+        }
         
         // Check if fee is a high percentage of send amount
         if amount > 0 {
@@ -161,9 +173,20 @@ final class FeeWarningService: ObservableObject {
         gasPrice: UInt64,       // wei
         gasLimit: UInt64,
         chainId: String,
-        currentFeeEstimates: EthereumFeeEstimate?
+        currentFeeEstimates: EthereumFeeEstimate?,
+        isFeeSpike: Bool = false
     ) -> [FeeWarning] {
         var warnings: [FeeWarning] = []
+        
+        // ROADMAP-17 E11: Fee spike warning
+        if isFeeSpike {
+            warnings.append(FeeWarning(
+                type: .feeSpike,
+                title: "Gas Fees Are High",
+                message: "Gas prices are unusually high right now — more than double the recent average. Consider waiting for prices to drop.",
+                severity: .warning
+            ))
+        }
         
         let maxFee = gasPrice * gasLimit
         let gasPriceGwei = Double(gasPrice) / 1_000_000_000

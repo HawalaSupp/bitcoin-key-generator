@@ -115,6 +115,16 @@ final class FeeEstimator: ObservableObject {
     @Published var lastUpdated: Date?
     @Published var error: String?
     
+    // ROADMAP-17 E10: Fee history for spike detection
+    @Published var isBitcoinFeeSpike = false
+    @Published var isEthereumFeeSpike = false
+    
+    /// Rolling history of average fee rates for spike detection (max 20 entries)
+    private(set) var bitcoinFeeHistory: [Double] = []
+    private(set) var ethereumFeeHistory: [Double] = []
+    private let feeHistoryMaxEntries = 20
+    private let spikeMultiplier: Double = 2.0 // > 2× average = spike
+    
     // MARK: - Configuration
     
     private let mempoolMainnetURL = "https://mempool.space/api/v1/fees/recommended"
@@ -221,6 +231,10 @@ final class FeeEstimator: ObservableObject {
             
             lastUpdated = Date()
             
+            // ROADMAP-17 E10: Record fee history and detect spikes
+            let currentAvgRate = Double(estimates.halfHourFee)
+            recordFeeHistory(rate: currentAvgRate, chain: .bitcoin)
+            
         } catch {
             self.error = "Failed to fetch Bitcoin fees: \(error.localizedDescription)"
             // Keep default estimates
@@ -249,6 +263,10 @@ final class FeeEstimator: ObservableObject {
             if let estimates = await fetchAlchemyGasEstimates(gasLimit: gasLimit) {
                 ethereumEstimates = estimates
                 lastUpdated = Date()
+                // ROADMAP-17 E10: Record fee history and detect spikes
+                if let avgRate = estimates.first(where: { $0.priority == .average })?.feeRate {
+                    recordFeeHistory(rate: avgRate, chain: .ethereum)
+                }
                 isLoadingEthereum = false
                 return
             }
@@ -256,6 +274,10 @@ final class FeeEstimator: ObservableObject {
         
         // Fallback to public estimate
         await fetchPublicEthereumFees(gasLimit: gasLimit)
+        // ROADMAP-17 E10: Record fee history for fallback path
+        if let avgRate = ethereumEstimates.first(where: { $0.priority == .average })?.feeRate {
+            recordFeeHistory(rate: avgRate, chain: .ethereum)
+        }
         
         isLoadingEthereum = false
     }
@@ -277,6 +299,52 @@ final class FeeEstimator: ObservableObject {
     /// Calculate total Ethereum fee
     func calculateEthereumFee(gasPriceGwei: Double, gasLimit: UInt64) -> Double {
         return (gasPriceGwei * Double(gasLimit)) / 1_000_000_000 // Convert to ETH
+    }
+    
+    // MARK: - ROADMAP-17 E10: Fee Spike Detection
+    
+    /// Which chain's fee history to track
+    enum FeeChainType { case bitcoin, ethereum }
+    
+    /// Record a fee rate snapshot and detect if current rate is a spike (> 2× rolling average)
+    func recordFeeHistory(rate: Double, chain: FeeChainType) {
+        switch chain {
+        case .bitcoin:
+            bitcoinFeeHistory.append(rate)
+            if bitcoinFeeHistory.count > feeHistoryMaxEntries {
+                bitcoinFeeHistory.removeFirst()
+            }
+            isBitcoinFeeSpike = detectSpike(history: bitcoinFeeHistory, currentRate: rate)
+        case .ethereum:
+            ethereumFeeHistory.append(rate)
+            if ethereumFeeHistory.count > feeHistoryMaxEntries {
+                ethereumFeeHistory.removeFirst()
+            }
+            isEthereumFeeSpike = detectSpike(history: ethereumFeeHistory, currentRate: rate)
+        }
+    }
+    
+    /// Returns true if `currentRate` exceeds `spikeMultiplier`× the rolling average (excluding the latest entry)
+    func detectSpike(history: [Double], currentRate: Double) -> Bool {
+        // Need at least 3 historical data points (excluding the current) for meaningful comparison
+        guard history.count >= 4 else { return false }
+        // Compute average of all entries except the latest (which is `currentRate`)
+        let priorEntries = Array(history.dropLast())
+        let average = priorEntries.reduce(0, +) / Double(priorEntries.count)
+        guard average > 0 else { return false }
+        return currentRate > average * spikeMultiplier
+    }
+    
+    /// Whether a spike is active for the given chain ID
+    func isFeeSpike(forChainId chainId: String) -> Bool {
+        switch chainId {
+        case "bitcoin", "bitcoin-testnet", "bitcoin-mainnet", "litecoin":
+            return isBitcoinFeeSpike
+        case "ethereum", "ethereum-sepolia", "ethereum-mainnet", "polygon", "bnb", "bsc-mainnet", "polygon-mainnet":
+            return isEthereumFeeSpike
+        default:
+            return false
+        }
     }
     
     // MARK: - Private Methods
