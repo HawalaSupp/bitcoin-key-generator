@@ -115,6 +115,10 @@ class HardwareWalletSetupViewModel: ObservableObject {
     func selectDevice(_ device: DiscoveredDevice) {
         selectedDevice = device
         step = .connecting
+        // ROADMAP-22: Track pairing started
+        AnalyticsService.shared.track(AnalyticsService.EventName.hwPairingStarted, properties: [
+            "device_type": device.deviceType.rawValue
+        ])
         
         Task {
             await connectToDevice(device)
@@ -144,6 +148,11 @@ class HardwareWalletSetupViewModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
             step = .error
+            // ROADMAP-22: Track pairing failure
+            AnalyticsService.shared.track(AnalyticsService.EventName.hwPairingFailed, properties: [
+                "device_type": selectedDevice?.deviceType.rawValue ?? "unknown",
+                "error": error.localizedDescription
+            ])
         }
         
         isLoading = false
@@ -199,6 +208,11 @@ class HardwareWalletSetupViewModel: ObservableObject {
     func confirmAddress() {
         guard let device = selectedDevice,
               let address = derivedAddress else { return }
+        
+        // ROADMAP-22: Track address verified on device
+        AnalyticsService.shared.track(AnalyticsService.EventName.hwAddressVerified, properties: [
+            "device_type": device.deviceType.rawValue
+        ])
         
         let path = selectedPath ?? DerivationPath(string: selectedChain.defaultPath)!
         

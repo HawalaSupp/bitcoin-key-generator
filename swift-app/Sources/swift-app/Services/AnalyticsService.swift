@@ -102,7 +102,11 @@ final class AnalyticsService: ObservableObject {
         EventName.portfolioViewed,
         // ROADMAP-21: Multi-wallet events
         EventName.walletSwitched, EventName.walletRenamed, EventName.walletDeleted,
-        EventName.aggregateViewToggled
+        EventName.aggregateViewToggled,
+        // ROADMAP-22: Hardware wallet events
+        EventName.hwPairingStarted, EventName.hwPaired, EventName.hwPairingFailed,
+        EventName.hwSigningRequested, EventName.hwSigningConfirmed, EventName.hwSigningRejected,
+        EventName.hwDisconnected, EventName.hwAddressVerified
     ]
     
     // MARK: - Event Names (type-safe)
@@ -142,6 +146,15 @@ final class AnalyticsService: ObservableObject {
         static let walletRenamed = "wallet_renamed"
         static let walletDeleted = "wallet_deleted"
         static let aggregateViewToggled = "aggregate_view_toggled"
+        // ROADMAP-22: Hardware wallet events
+        static let hwPairingStarted = "hardware_wallet_pairing_started"
+        static let hwPaired = "hardware_wallet_paired"
+        static let hwPairingFailed = "hardware_wallet_pairing_failed"
+        static let hwSigningRequested = "hardware_wallet_signing_requested"
+        static let hwSigningConfirmed = "hardware_wallet_signing_confirmed"
+        static let hwSigningRejected = "hardware_wallet_signing_rejected"
+        static let hwDisconnected = "hardware_wallet_disconnected"
+        static let hwAddressVerified = "hardware_wallet_address_verified"
     }
     
     // MARK: - Init

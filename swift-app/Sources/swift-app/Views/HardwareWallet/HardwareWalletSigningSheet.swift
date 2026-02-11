@@ -110,6 +110,11 @@ class HardwareWalletSigningViewModel: ObservableObject {
     }
     
     func start() {
+        // ROADMAP-22: Track signing request
+        AnalyticsService.shared.track(AnalyticsService.EventName.hwSigningRequested, properties: [
+            "device_type": account.deviceType.rawValue,
+            "tx_type": transaction.displayInfo?.type ?? "unknown"
+        ])
         signingTask = Task {
             await performSigning()
         }
@@ -193,11 +198,27 @@ class HardwareWalletSigningViewModel: ObservableObject {
             )
             
             state = .complete
+            // ROADMAP-22: Track signing confirmed
+            AnalyticsService.shared.track(AnalyticsService.EventName.hwSigningConfirmed, properties: [
+                "device_type": account.deviceType.rawValue
+            ])
             onSigned(signature)
             
         } catch {
             errorMessage = error.localizedDescription
             state = .error
+            // ROADMAP-22: Track signing rejection/failure
+            let isRejection = (error as? HWError) == nil ? false : {
+                if case .userRejected = error as! HWError { return true }
+                return false
+            }()
+            AnalyticsService.shared.track(
+                isRejection ? AnalyticsService.EventName.hwSigningRejected : AnalyticsService.EventName.hwPairingFailed,
+                properties: [
+                    "device_type": account.deviceType.rawValue,
+                    "error": error.localizedDescription
+                ]
+            )
             onError(error)
         }
     }

@@ -65,6 +65,12 @@ final class NavigationViewModel: ObservableObject {
     @Published var showDeleteWalletConfirmation = false
     @Published var walletToDelete: UUID?
     
+    // MARK: - ROADMAP-22: Hardware Wallet State
+    @Published var isHardwareWalletConnected = false
+    @Published var connectedHardwareDeviceType: HardwareDeviceType?
+    @Published var hardwareWalletFirmwareVersion: String?
+    @Published var showHardwareWalletSetupSheet = false
+    
     // MARK: - Send Flow Context
     @Published var sendChainContext: ChainInfo?
     @Published var pendingSendChain: ChainInfo?
@@ -167,6 +173,7 @@ final class NavigationViewModel: ObservableObject {
         showAddWalletSheet = false
         showDeleteWalletConfirmation = false
         walletToDelete = nil
+        showHardwareWalletSetupSheet = false
         sendChainContext = nil
         pendingSendChain = nil
     }

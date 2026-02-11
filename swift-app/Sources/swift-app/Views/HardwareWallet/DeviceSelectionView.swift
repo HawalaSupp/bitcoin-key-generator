@@ -244,23 +244,23 @@ extension HardwareDeviceType {
             return "rectangle.portrait.and.arrow.right"
         case .ledgerNanoX:
             return "rectangle.portrait.and.arrow.right.fill"
+        case .ledgerStax:
+            return "rectangle.portrait.fill"
         case .trezorOne:
             return "shield"
         case .trezorModelT:
             return "shield.fill"
-        default:
-            return "externaldrive"
+        case .trezorSafe3:
+            return "shield.checkerboard"
         }
     }
     
     var brandColor: Color {
         switch self {
-        case .ledgerNanoS, .ledgerNanoSPlus, .ledgerNanoX:
+        case .ledgerNanoS, .ledgerNanoSPlus, .ledgerNanoX, .ledgerStax:
             return Color(red: 0.0, green: 0.4, blue: 0.8)  // Ledger blue
-        case .trezorOne, .trezorModelT:
+        case .trezorOne, .trezorModelT, .trezorSafe3:
             return Color(red: 0.0, green: 0.6, blue: 0.2)  // Trezor green
-        default:
-            return .gray
         }
     }
 }
@@ -316,12 +316,14 @@ extension HardwareDeviceType {
             return "Nano S+"
         case .ledgerNanoX:
             return "Nano X"
+        case .ledgerStax:
+            return "Stax"
         case .trezorOne:
             return "Trezor"
         case .trezorModelT:
             return "Model T"
-        default:
-            return "HW"
+        case .trezorSafe3:
+            return "Safe 3"
         }
     }
 }

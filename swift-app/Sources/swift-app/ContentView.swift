@@ -35,6 +35,7 @@ struct ContentView: View {
     @StateObject private var balanceService = BalanceService.shared
     @StateObject private var priceService = PriceService.shared
     @StateObject private var walletManager = MultiWalletManager.shared
+    @StateObject private var hwManager = HardwareWalletManagerV2.shared
     private let backupService = BackupService.shared
     private let wcSigningService = WalletConnectSigningService.shared
     // Phase 3 Feature Sheets
@@ -224,6 +225,15 @@ struct ContentView: View {
                     .background(HawalaTheme.Colors.divider)
                     .padding(.horizontal, 12)
                 
+                // ROADMAP-22 E12: Hardware wallet connection status in sidebar
+                HardwareWalletConnectionBadge(
+                    manager: hwManager,
+                    onTap: {
+                        navigationVM.showHardwareWalletSheet = true
+                    }
+                )
+                .padding(.vertical, 4)
+                
                 List(SidebarItem.allCases, selection: $sidebarSelection) { item in
                     Label(item.rawValue, systemImage: item.icon)
                         .tag(item)
@@ -327,6 +337,20 @@ struct ContentView: View {
                 )
             }
         }
+        // ROADMAP-22: Hardware wallet setup sheet (from onboarding or sidebar)
+        .sheet(isPresented: $navigationVM.showHardwareWalletSetupSheet) {
+            HardwareWalletSetupSheet(chain: .ethereum) { account in
+                // Account added to HardwareWalletManagerV2 by the setup sheet
+                AnalyticsService.shared.track(AnalyticsService.EventName.hwPaired, properties: [
+                    "device_type": account.deviceType.rawValue,
+                    "connection_type": "usb",
+                    "chain": account.chain.rawValue
+                ])
+                navigationVM.isHardwareWalletConnected = true
+                navigationVM.connectedHardwareDeviceType = account.deviceType
+                showStatus("Hardware wallet connected", tone: .success)
+            }
+        }
         .overlay {
             // Privacy blur overlay when app goes to background/inactive
             if securityVM.showPrivacyBlur {
@@ -346,6 +370,25 @@ struct ContentView: View {
             securityVM.recordActivity()
             backupService.onStatus = { [self] message, tone, autoClear in
                 showStatus(message, tone: tone, autoClear: autoClear)
+            }
+            // ROADMAP-22: Start hardware wallet scanning on launch
+            hwManager.startScanning()
+        }
+        .onChange(of: hwManager.discoveredDevices.count) { newCount in
+            // ROADMAP-22 E11/E14: Track connection status changes
+            let wasConnected = navigationVM.isHardwareWalletConnected
+            navigationVM.isHardwareWalletConnected = newCount > 0
+            if newCount > 0 {
+                let device = hwManager.discoveredDevices.first
+                navigationVM.connectedHardwareDeviceType = device?.deviceType
+            } else {
+                navigationVM.connectedHardwareDeviceType = nil
+                navigationVM.hardwareWalletFirmwareVersion = nil
+                if wasConnected {
+                    AnalyticsService.shared.track(AnalyticsService.EventName.hwDisconnected, properties: [
+                        "was_expected": "false"
+                    ])
+                }
             }
         }
         .onChange(of: storedPasscodeHash) { _ in
@@ -547,8 +590,11 @@ struct ContentView: View {
             await runGenerator()
             
         case .ledger, .trezor, .keystone:
-            // Hardware wallet - just mark complete, actual connection handled separately
-            break
+            // Hardware wallet — open the setup sheet after onboarding completes
+            AnalyticsService.shared.track(AnalyticsService.EventName.hwPairingStarted, properties: [
+                "device_type": result.method.rawValue
+            ])
+            navigationVM.showHardwareWalletSetupSheet = true
             
         case .watchOnly:
             // Watch-only mode - no keys to generate
