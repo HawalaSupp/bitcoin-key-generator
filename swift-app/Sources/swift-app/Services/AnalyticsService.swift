@@ -186,6 +186,12 @@ final class AnalyticsService: ObservableObject {
         addProvider(ConsoleAnalyticsProvider())
         #endif
         
+        // ROADMAP-20: Register production TelemetryDeck provider
+        let telemetry = TelemetryDeckProvider()
+        if telemetry.isConfigured {
+            addProvider(telemetry)
+        }
+        
         startFlushTimer()
     }
     

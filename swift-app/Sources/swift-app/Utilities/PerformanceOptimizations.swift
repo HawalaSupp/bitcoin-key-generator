@@ -808,6 +808,15 @@ enum PerformanceSignpost {
     static let network = OSLog(subsystem: subsystem, category: "Network")
     static let crypto = OSLog(subsystem: subsystem, category: "Crypto")
     
+    // ROADMAP-20: Additional critical path categories
+    static let walletLoad = OSLog(subsystem: subsystem, category: "WalletLoad")
+    static let sendFlow = OSLog(subsystem: subsystem, category: "SendFlow")
+    static let swapQuote = OSLog(subsystem: subsystem, category: "SwapQuote")
+    static let bridgeQuote = OSLog(subsystem: subsystem, category: "BridgeQuote")
+    static let feeEstimation = OSLog(subsystem: subsystem, category: "FeeEstimation")
+    static let coldStart = OSLog(subsystem: subsystem, category: "ColdStart")
+    static let rustFFI = OSLog(subsystem: subsystem, category: "RustFFI")
+    
     // MARK: - Convenience Methods
     
     /// Mark the beginning of a navigation event
@@ -858,6 +867,26 @@ enum PerformanceSignpost {
     /// Event marker (instantaneous)
     static func event(_ name: StaticString, log: OSLog = navigation) {
         os_signpost(.event, log: log, name: name)
+    }
+    
+    // MARK: - ROADMAP-20: Generic Measure Helpers
+    
+    /// Measure an async block and return its result (logged to the given OSLog).
+    static func measure<T>(_ log: OSLog, name: StaticString = "interval", block: () async throws -> T) async rethrows -> T {
+        let id = OSSignpostID(log: log)
+        os_signpost(.begin, log: log, name: name, signpostID: id)
+        let result = try await block()
+        os_signpost(.end, log: log, name: name, signpostID: id)
+        return result
+    }
+    
+    /// Measure a synchronous block and return its result.
+    static func measureSync<T>(_ log: OSLog, name: StaticString = "interval", block: () throws -> T) rethrows -> T {
+        let id = OSSignpostID(log: log)
+        os_signpost(.begin, log: log, name: name, signpostID: id)
+        let result = try block()
+        os_signpost(.end, log: log, name: name, signpostID: id)
+        return result
     }
 }
 

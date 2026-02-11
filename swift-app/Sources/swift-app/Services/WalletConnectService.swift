@@ -78,6 +78,9 @@ class WalletConnectService: ObservableObject {
         
         loadSavedSessions()
         
+        // ROADMAP-09 E14: Auto-cleanup stale sessions on launch
+        cleanupStaleSessions()
+        
         if self.projectId.isEmpty {
             print("⚠️ WalletConnect: No project ID configured. Get one at https://cloud.walletconnect.com/")
         } else {
@@ -173,6 +176,28 @@ class WalletConnectService: ObservableObject {
         }
         sessions = []
         saveSessions()
+    }
+    
+    // MARK: - ROADMAP-09 E14: Stale Session Cleanup
+    
+    /// Remove sessions that have been idle for more than 7 days
+    func cleanupStaleSessions() {
+        let staleSessions = sessions.filter { $0.isStale }
+        guard !staleSessions.isEmpty else { return }
+        
+        for stale in staleSessions {
+            sessions.removeAll { $0.topic == stale.topic }
+            print("🧹 WalletConnect: Auto-disconnected stale session with \(stale.peer.name) (idle since \(stale.lastActivityAt))")
+        }
+        saveSessions()
+    }
+    
+    /// Update the last activity timestamp for a session (call on every request)
+    func touchSession(topic: String) {
+        if let index = sessions.firstIndex(where: { $0.topic == topic }) {
+            sessions[index].lastActivityAt = Date()
+            saveSessions()
+        }
     }
     
     // MARK: - Request Handling
@@ -719,6 +744,8 @@ struct WCSession: Identifiable, Codable {
     let namespaces: [String: WCSessionNamespace]
     let expiry: Date
     let acknowledged: Bool
+    /// ROADMAP-09 E14: Track last activity for stale session cleanup
+    var lastActivityAt: Date
     
     var id: String { topic }
     
@@ -728,6 +755,22 @@ struct WCSession: Identifiable, Codable {
     
     var chains: [String] {
         namespaces.values.flatMap { $0.chains }
+    }
+    
+    /// ROADMAP-09 E14: Session is stale if idle for 7+ days
+    var isStale: Bool {
+        let staleDays: TimeInterval = 7 * 24 * 60 * 60 // 7 days
+        return Date().timeIntervalSince(lastActivityAt) > staleDays
+    }
+    
+    init(topic: String, pairingTopic: String, peer: WCPeer, namespaces: [String: WCSessionNamespace], expiry: Date, acknowledged: Bool, lastActivityAt: Date = Date()) {
+        self.topic = topic
+        self.pairingTopic = pairingTopic
+        self.peer = peer
+        self.namespaces = namespaces
+        self.expiry = expiry
+        self.acknowledged = acknowledged
+        self.lastActivityAt = lastActivityAt
     }
 }
 

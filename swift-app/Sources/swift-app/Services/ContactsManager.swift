@@ -1,23 +1,19 @@
 import Foundation
 
-/// A saved contact/address in the address book
-struct Contact: Codable, Identifiable, Equatable {
+// MARK: - ROADMAP-16 E7: Multi-address per contact
+
+/// A single blockchain address entry within a contact
+struct ContactAddress: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
-    var name: String
     var address: String
     var chainId: String
-    var notes: String?
-    var createdAt: Date
-    var updatedAt: Date
+    var label: String?
     
-    init(name: String, address: String, chainId: String, notes: String? = nil) {
+    init(address: String, chainId: String, label: String? = nil) {
         self.id = UUID()
-        self.name = name
         self.address = address
         self.chainId = chainId
-        self.notes = notes
-        self.createdAt = Date()
-        self.updatedAt = Date()
+        self.label = label
     }
     
     /// Chain display name
@@ -41,6 +37,89 @@ struct Contact: Codable, Identifiable, Equatable {
             return String(address.prefix(8)) + "..." + String(address.suffix(6))
         }
         return address
+    }
+}
+
+/// A saved contact/address in the address book
+struct Contact: Codable, Identifiable, Equatable {
+    let id: UUID
+    var name: String
+    /// Primary address (kept for backward compatibility)
+    var address: String
+    /// Primary chain (kept for backward compatibility)
+    var chainId: String
+    var notes: String?
+    var createdAt: Date
+    var updatedAt: Date
+    /// ROADMAP-16 E7: Multiple addresses per contact
+    var addresses: [ContactAddress]
+    
+    init(name: String, address: String, chainId: String, notes: String? = nil) {
+        self.id = UUID()
+        self.name = name
+        self.address = address
+        self.chainId = chainId
+        self.notes = notes
+        self.createdAt = Date()
+        self.updatedAt = Date()
+        // Auto-populate addresses array with the primary address
+        self.addresses = [ContactAddress(address: address, chainId: chainId, label: "Primary")]
+    }
+    
+    /// Chain display name (from primary address)
+    var chainDisplayName: String {
+        switch chainId {
+        case "bitcoin": return "Bitcoin"
+        case "bitcoin-testnet": return "Bitcoin Testnet"
+        case "litecoin": return "Litecoin"
+        case "ethereum": return "Ethereum"
+        case "ethereum-sepolia": return "Ethereum Testnet"
+        case "bnb": return "BNB Chain"
+        case "solana": return "Solana"
+        case "xrp": return "XRP"
+        default: return chainId.capitalized
+        }
+    }
+    
+    /// Shortened address for display (primary address)
+    var shortAddress: String {
+        if address.count > 16 {
+            return String(address.prefix(8)) + "..." + String(address.suffix(6))
+        }
+        return address
+    }
+    
+    /// All unique chains this contact has addresses on
+    var chains: [String] {
+        Array(Set(addresses.map(\.chainId)))
+    }
+    
+    /// Get all addresses for a specific chain
+    func addresses(for chainId: String) -> [ContactAddress] {
+        addresses.filter { $0.chainId == chainId }
+    }
+    
+    // Custom Codable to handle migration from old format (no `addresses` field)
+    enum CodingKeys: String, CodingKey {
+        case id, name, address, chainId, notes, createdAt, updatedAt, addresses
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        address = try container.decode(String.self, forKey: .address)
+        chainId = try container.decode(String.self, forKey: .chainId)
+        notes = try container.decodeIfPresent(String.self, forKey: .notes)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        
+        // Migration: if addresses array is missing, create one from the primary address
+        if let addrs = try? container.decode([ContactAddress].self, forKey: .addresses), !addrs.isEmpty {
+            addresses = addrs
+        } else {
+            addresses = [ContactAddress(address: address, chainId: chainId, label: "Primary")]
+        }
     }
 }
 
@@ -106,7 +185,45 @@ class ContactsManager: ObservableObject {
     
     /// Check if address is already saved
     func hasContact(forAddress address: String) -> Bool {
-        contacts.contains { $0.address.lowercased() == address.lowercased() }
+        contacts.contains {
+            $0.address.lowercased() == address.lowercased() ||
+            $0.addresses.contains { $0.address.lowercased() == address.lowercased() }
+        }
+    }
+    
+    // MARK: - ROADMAP-16 E7: Multi-address per contact
+    
+    /// Add an additional address to an existing contact
+    func addAddress(to contactId: UUID, address: ContactAddress) {
+        guard let index = contacts.firstIndex(where: { $0.id == contactId }) else { return }
+        // Avoid duplicates
+        guard !contacts[index].addresses.contains(where: {
+            $0.address.lowercased() == address.address.lowercased() && $0.chainId == address.chainId
+        }) else { return }
+        contacts[index].addresses.append(address)
+        contacts[index].updatedAt = Date()
+        saveContacts()
+    }
+    
+    /// Remove an address from a contact (cannot remove if only 1 left)
+    func removeAddress(from contactId: UUID, addressId: UUID) {
+        guard let index = contacts.firstIndex(where: { $0.id == contactId }) else { return }
+        guard contacts[index].addresses.count > 1 else { return }
+        contacts[index].addresses.removeAll { $0.id == addressId }
+        contacts[index].updatedAt = Date()
+        saveContacts()
+    }
+    
+    /// Find contact by any of their addresses
+    func contact(forAnyAddress address: String) -> Contact? {
+        contacts.first {
+            $0.addresses.contains { $0.address.lowercased() == address.lowercased() }
+        }
+    }
+    
+    /// Get contacts that have an address on the given chain
+    func contacts(withChain chainId: String) -> [Contact] {
+        contacts.filter { $0.addresses.contains { $0.chainId == chainId } }
     }
     
     // MARK: - ROADMAP-16 E14: Import from transaction history

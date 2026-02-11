@@ -13,6 +13,11 @@ struct BridgeView: View {
     @State private var showActiveTransfers = false
     @State private var selectedQuote: BridgeService.BridgeQuote?
     @State private var confirmBridge = false
+    /// ROADMAP-07 E7: User must confirm destination chain before bridging
+    @State private var destinationConfirmed = false
+    /// ROADMAP-07 E9/E10: Quote expiry countdown
+    @State private var quoteTimeRemaining: Int = 0
+    @State private var quoteExpiryTimer: Timer?
     
     /// Optional wallet keys for executing bridges
     var keys: AllKeys?
@@ -87,6 +92,11 @@ struct BridgeView: View {
                 
                 // Amount input
                 amountSection
+                
+                // ROADMAP-07 E12: Zero-slippage warning
+                if slippage < 0.1 {
+                    zeroSlippageWarning
+                }
                 
                 // Quote preview or button
                 if let quotes = bridgeService.currentQuotes, showQuotes {
@@ -313,7 +323,20 @@ struct BridgeView: View {
                 Text("Available Routes")
                     .font(.headline)
                 Spacer()
-                Button(action: { showQuotes = false }) {
+                
+                // ROADMAP-07 E9: Quote expiry countdown
+                if quoteTimeRemaining > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                            .font(.caption)
+                        Text(formatCountdown(quoteTimeRemaining))
+                            .font(.caption.monospacedDigit())
+                    }
+                    .foregroundColor(quoteTimeRemaining < 60 ? .red : .secondary)
+                    .accessibilityLabel("Quote expires in \(quoteTimeRemaining) seconds")
+                }
+                
+                Button(action: { stopQuoteTimer(); showQuotes = false }) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.secondary)
                 }
@@ -336,6 +359,39 @@ struct BridgeView: View {
                     .onTapGesture { selectedQuote = cheapest }
             }
             
+            // ROADMAP-07 E7: Destination chain confirmation checkbox
+            Toggle(isOn: $destinationConfirmed) {
+                HStack(spacing: 6) {
+                    Image(systemName: "shield.checkered")
+                        .foregroundColor(.blue)
+                    Text("I confirm I am bridging to **\(destinationChain.displayName)**")
+                        .font(.caption)
+                }
+            }
+            .toggleStyle(.checkbox)
+            .accessibilityLabel("Confirm destination chain is \(destinationChain.displayName)")
+            .accessibilityIdentifier("bridge_destination_confirm_toggle")
+            
+            // ROADMAP-07 E9: Expired quote warning + auto-refresh
+            if quoteTimeRemaining <= 0 && showQuotes {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text("Quote expired")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                    Spacer()
+                    Button("Refresh") {
+                        fetchQuotes()
+                    }
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                }
+                .padding(8)
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(8)
+            }
+            
             // Bridge button
             Button(action: { confirmBridge = true }) {
                 HStack {
@@ -345,15 +401,20 @@ struct BridgeView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding()
-                .background(selectedQuote != nil ? Color.blue : Color.gray)
+                .background(canBridge ? Color.blue : Color.gray)
                 .foregroundColor(.white)
                 .cornerRadius(12)
             }
-            .disabled(selectedQuote == nil)
+            .disabled(!canBridge)
         }
         .padding()
         .background(Color(nsColor: .textBackgroundColor))
         .cornerRadius(16)
+    }
+    
+    /// ROADMAP-07 E7: Bridge requires destination confirmation + valid quote
+    private var canBridge: Bool {
+        selectedQuote != nil && destinationConfirmed && quoteTimeRemaining > 0
     }
     
     private var activeTransfersSection: some View {
@@ -384,13 +445,38 @@ struct BridgeView: View {
         NavigationView {
             Form {
                 Section(header: Text("Slippage Tolerance")) {
-                    Picker("Slippage", selection: $slippage) {
-                        Text("0.1%").tag(0.1)
-                        Text("0.5%").tag(0.5)
-                        Text("1.0%").tag(1.0)
-                        Text("3.0%").tag(3.0)
+                    HStack {
+                        ForEach([0.1, 0.5, 1.0, 3.0], id: \.self) { value in
+                            Button {
+                                slippage = value
+                            } label: {
+                                Text("\(String(format: "%.1f", value))%")
+                                    .font(.caption)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(slippage == value ? Color.blue : Color.gray.opacity(0.1))
+                                    .foregroundColor(slippage == value ? .white : .primary)
+                                    .cornerRadius(8)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .pickerStyle(.segmented)
+                    
+                    // ROADMAP-07: Extended slippage range up to 50% for exotic pairs
+                    VStack(alignment: .leading, spacing: 4) {
+                        Slider(value: $slippage, in: 0.1...50.0, step: 0.1)
+                        HStack {
+                            Text("Custom: \(String(format: "%.1f", slippage))%")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            if slippage > 5.0 {
+                                Text("⚠️ High slippage")
+                                    .font(.caption)
+                                    .foregroundColor(.orange)
+                            }
+                        }
+                    }
                 }
                 
                 Section(header: Text("Providers")) {
@@ -436,6 +522,68 @@ struct BridgeView: View {
         sourceChain != destinationChain
     }
     
+    // MARK: - ROADMAP-07 E12: Zero-Slippage Warning
+    
+    private var zeroSlippageWarning: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.title3)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Zero Slippage Warning")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Text("With very low slippage (< 0.1%), most bridge transactions will fail due to price movement. Consider increasing to at least 0.5%.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding()
+        .background(Color.orange.opacity(0.08))
+        .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Warning: Zero slippage will cause most bridge transactions to fail")
+    }
+    
+    // MARK: - ROADMAP-07 E9/E10: Quote Expiry Timer
+    
+    private func startQuoteTimer(expiresAt: Date) {
+        stopQuoteTimer()
+        let remaining = Int(expiresAt.timeIntervalSinceNow)
+        quoteTimeRemaining = max(0, remaining)
+        
+        // Use a repeating timer with nonisolated closure
+        let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            Task { @MainActor [self] in
+                let r = quoteTimeRemaining - 1
+                if r <= 0 {
+                    quoteTimeRemaining = 0
+                    stopQuoteTimer()
+                    // ROADMAP-07 E10: Auto-refresh when timer reaches 0
+                    fetchQuotes()
+                } else {
+                    quoteTimeRemaining = r
+                }
+            }
+        }
+        quoteExpiryTimer = timer
+    }
+    
+    private func stopQuoteTimer() {
+        quoteExpiryTimer?.invalidate()
+        quoteExpiryTimer = nil
+    }
+    
+    private func formatCountdown(_ seconds: Int) -> String {
+        let m = seconds / 60
+        let s = seconds % 60
+        return String(format: "%d:%02d", m, s)
+    }
+    
     // MARK: - Actions
     
     private func swapChains() {
@@ -444,9 +592,12 @@ struct BridgeView: View {
         destinationChain = temp
         showQuotes = false
         selectedQuote = nil
+        destinationConfirmed = false
+        stopQuoteTimer()
     }
     
     private func fetchQuotes() {
+        destinationConfirmed = false
         Task {
             do {
                 let amountWei = parseAmountToWei(amount)
@@ -461,6 +612,11 @@ struct BridgeView: View {
                 )
                 showQuotes = true
                 selectedQuote = bridgeService.currentQuotes?.bestQuote
+                
+                // ROADMAP-07 E9: Start countdown timer from quote expiry
+                if let expiresAt = selectedQuote?.expiresAt {
+                    startQuoteTimer(expiresAt: expiresAt)
+                }
             } catch {
                 bridgeService.error = error.localizedDescription
             }

@@ -268,6 +268,14 @@ final class TransactionSimulator: ObservableObject {
             riskLevel = .critical
         }
         
+        // 10. ROADMAP-08: Cross-transaction pattern heuristics
+        // Detect repeated sends to the same address in a short window
+        let recentPattern = checkRepeatedSendPattern(to: request.toAddress, chain: request.chain, amount: request.amount)
+        if let patternWarning = recentPattern {
+            warnings.append(patternWarning)
+            riskLevel = max(riskLevel, .medium)
+        }
+        
         // Build result
         let changes = [
             BalanceChange(
@@ -301,6 +309,62 @@ final class TransactionSimulator: ObservableObject {
     }
     
     // MARK: - Helper Methods
+    
+    /// ROADMAP-08: Cross-transaction pattern heuristics
+    /// Detects multiple sends to the same address within a short window
+    private func checkRepeatedSendPattern(to address: String, chain: String, amount: Decimal) -> SimulationWarning? {
+        let key = "hawala.txpattern.history"
+        let windowSeconds: TimeInterval = 600 // 10-minute window
+        let maxRepeatCount = 2 // warn after 2 sends to same address
+        
+        var entries = loadTxPatternHistory(key: key)
+        let now = Date().timeIntervalSince1970
+        let cutoff = now - windowSeconds
+        
+        // Prune old entries
+        entries = entries.filter { $0.timestamp > cutoff }
+        
+        // Count recent sends to this address
+        let recentCount = entries.filter {
+            $0.address.lowercased() == address.lowercased() && $0.chain == chain
+        }.count
+        
+        // Record this send attempt
+        entries.append(TxPatternEntry(address: address.lowercased(), chain: chain, amount: "\(amount)", timestamp: now))
+        if entries.count > 50 { entries = Array(entries.suffix(50)) }
+        saveTxPatternHistory(entries, key: key)
+        
+        if recentCount >= maxRepeatCount {
+            return SimulationWarning(
+                type: .unusualActivity,
+                title: "Repeated Sends Detected",
+                message: "You've sent to this address \(recentCount) times in the last 10 minutes. This may indicate a duplicate transaction.",
+                severity: .warning,
+                actionable: true,
+                action: "Review Transactions"
+            )
+        }
+        
+        return nil
+    }
+    
+    private struct TxPatternEntry: Codable {
+        let address: String
+        let chain: String
+        let amount: String
+        let timestamp: TimeInterval
+    }
+    
+    private func loadTxPatternHistory(key: String) -> [TxPatternEntry] {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
+        return (try? JSONDecoder().decode([TxPatternEntry].self, from: data)) ?? []
+    }
+    
+    private func saveTxPatternHistory(_ entries: [TxPatternEntry], key: String) {
+        if let data = try? JSONEncoder().encode(entries) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
     
     private func isFirstTimeAddress(_ address: String, chain: String) async -> Bool {
         // Check local history for previous transactions to this address

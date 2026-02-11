@@ -297,4 +297,171 @@ enum EdgeCaseGuards {
         
         return nil // safe
     }
+    
+    // MARK: - #7: Wrong Network Address Paste
+    
+    /// Detects if an address is pasted for the wrong network.
+    /// Returns a warning message if mismatch detected, nil if OK.
+    static func checkAddressNetworkMismatch(address: String, expectedChain: String) -> String? {
+        let addr = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        switch expectedChain.lowercased() {
+        case "bitcoin":
+            // Bitcoin addresses start with 1, 3, or bc1
+            if addr.hasPrefix("0x") { return "This looks like an Ethereum address, not Bitcoin." }
+            if !addr.hasPrefix("1") && !addr.hasPrefix("3") && !addr.hasPrefix("bc1") {
+                return "This doesn't look like a valid Bitcoin address."
+            }
+        case "ethereum", "bnb", "polygon", "arbitrum", "optimism", "avalanche", "base":
+            // EVM addresses start with 0x and are 42 chars
+            if addr.hasPrefix("bc1") || addr.hasPrefix("1") || addr.hasPrefix("3") {
+                return "This looks like a Bitcoin address, not an EVM address."
+            }
+            if !addr.hasPrefix("0x") || addr.count != 42 {
+                return "Invalid Ethereum-style address format."
+            }
+        case "solana":
+            if addr.hasPrefix("0x") { return "This looks like an Ethereum address, not Solana." }
+            if addr.hasPrefix("bc1") { return "This looks like a Bitcoin address, not Solana." }
+        default:
+            break
+        }
+        return nil
+    }
+    
+    // MARK: - #8: Whitespace in Pasted Address
+    
+    /// Strips extraneous whitespace/newlines from a pasted address.
+    static func sanitizePastedAddress(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+           .replacingOccurrences(of: " ", with: "")
+           .replacingOccurrences(of: "\n", with: "")
+           .replacingOccurrences(of: "\t", with: "")
+    }
+    
+    // MARK: - #11: Zero or Negative Amount
+    
+    /// Returns a user-facing error if the amount is zero or negative.
+    static func validatePositiveAmount(_ amount: String) -> String? {
+        let normalized = normaliseAmountInput(amount)
+        guard let value = Double(normalized) else {
+            return "Invalid amount."
+        }
+        if value <= 0 {
+            return "Amount must be greater than zero."
+        }
+        return nil
+    }
+    
+    // MARK: - #10: Amount Exceeds Balance
+    
+    /// Returns a warning if amount exceeds balance.
+    static func checkBalanceSufficiency(amount: Double, balance: Double, symbol: String) -> String? {
+        if amount > balance {
+            return "Insufficient \(symbol) balance. You have \(String(format: "%.6f", balance)) but need \(String(format: "%.6f", amount))."
+        }
+        return nil
+    }
+    
+    // MARK: - #17: Double-Tap Guard
+    
+    private static let lastConfirmTapKey = "hawala.lastConfirmTap"
+    
+    /// Returns true if a confirm button tap is too fast (< 1 second since last tap).
+    /// Use to prevent accidental double-submissions.
+    static func isDoubleTap(cooldown: TimeInterval = 1.0) -> Bool {
+        let now = Date().timeIntervalSince1970
+        let last = UserDefaults.standard.double(forKey: lastConfirmTapKey)
+        UserDefaults.standard.set(now, forKey: lastConfirmTapKey)
+        guard last > 0 else { return false }
+        return (now - last) < cooldown
+    }
+    
+    // MARK: - #47: Clipboard Expiry
+    
+    private static let clipboardTimestampKey = "hawala.clipboard.timestamp"
+    private static let clipboardExpirySeconds: TimeInterval = 60 // 1 minute
+    
+    /// Mark that a sensitive value was copied to clipboard.
+    static func markClipboardCopied() {
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: clipboardTimestampKey)
+    }
+    
+    /// Clear the clipboard if the copied value has expired.
+    static func clearClipboardIfExpired() {
+        #if canImport(AppKit)
+        let ts = UserDefaults.standard.double(forKey: clipboardTimestampKey)
+        guard ts > 0 else { return }
+        let elapsed = Date().timeIntervalSince1970 - ts
+        if elapsed > clipboardExpirySeconds {
+            NSPasteboard.general.clearContents()
+            UserDefaults.standard.removeObject(forKey: clipboardTimestampKey)
+        }
+        #endif
+    }
+    
+    /// Whether the clipboard has sensitive data that hasn't expired yet.
+    static var isClipboardSensitive: Bool {
+        let ts = UserDefaults.standard.double(forKey: clipboardTimestampKey)
+        guard ts > 0 else { return false }
+        return Date().timeIntervalSince1970 - ts < clipboardExpirySeconds
+    }
+    
+    // MARK: - #60: Hardcoded Path Safety
+    
+    /// Returns true if a file path exists on disk.
+    static func fileExists(at path: String) -> Bool {
+        FileManager.default.fileExists(atPath: path)
+    }
+    
+    // MARK: - #20: Slippage Zero Guard
+    
+    /// Returns a warning if slippage is effectively zero.
+    static func checkSlippage(_ slippage: Double) -> String? {
+        if slippage < 0.01 {
+            return "Slippage is set to 0%. Most transactions will fail due to price movement."
+        }
+        if slippage > 10 {
+            return "Slippage is very high (\(String(format: "%.1f", slippage))%). You may receive significantly less than expected."
+        }
+        return nil
+    }
+    
+    // MARK: - #29: Incomplete Address (0x only)
+    
+    /// Returns a warning if the address is clearly incomplete.
+    static func checkIncompleteAddress(_ address: String) -> String? {
+        let addr = sanitizePastedAddress(address)
+        if addr == "0x" || addr == "0X" {
+            return "Address is incomplete — only the '0x' prefix was entered."
+        }
+        if addr.hasPrefix("0x") && addr.count < 10 {
+            return "Address appears truncated."
+        }
+        if addr.isEmpty {
+            return "No address entered."
+        }
+        return nil
+    }
+    
+    // MARK: - #53: High Contrast Mode Check
+    
+    #if canImport(AppKit)
+    /// Returns true if the user has enabled increased contrast in System Preferences.
+    @MainActor
+    static var isHighContrastEnabled: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+    }
+    #endif
+    
+    // MARK: - #58: VoiceOver Check
+    
+    /// Returns true if VoiceOver is running.
+    static var isVoiceOverRunning: Bool {
+        #if canImport(AppKit)
+        NSWorkspace.shared.isVoiceOverEnabled
+        #else
+        false
+        #endif
+    }
 }

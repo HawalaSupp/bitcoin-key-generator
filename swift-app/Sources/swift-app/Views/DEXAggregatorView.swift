@@ -16,6 +16,9 @@ struct DEXAggregatorView: View {
     @State private var isExecutingSwap = false
     @State private var txHash: String?
     @State private var showTxSuccess = false
+    /// ROADMAP-07 E9/E10: Quote expiry countdown
+    @State private var quoteTimeRemaining: Int = 0
+    @State private var quoteExpiryTimer: Timer?
     
     @AppStorage("hawala.biometricForSends") private var biometricForSends = true
     
@@ -318,8 +321,35 @@ struct DEXAggregatorView: View {
                     }
                 }
                 
-                Slider(value: $slippage, in: 0.1...5.0, step: 0.1)
+                // ROADMAP-07: Extended slippage range up to 50% for exotic pairs
+                Slider(value: $slippage, in: 0.1...50.0, step: 0.1)
                     .help("Higher slippage increases success rate but may result in a worse price")
+                
+                HStack {
+                    Text("Custom: \(String(format: "%.1f", slippage))%")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    if slippage > 5.0 {
+                        Text("\u{26a0}\u{fe0f} High slippage")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                }
+                
+                // ROADMAP-07 E12: Zero-slippage warning
+                if slippage < 0.1 {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("Very low slippage will cause most swaps to fail. Consider at least 0.5%.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    .padding(8)
+                    .background(Color.orange.opacity(0.1))
+                    .cornerRadius(8)
+                }
             }
             .padding(.top, 8)
         }
@@ -486,6 +516,26 @@ struct DEXAggregatorView: View {
                     .font(.headline)
                 
                 Spacer()
+                
+                // ROADMAP-07 E9: Quote expiry countdown
+                if quoteTimeRemaining > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                            .font(.caption)
+                        Text(formatDEXCountdown(quoteTimeRemaining))
+                            .font(.caption.monospacedDigit())
+                    }
+                    .foregroundColor(quoteTimeRemaining < 60 ? .red : .secondary)
+                } else if quoteTimeRemaining <= 0 && !service.isLoading {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                        Text("Expired")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                }
                 
                 Button("Compare All") {
                     showQuoteComparison = true
@@ -656,9 +706,48 @@ struct DEXAggregatorView: View {
                 slippage: slippage,
                 fromAddress: walletAddress ?? "0x0000000000000000000000000000000000000000"
             )
+            
+            // ROADMAP-07 E9: Start countdown timer from quote expiry
+            if let expiresAt = service.currentQuotes?.bestQuote?.expiresAt {
+                startDEXQuoteTimer(expiresAt: expiresAt)
+            }
         } catch {
             service.error = error.localizedDescription
         }
+    }
+    
+    // MARK: - ROADMAP-07 E9/E10: Quote Expiry Timer
+    
+    private func startDEXQuoteTimer(expiresAt: Date) {
+        stopDEXQuoteTimer()
+        let remaining = Int(expiresAt.timeIntervalSinceNow)
+        quoteTimeRemaining = max(0, remaining)
+        
+        let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            Task { @MainActor [self] in
+                let r = quoteTimeRemaining - 1
+                if r <= 0 {
+                    quoteTimeRemaining = 0
+                    stopDEXQuoteTimer()
+                    // ROADMAP-07 E10: Auto-refresh when timer hits 0
+                    await fetchQuotes()
+                } else {
+                    quoteTimeRemaining = r
+                }
+            }
+        }
+        quoteExpiryTimer = timer
+    }
+    
+    private func stopDEXQuoteTimer() {
+        quoteExpiryTimer?.invalidate()
+        quoteExpiryTimer = nil
+    }
+    
+    private func formatDEXCountdown(_ seconds: Int) -> String {
+        let m = seconds / 60
+        let s = seconds % 60
+        return String(format: "%d:%02d", m, s)
     }
     
     private func executeSwap() async {
