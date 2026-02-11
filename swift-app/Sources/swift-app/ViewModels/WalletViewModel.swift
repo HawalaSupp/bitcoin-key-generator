@@ -32,10 +32,19 @@ final class WalletViewModel: ObservableObject {
     }
     
     // MARK: - Key Generation
+    
+    /// ROADMAP-19 #5: Check if a previous key generation was interrupted by a crash/kill.
+    var wasKeyGenInterrupted: Bool {
+        EdgeCaseGuards.wasKeyGenerationInterrupted
+    }
+    
     func generateKeys() async {
         guard !isGenerating else { return }
         isGenerating = true
         errorMessage = nil
+        
+        // ROADMAP-19 #5: Persist keygen-in-progress flag to survive crashes
+        EdgeCaseGuards.markKeyGenerationStarted()
         
         do {
             let (generatedKeys, json) = try await runRustKeyGenerator()
@@ -59,6 +68,8 @@ final class WalletViewModel: ObservableObject {
             #endif
         }
         
+        // ROADMAP-19 #5: Clear keygen-in-progress flag
+        EdgeCaseGuards.markKeyGenerationFinished()
         isGenerating = false
     }
     
@@ -175,6 +186,13 @@ final class WalletViewModel: ObservableObject {
             print("⚠️ Failed to delete keys from Keychain: \(error)")
             #endif
         }
+    }
+    
+    /// ROADMAP-19 #44: Full factory wipe — erases all keys, settings, and caches.
+    func performFactoryWipe() {
+        clearSensitiveData()
+        EdgeCaseGuards.performFactoryWipe()
+        showStatus("Wallet wiped — all data erased", tone: .info)
     }
     
     // MARK: - Status Messages

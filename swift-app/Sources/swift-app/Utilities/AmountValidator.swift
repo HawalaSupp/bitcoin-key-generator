@@ -9,6 +9,12 @@ enum AmountValidationResult: Equatable {
 struct AmountValidator {
     private static let parsingLocale = Locale(identifier: "en_US_POSIX")
 
+    /// ROADMAP-19 #9: Parse user input with locale awareness before validation.
+    /// Normalises commas/dots from the user's locale into a canonical decimal string.
+    static func normaliseInput(_ raw: String) -> String {
+        EdgeCaseGuards.normaliseAmountInput(raw)
+    }
+
     static func validateBitcoin(amountString: String,
                                 availableSats: Int64,
                                 estimatedFeeSats: Int64,

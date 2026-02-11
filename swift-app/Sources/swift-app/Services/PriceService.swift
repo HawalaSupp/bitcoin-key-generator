@@ -222,6 +222,13 @@ final class PriceService: ObservableObject {
             if let identifiers = priceIdentifiers(for: chainId) {
                 for identifier in identifiers {
                     if let price = snapshot[identifier] {
+                        // ROADMAP-19 #12: Guard against $0 price from feed
+                        guard EdgeCaseGuards.isPriceValid(price) else {
+                            #if DEBUG
+                            print("⚠️ Skipping zero/invalid price for \(chainId): \(price)")
+                            #endif
+                            continue
+                        }
                         let formatted = formatPrice(price)
                         cachedPrices[chainId] = CachedPrice(value: formatted, lastUpdated: timestamp)
                         priceStates[chainId] = .loaded(value: formatted, lastUpdated: timestamp)

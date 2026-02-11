@@ -170,6 +170,7 @@ struct SendView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var successTxId: String?
+    @State private var showDuplicateSendWarning = false  // ROADMAP-19 #30
     
     // Address validation state
     @State private var addressValidationResult: ChainAddressValidationResult?
@@ -710,8 +711,13 @@ struct SendView: View {
                         SendChainPill(
                             chain: chain,
                             isSelected: selectedChain == chain,
-                            action: { selectedChain = chain }
+                            action: {
+                                // ROADMAP-19 #18: Block network switch while send is in-flight
+                                guard EdgeCaseGuards.canSwitchNetwork(isTransactionInFlight: isLoading) else { return }
+                                selectedChain = chain
+                            }
                         )
+                        .opacity(isLoading && selectedChain != chain ? 0.4 : 1.0)
                     }
                 }
             }
@@ -2403,6 +2409,14 @@ struct SendView: View {
         print("[SendView] Sending \(amount) \(selectedChain.displayName) to \(recipientAddress)")
         #endif
         
+        // ROADMAP-19 #30: Warn on duplicate send to same address within 2 minutes
+        if EdgeCaseGuards.isDuplicateSend(to: recipientAddress, chain: selectedChain.chainId) && !showDuplicateSendWarning {
+            showDuplicateSendWarning = true
+            errorMessage = "You recently sent to this address. Tap Send again to confirm."
+            return
+        }
+        showDuplicateSendWarning = false
+        
         // ROADMAP-02: Check backup verification before large sends
         if !BackupVerificationManager.shared.isVerified {
             // Estimate USD value (simplified - in production use real price feed)
@@ -2512,6 +2526,9 @@ struct SendView: View {
             
             // ROADMAP-05 E5: Record successful send for address history
             AddressIntelligenceManager.shared.recordSend(to: recipientAddress)
+            
+            // ROADMAP-19 #30: Record send for duplicate detection
+            EdgeCaseGuards.recordSend(to: recipientAddress, chain: selectedChain.chainId)
             
             // ROADMAP-16 E13: Prompt to save contact if address is new
             if !ContactsManager.shared.hasContact(forAddress: recipientAddress) {

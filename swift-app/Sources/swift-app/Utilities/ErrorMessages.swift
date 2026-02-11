@@ -60,6 +60,10 @@ public enum UserFacingError {
         public static let biometricUnavailable = "Biometric authentication not available."
         public static let biometricFailed = "Biometric authentication failed. Please try again or use your passcode."
         public static let sessionExpired = "Your session has expired. Please authenticate again."
+        // ROADMAP-19 #48: Biometric too many failures
+        public static let biometricLockout = "Too many failed biometric attempts. Please use your passcode instead."
+        // ROADMAP-19 #43: Forgot passcode guidance
+        public static let forgotPasscode = "To reset your passcode, restore your wallet using your seed phrase from Settings > Recovery."
     }
     
     // MARK: - Generic

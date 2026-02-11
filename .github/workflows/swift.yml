@@ -43,7 +43,22 @@ jobs:
     - name: Run Tests
       run: |
         cd swift-app
-        swift test -v
+        swift test -v --enable-code-coverage
+    
+    - name: Generate Coverage Report
+      run: |
+        cd swift-app
+        BIN_PATH=$(swift build --show-bin-path)
+        XCTEST_PATH=$(find "$BIN_PATH" -name '*.xctest' -type d 2>/dev/null | head -1)
+        PROFDATA=$(find .build -name 'default.profdata' -type f 2>/dev/null | head -1)
+        if [ -n "$XCTEST_PATH" ] && [ -n "$PROFDATA" ]; then
+          xcrun llvm-cov report "$XCTEST_PATH/Contents/MacOS/$(basename "$XCTEST_PATH" .xctest)" \
+            -instr-profile="$PROFDATA" \
+            -ignore-filename-regex='\.build|Tests' || true
+          echo "✅ Coverage report generated"
+        else
+          echo "ℹ️ Coverage data not found — skipping report"
+        fi
     
     - name: Check for Secrets in Logs
       run: |

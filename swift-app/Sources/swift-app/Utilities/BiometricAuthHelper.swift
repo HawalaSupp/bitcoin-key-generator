@@ -108,11 +108,28 @@ enum BiometricAuthHelper {
     /// - Returns: The authentication result
     @MainActor
     static func authenticate(reason: String) async -> AuthResult {
-        await withCheckedContinuation { continuation in
+        // ROADMAP-19 #48: If 3+ failures, skip biometric and force passcode fallback
+        if EdgeCaseGuards.shouldFallbackToPasscode {
+            return .failed("Too many failed attempts. Please use your passcode.")
+        }
+        
+        let result = await withCheckedContinuation { continuation in
             authenticate(reason: reason) { result in
                 continuation.resume(returning: result)
             }
         }
+        
+        // ROADMAP-19 #48: Track failure count
+        switch result {
+        case .success:
+            EdgeCaseGuards.resetBiometricFailureCount()
+        case .failed:
+            _ = EdgeCaseGuards.recordBiometricFailure()
+        case .cancelled, .notAvailable:
+            break
+        }
+        
+        return result
     }
     
     /// Convenience method to check if user should be prompted for biometric

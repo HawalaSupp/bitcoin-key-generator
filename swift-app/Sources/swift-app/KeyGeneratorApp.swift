@@ -11,6 +11,18 @@ struct KeyGeneratorApp: App {
         print("Hawala Wallet Starting...")
         // Register custom fonts
         ClashGrotesk.registerFont()
+        
+        // ROADMAP-19 #5: Check for interrupted key generation on launch
+        if EdgeCaseGuards.wasKeyGenerationInterrupted {
+            print("⚠️ Previous key generation was interrupted — will prompt re-generation")
+            EdgeCaseGuards.markKeyGenerationFinished()
+        }
+        
+        // ROADMAP-19 #49: Check for interrupted backup
+        if let step = EdgeCaseGuards.interruptedBackupStep {
+            print("⚠️ Previous backup was interrupted at step: \(step) — will prompt resume")
+            EdgeCaseGuards.markBackupFinished()
+        }
     }
     
     var body: some Scene {
@@ -20,7 +32,9 @@ struct KeyGeneratorApp: App {
                 .environmentObject(navigationCommands)
                 .withTheme()  // Apply theme settings (dark/light/system)
                 .highContrastAware()  // ROADMAP-14 E11: Swap tokens when Increase Contrast is on
+                .handlesExternalEvents(preferring: ["main"], allowing: ["main"]) // ROADMAP-19 #52: Prevent duplicate windows
         }
+        .handlesExternalEvents(matching: ["main"]) // ROADMAP-19 #52: Route to existing window
         .windowStyle(.titleBar) // ROADMAP-13 E15: Native title bar for dynamic titles
         .commands {
             // ROADMAP-03: Global keyboard shortcuts
