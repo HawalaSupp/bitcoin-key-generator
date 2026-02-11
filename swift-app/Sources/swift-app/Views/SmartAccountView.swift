@@ -52,6 +52,7 @@ struct SmartAccountView: View {
             }
             .onAppear(perform: loadAccounts)
         }
+        .preferredColorScheme(.dark)
     }
     
     private var emptyStateView: some View {

@@ -59,6 +59,12 @@ final class NavigationViewModel: ObservableObject {
     @Published var showPasskeyAuthSheet = false
     @Published var showGaslessTxSheet = false
     
+    // MARK: - ROADMAP-21: Multi-Wallet
+    @Published var showWalletPickerSheet = false
+    @Published var showAddWalletSheet = false
+    @Published var showDeleteWalletConfirmation = false
+    @Published var walletToDelete: UUID?
+    
     // MARK: - Send Flow Context
     @Published var sendChainContext: ChainInfo?
     @Published var pendingSendChain: ChainInfo?
@@ -157,6 +163,10 @@ final class NavigationViewModel: ObservableObject {
         showGasAccountSheet = false
         showPasskeyAuthSheet = false
         showGaslessTxSheet = false
+        showWalletPickerSheet = false
+        showAddWalletSheet = false
+        showDeleteWalletConfirmation = false
+        walletToDelete = nil
         sendChainContext = nil
         pendingSendChain = nil
     }

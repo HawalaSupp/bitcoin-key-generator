@@ -1397,7 +1397,7 @@ final class ColdStartTimer: ObservableObject {
     static let shared = ColdStartTimer()
     
     /// Absolute time captured as early as possible (static initializer)
-    nonisolated(unsafe) private static let processStart = CFAbsoluteTimeGetCurrent()
+    private static let processStart = CFAbsoluteTimeGetCurrent()
     
     @Published private(set) var coldStartDuration: Double?
     @Published private(set) var phase: Phase = .launching

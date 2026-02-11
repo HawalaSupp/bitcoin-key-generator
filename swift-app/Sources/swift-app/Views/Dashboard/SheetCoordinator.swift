@@ -231,17 +231,45 @@ struct SheetCoordinator: ViewModifier {
             .sheet(isPresented: $navigationVM.showL2AggregatorSheet) {
                 let ethAddress = keys?.chainInfos.first(where: { $0.id == "ethereum" })?.receiveAddress ?? ""
                 L2BalanceAggregatorView(address: ethAddress)
+                    .frame(minWidth: 520, minHeight: 500)
             }
-            .sheet(isPresented: $navigationVM.showPaymentLinksSheet) { PaymentLinksView() }
-            .sheet(isPresented: $navigationVM.showTransactionNotesSheet) { TransactionNotesView() }
-            .sheet(isPresented: $navigationVM.showSellCryptoSheet) { SellCryptoView() }
-            .sheet(isPresented: $navigationVM.showPriceAlertsSheet) { PriceAlertsView() }
+            .sheet(isPresented: $navigationVM.showPaymentLinksSheet) {
+                PaymentLinksView()
+                    .frame(minWidth: 520, minHeight: 500)
+            }
+            .sheet(isPresented: $navigationVM.showTransactionNotesSheet) {
+                TransactionNotesView()
+                    .frame(minWidth: 520, minHeight: 500)
+            }
+            .sheet(isPresented: $navigationVM.showSellCryptoSheet) {
+                SellCryptoView()
+                    .frame(minWidth: 520, minHeight: 500)
+            }
+            .sheet(isPresented: $navigationVM.showPriceAlertsSheet) {
+                PriceAlertsView()
+                    .frame(minWidth: 520, minHeight: 500)
+            }
             // Phase 4: Account Abstraction
-            .sheet(isPresented: $navigationVM.showSmartAccountSheet) { SmartAccountView() }
-            .sheet(isPresented: $navigationVM.showGasAccountSheet) { GasAccountView() }
-            .sheet(isPresented: $navigationVM.showPasskeyAuthSheet) { PasskeyAuthView() }
-            .sheet(isPresented: $navigationVM.showGaslessTxSheet) { GaslessTxView() }
-            .sheet(isPresented: $navigationVM.showBatchTransactionSheet) { BatchTransactionView() }
+            .sheet(isPresented: $navigationVM.showSmartAccountSheet) {
+                SmartAccountView()
+                    .frame(minWidth: 520, minHeight: 500)
+            }
+            .sheet(isPresented: $navigationVM.showGasAccountSheet) {
+                GasAccountView()
+                    .frame(minWidth: 520, minHeight: 500)
+            }
+            .sheet(isPresented: $navigationVM.showPasskeyAuthSheet) {
+                PasskeyAuthView()
+                    .frame(minWidth: 520, minHeight: 500)
+            }
+            .sheet(isPresented: $navigationVM.showGaslessTxSheet) {
+                GaslessTxView()
+                    .frame(minWidth: 520, minHeight: 500)
+            }
+            .sheet(isPresented: $navigationVM.showBatchTransactionSheet) {
+                BatchTransactionView()
+                    .frame(minWidth: 520, minHeight: 500)
+            }
             // Settings
             .sheet(isPresented: $navigationVM.showSettingsPanel) {
                 SettingsPanelView(

@@ -30,6 +30,7 @@ struct GasAccountView: View {
                 }
                 .padding()
             }
+            .background(HawalaTheme.Colors.background)
             .navigationTitle("Gas Account")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -53,6 +54,7 @@ struct GasAccountView: View {
             }
             .onAppear(perform: loadGasAccount)
         }
+        .preferredColorScheme(.dark)
     }
     
     private var balanceCard: some View {
@@ -130,9 +132,8 @@ struct GasAccountView: View {
             }
         }
         .padding()
-        .background(Color.white.opacity(0.8))
+        .background(HawalaTheme.Colors.backgroundSecondary)
         .cornerRadius(12)
-        .shadow(color: .black.opacity(0.05), radius: 8)
     }
     
     private var settingsSection: some View {
@@ -165,9 +166,8 @@ struct GasAccountView: View {
             }
         }
         .padding()
-        .background(Color.white.opacity(0.8))
+        .background(HawalaTheme.Colors.backgroundSecondary)
         .cornerRadius(12)
-        .shadow(color: .black.opacity(0.05), radius: 8)
     }
     
     private var howItWorksSection: some View {
@@ -198,9 +198,8 @@ struct GasAccountView: View {
                 .foregroundColor(.secondary)
         }
         .padding()
-        .background(Color.white.opacity(0.8))
+        .background(HawalaTheme.Colors.backgroundSecondary)
         .cornerRadius(12)
-        .shadow(color: .black.opacity(0.05), radius: 8)
     }
     
     private func loadGasAccount() {

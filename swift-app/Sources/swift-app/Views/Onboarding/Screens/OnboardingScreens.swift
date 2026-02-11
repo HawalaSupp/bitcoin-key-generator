@@ -10,7 +10,6 @@ struct WelcomeScreen: View {
     
     @State private var animateContent = false
     @State private var animateLogo = false
-    @State private var animateGlow = false
     
     var body: some View {
         VStack(spacing: 0) {
@@ -18,22 +17,11 @@ struct WelcomeScreen: View {
             
             // Logo and tagline
             VStack(spacing: 24) {
-                // Animated logo with glow
-                ZStack {
-                    // Glow effect behind text
-                    Text("HAWALA")
-                        .font(.custom("ClashGrotesk-Bold", size: 56))
-                        .foregroundColor(Color(hex: "#00D4FF"))
-                        .blur(radius: animateGlow ? 30 : 20)
-                        .opacity(animateGlow ? 0.7 : 0.4)
-                        .scaleEffect(animateGlow ? 1.1 : 1.0)
-                    
-                    // Main text
-                    Text("HAWALA")
-                        .font(.custom("ClashGrotesk-Bold", size: 56))
-                        .foregroundColor(.white)
-                        .tracking(6)
-                }
+                // Animated logo
+                Text("HAWALA")
+                    .font(.custom("ClashGrotesk-Bold", size: 56))
+                    .foregroundColor(.white)
+                    .tracking(6)
                 .opacity(animateLogo ? 1 : 0)
                 .scaleEffect(animateLogo ? 1 : 0.85)
                 .floating(amplitude: 3, duration: 3)
@@ -84,9 +72,6 @@ struct WelcomeScreen: View {
             // Staggered animations
             withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) {
                 animateLogo = true
-            }
-            withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
-                animateGlow = true
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 withAnimation(.easeOut(duration: 0.6)) {

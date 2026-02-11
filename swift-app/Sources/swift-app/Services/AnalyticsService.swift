@@ -99,7 +99,10 @@ final class AnalyticsService: ObservableObject {
         EventName.feeEstimateViewed, EventName.historyExported, EventName.contactAdded,
         EventName.hardwareWalletConnected, EventName.errorOccurred, EventName.screenViewed,
         EventName.coldStart, EventName.onboardingStarted, EventName.onboardingCompleted,
-        EventName.portfolioViewed
+        EventName.portfolioViewed,
+        // ROADMAP-21: Multi-wallet events
+        EventName.walletSwitched, EventName.walletRenamed, EventName.walletDeleted,
+        EventName.aggregateViewToggled
     ]
     
     // MARK: - Event Names (type-safe)
@@ -134,6 +137,11 @@ final class AnalyticsService: ObservableObject {
         static let onboardingStarted = "onboarding_started"
         static let onboardingCompleted = "onboarding_completed"
         static let portfolioViewed = "portfolio_viewed"
+        // ROADMAP-21: Multi-wallet events
+        static let walletSwitched = "wallet_switched"
+        static let walletRenamed = "wallet_renamed"
+        static let walletDeleted = "wallet_deleted"
+        static let aggregateViewToggled = "aggregate_view_toggled"
     }
     
     // MARK: - Init

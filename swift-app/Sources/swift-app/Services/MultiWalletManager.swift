@@ -85,6 +85,7 @@ final class MultiWalletManager: ObservableObject {
     @Published private(set) var activeWalletId: UUID?
     @Published var isLoading = false
     @Published var error: String?
+    @Published var showAggregateView = false
     
     // MARK: - Storage Keys
     private let walletsKey = "hawala.wallets.profiles"
@@ -132,6 +133,14 @@ final class MultiWalletManager: ObservableObject {
         wallets.filter { $0.importMethod == .watchOnly }.count < Self.maxWatchOnly
     }
     
+    var isLastWallet: Bool {
+        wallets.count <= 1
+    }
+    
+    var walletCount: Int {
+        wallets.count
+    }
+    
     // MARK: - Wallet CRUD
     
     func createWallet(name: String, emoji: String = "💰", colorHex: String? = nil, chains: [String] = ["ethereum", "bitcoin"]) -> HawalaWalletProfile {
@@ -154,6 +163,13 @@ final class MultiWalletManager: ObservableObject {
         #if DEBUG
         print("💼 Created wallet: \(profile.name)")
         #endif
+        
+        // ROADMAP-21: Track wallet creation
+        AnalyticsService.shared.track(AnalyticsService.EventName.walletCreated, properties: [
+            "wallet_count": "\(wallets.count)",
+            "type": "new"
+        ])
+        NotificationCenter.default.post(name: .walletCreated, object: profile.id)
         
         return profile
     }
@@ -178,22 +194,50 @@ final class MultiWalletManager: ObservableObject {
         print("💼 Imported wallet: \(profile.name) via \(method)")
         #endif
         
+        // ROADMAP-21: Track wallet import
+        AnalyticsService.shared.track(AnalyticsService.EventName.walletCreated, properties: [
+            "wallet_count": "\(wallets.count)",
+            "type": "import"
+        ])
+        NotificationCenter.default.post(name: .walletCreated, object: profile.id)
+        
         return profile
     }
     
     func updateWallet(_ id: UUID, name: String? = nil, emoji: String? = nil, colorHex: String? = nil, chains: [String]? = nil) {
         guard let index = wallets.firstIndex(where: { $0.id == id }) else { return }
         
+        let isRename = name != nil && name != wallets[index].name
         if let name = name { wallets[index].name = name }
         if let emoji = emoji { wallets[index].emoji = emoji }
         if let colorHex = colorHex { wallets[index].colorHex = colorHex }
         if let chains = chains { wallets[index].enabledChains = chains }
         
         saveState()
+        
+        // ROADMAP-21: Track wallet rename
+        if isRename {
+            AnalyticsService.shared.track(AnalyticsService.EventName.walletRenamed)
+        }
     }
     
-    func deleteWallet(_ id: UUID) {
-        guard let index = wallets.firstIndex(where: { $0.id == id }) else { return }
+    /// Delete a wallet. Requires `backupAcknowledged` to be true.
+    /// Returns false if deletion was prevented (last wallet or no backup ack).
+    @discardableResult
+    func deleteWallet(_ id: UUID, backupAcknowledged: Bool = false) -> Bool {
+        guard let index = wallets.firstIndex(where: { $0.id == id }) else { return false }
+        
+        // ROADMAP-21 E10: Prevent deleting the last wallet
+        if wallets.count <= 1 {
+            error = "Cannot delete the last wallet. Create a new wallet first."
+            return false
+        }
+        
+        // ROADMAP-21 E10: Require backup acknowledgment
+        guard backupAcknowledged else {
+            error = "You must acknowledge that you have backed up this wallet before deleting."
+            return false
+        }
         
         let wallet = wallets[index]
         wallets.remove(at: index)
@@ -206,19 +250,19 @@ final class MultiWalletManager: ObservableObject {
         saveState()
         
         // Also remove keys from secure storage
-        // Note: This should be handled carefully in production
-        Task {
-            await deleteWalletKeys(id)
-        }
+        MultiWalletKeychainHelper.deleteKeys(for: id)
+        
+        // ROADMAP-21: Track wallet deletion
+        AnalyticsService.shared.track(AnalyticsService.EventName.walletDeleted, properties: [
+            "wallet_count_after": "\(wallets.count)"
+        ])
+        NotificationCenter.default.post(name: .walletDeleted, object: id)
         
         #if DEBUG
         print("💼 Deleted wallet: \(wallet.name)")
         #endif
-    }
-    
-    private func deleteWalletKeys(_ id: UUID) async {
-        // In production, securely delete the associated keys
-        // This is a placeholder for the actual implementation
+        
+        return true
     }
     
     // MARK: - Wallet Selection
@@ -226,6 +270,7 @@ final class MultiWalletManager: ObservableObject {
     func setActiveWallet(_ id: UUID) {
         guard wallets.contains(where: { $0.id == id }) else { return }
         
+        let previousId = activeWalletId
         activeWalletId = id
         
         // Update last used time
@@ -237,6 +282,16 @@ final class MultiWalletManager: ObservableObject {
         
         // Notify observers
         NotificationCenter.default.post(name: .walletChanged, object: id)
+        
+        // ROADMAP-21: Track wallet switch
+        if previousId != id {
+            let fromIndex = wallets.firstIndex(where: { $0.id == previousId }) ?? -1
+            let toIndex = wallets.firstIndex(where: { $0.id == id }) ?? -1
+            AnalyticsService.shared.track(AnalyticsService.EventName.walletSwitched, properties: [
+                "from_index": "\(fromIndex)",
+                "to_index": "\(toIndex)"
+            ])
+        }
         
         #if DEBUG
         print("💼 Active wallet: \(activeWallet?.name ?? "none")")
@@ -339,8 +394,34 @@ final class MultiWalletManager: ObservableObject {
     func reset() {
         wallets.removeAll()
         activeWalletId = nil
+        showAggregateView = false
         UserDefaults.standard.removeObject(forKey: walletsKey)
         UserDefaults.standard.removeObject(forKey: activeWalletKey)
+    }
+    
+    // MARK: - ROADMAP-21: Aggregate View
+    
+    func toggleAggregateView() {
+        showAggregateView.toggle()
+        AnalyticsService.shared.track(AnalyticsService.EventName.aggregateViewToggled, properties: [
+            "enabled": "\(showAggregateView)"
+        ])
+    }
+    
+    // MARK: - ROADMAP-21: Duplicate Detection
+    
+    /// Check if a wallet with the same keys already exists (by comparing address fingerprint)
+    func isDuplicateWallet(addressFingerprint: String) -> Bool {
+        // Check if any wallet already has the same first ETH/BTC address
+        for wallet in wallets {
+            if let storedKeys = MultiWalletKeychainHelper.loadKeys(for: wallet.id) {
+                let existingFingerprint = storedKeys.chainInfos.first?.receiveAddress ?? ""
+                if existingFingerprint == addressFingerprint && !addressFingerprint.isEmpty {
+                    return true
+                }
+            }
+        }
+        return false
     }
     
     // MARK: - Migration

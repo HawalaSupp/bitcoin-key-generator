@@ -34,6 +34,7 @@ struct ContentView: View {
     @StateObject private var walletVM = WalletViewModel()
     @StateObject private var balanceService = BalanceService.shared
     @StateObject private var priceService = PriceService.shared
+    @StateObject private var walletManager = MultiWalletManager.shared
     private let backupService = BackupService.shared
     private let wcSigningService = WalletConnectSigningService.shared
     // Phase 3 Feature Sheets
@@ -146,6 +147,12 @@ struct ContentView: View {
             // Load cached asset data for instant display
             loadCachedAssetData()
             
+            // ROADMAP-21: Migrate from single-wallet to multi-wallet if needed
+            walletManager.migrateFromSingleWallet()
+            if let activeId = walletManager.activeWalletId {
+                _ = MultiWalletKeychainHelper.migrateFromLegacy(to: activeId)
+            }
+            
             // Try to load existing keys from Keychain
             loadKeysFromKeychain()
             
@@ -198,22 +205,45 @@ struct ContentView: View {
     private var mainAppStage: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
             // Sidebar (ROADMAP-03 E8: macOS NavigationSplitView)
-            List(SidebarItem.allCases, selection: $sidebarSelection) { item in
-                Label(item.rawValue, systemImage: item.icon)
-                    .tag(item)
-                    // ROADMAP-14 E12: VoiceOver label for sidebar items
-                    .accessibilityLabel(item.rawValue)
-                    .accessibilityHint("Show \(item.rawValue) view")
+            VStack(spacing: 0) {
+                // ROADMAP-21: Wallet switcher at top of sidebar
+                SidebarWalletSwitcher(
+                    walletManager: walletManager,
+                    onSwitchWallet: { walletId in
+                        switchToWallet(walletId)
+                    },
+                    onAddWallet: {
+                        navigationVM.showAddWalletSheet = true
+                    },
+                    onManageWallets: {
+                        navigationVM.showWalletPickerSheet = true
+                    }
+                )
+                
+                Divider()
+                    .background(HawalaTheme.Colors.divider)
+                    .padding(.horizontal, 12)
+                
+                List(SidebarItem.allCases, selection: $sidebarSelection) { item in
+                    Label(item.rawValue, systemImage: item.icon)
+                        .tag(item)
+                        // ROADMAP-14 E12: VoiceOver label for sidebar items
+                        .accessibilityLabel(item.rawValue)
+                        .accessibilityHint("Show \(item.rawValue) view")
+                }
+                .listStyle(.sidebar)
+                .accessibilityLabel("Navigation sidebar")
             }
-            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background(HawalaTheme.Colors.background)
             .navigationTitle("Hawala")
-            .frame(minWidth: 160, idealWidth: 180)
-            .accessibilityLabel("Navigation sidebar")
+            .frame(minWidth: 160, idealWidth: 200)
         } detail: {
             mainDetailContent
+                .toolbar(.hidden, for: .automatic)
         }
         .navigationSplitViewStyle(.balanced)
-        .navigationTitle(dynamicTitle)
+        .toolbar(.hidden, for: .windowToolbar)
         .frame(minWidth: 900, minHeight: 600)
         .background(HawalaTheme.Colors.background)
         .preferredColorScheme(.dark)
@@ -246,6 +276,57 @@ struct ContentView: View {
             onFetchPrices: { Task { _ = await priceService.fetchAndStorePrices() } },
             onSetupKeyboardShortcutCallbacks: setupKeyboardShortcutCallbacks
         )
+        // ROADMAP-21: Multi-wallet sheet presentations
+        .sheet(isPresented: $navigationVM.showAddWalletSheet) {
+            AddWalletSheet(
+                walletManager: walletManager,
+                onCreateNew: { name, emoji, color in
+                    let profile = walletManager.createWallet(name: name, emoji: emoji, colorHex: color)
+                    // Generate keys for the new wallet
+                    Task {
+                        await runGenerator()
+                        // Save generated keys to wallet-scoped storage
+                        if let generatedKeys = keys {
+                            try? MultiWalletKeychainHelper.saveKeys(generatedKeys, for: profile.id)
+                        }
+                    }
+                    switchToWallet(profile.id)
+                },
+                onImport: {
+                    navigationVM.showImportPasswordPrompt = true
+                }
+            )
+        }
+        .sheet(isPresented: $navigationVM.showWalletPickerSheet) {
+            WalletPickerSheet(
+                manager: walletManager,
+                onCreateNew: {
+                    navigationVM.showAddWalletSheet = true
+                },
+                onImport: {
+                    navigationVM.showImportPasswordPrompt = true
+                }
+            )
+        }
+        .sheet(isPresented: $navigationVM.showDeleteWalletConfirmation) {
+            if let deleteId = navigationVM.walletToDelete,
+               let wallet = walletManager.wallet(for: deleteId) {
+                DeleteWalletConfirmationView(
+                    walletId: deleteId,
+                    walletName: wallet.name,
+                    onConfirmDelete: {
+                        let wasActive = deleteId == walletManager.activeWalletId
+                        if walletManager.deleteWallet(deleteId, backupAcknowledged: true) {
+                            navigationVM.walletToDelete = nil
+                            if wasActive, let newActiveId = walletManager.activeWalletId {
+                                switchToWallet(newActiveId)
+                            }
+                            showStatus("Wallet deleted", tone: .success)
+                        }
+                    }
+                )
+            }
+        }
         .overlay {
             // Privacy blur overlay when app goes to background/inactive
             if securityVM.showPrivacyBlur {
@@ -384,6 +465,42 @@ struct ContentView: View {
             Task {
                 await handleOnboardingComplete(result)
             }
+        }
+    }
+    
+    // MARK: - ROADMAP-21: Wallet Switching
+    
+    /// Switch the active wallet: update keys, clear stale state, refresh balances/history
+    private func switchToWallet(_ walletId: UUID) {
+        walletManager.setActiveWallet(walletId)
+        
+        // Clear current display state
+        balanceStates.removeAll()
+        cachedBalances.removeAll()
+        historyEntries.removeAll()
+        historyError = nil
+        historyFetchTask?.cancel()
+        historyFetchTask = nil
+        balanceService.cancelBalanceFetchTasks()
+        priceService.resetState()
+        
+        // Load keys for the selected wallet
+        if let walletKeys = MultiWalletKeychainHelper.loadKeys(for: walletId) {
+            keys = walletKeys
+            if let encoded = try? JSONEncoder().encode(walletKeys) {
+                rawJSON = backupService.prettyPrintedJSON(from: encoded)
+            }
+            
+            // Refresh everything
+            priceService.primeStateCaches(for: walletKeys, balanceService: balanceService, storedFiatCurrency: storedFiatCurrency)
+            balanceService.startBalanceFetch(for: walletKeys)
+            priceService.startPriceUpdatesIfNeeded(sparklineCache: sparklineCache)
+            refreshTransactionHistory(force: true)
+            
+            showStatus("Switched to \(walletManager.activeWallet?.name ?? "wallet")", tone: .success)
+        } else {
+            // No keys stored for this wallet yet — fall back to legacy keychain
+            loadKeysFromKeychain()
         }
     }
     
@@ -1108,6 +1225,14 @@ struct ContentView: View {
                     #if DEBUG
                     print("✅ Keys saved to Keychain")
                     #endif
+                    
+                    // ROADMAP-21: Also save to wallet-scoped storage
+                    if let activeId = walletManager.activeWalletId {
+                        try MultiWalletKeychainHelper.saveKeys(result, for: activeId)
+                        #if DEBUG
+                        print("✅ Keys saved to wallet-scoped storage")
+                        #endif
+                    }
                 } catch {
                     #if DEBUG
                     print("⚠️ Failed to save keys to Keychain: \(error)")

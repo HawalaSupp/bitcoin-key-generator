@@ -37,6 +37,7 @@ struct PasskeyAuthView: View {
                 CreatePasskeySheet(isCreating: $isCreating, onCreate: createPasskey)
             }
         }
+        .preferredColorScheme(.dark)
     }
     
     private var heroSection: some View {

@@ -42,6 +42,7 @@ struct GaslessTxView: View {
             }
             .onAppear(perform: loadData)
         }
+        .preferredColorScheme(.dark)
     }
     
     private var statusSection: some View {

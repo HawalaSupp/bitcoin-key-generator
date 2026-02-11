@@ -526,6 +526,7 @@ struct BatchTransactionView: View {
         }
         .frame(width: 600, height: 700)
         .background(HawalaTheme.Colors.background)
+        .preferredColorScheme(.dark)
         .sheet(isPresented: $showImportSheet) {
             CSVImportSheet(csvContent: $csvContent) {
                 manager.importFromCSV(csvContent)
