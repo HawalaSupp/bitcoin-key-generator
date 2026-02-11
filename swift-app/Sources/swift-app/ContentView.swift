@@ -36,6 +36,7 @@ struct ContentView: View {
     @StateObject private var priceService = PriceService.shared
     @StateObject private var walletManager = MultiWalletManager.shared
     @StateObject private var hwManager = HardwareWalletManagerV2.shared
+    @ObservedObject private var duressManager = DuressManager.shared
     private let backupService = BackupService.shared
     private let wcSigningService = WalletConnectSigningService.shared
     // Phase 3 Feature Sheets
@@ -234,6 +235,14 @@ struct ContentView: View {
                 )
                 .padding(.vertical, 4)
                 
+                // ROADMAP-23 E6: Subtle duress mode indicator in sidebar
+                DuressModeBadge(
+                    duressManager: duressManager,
+                    onTap: {
+                        navigationVM.showAuditLogSheet = true
+                    }
+                )
+                
                 List(SidebarItem.allCases, selection: $sidebarSelection) { item in
                     Label(item.rawValue, systemImage: item.icon)
                         .tag(item)
@@ -351,6 +360,12 @@ struct ContentView: View {
                 showStatus("Hardware wallet connected", tone: .success)
             }
         }
+        // ROADMAP-23 E8: Duress audit log sheet
+        .sheet(isPresented: $navigationVM.showAuditLogSheet) {
+            DuressAuditLogView()
+        }
+        // ROADMAP-23 E9: Hidden panic wipe gesture
+        .panicWipeGesture(duressManager: duressManager)
         .overlay {
             // Privacy blur overlay when app goes to background/inactive
             if securityVM.showPrivacyBlur {
@@ -373,6 +388,18 @@ struct ContentView: View {
             }
             // ROADMAP-22: Start hardware wallet scanning on launch
             hwManager.startScanning()
+            // ROADMAP-23: Sync duress mode state
+            navigationVM.isDuressActive = duressManager.isInDecoyMode
+        }
+        // ROADMAP-23 E9: Handle panic wipe notification
+        .onReceive(NotificationCenter.default.publisher(for: .panicWipeRequested)) { _ in
+            // Wipe all real wallet data from secure storage
+            for wallet in walletManager.wallets {
+                _ = walletManager.deleteWallet(wallet.id, backupAcknowledged: true)
+            }
+            navigationVM.isDuressActive = false
+            duressManager.resetToRealMode()
+            showStatus("Emergency wipe completed", tone: .error)
         }
         .onChange(of: hwManager.discoveredDevices.count) { newCount in
             // ROADMAP-22 E11/E14: Track connection status changes

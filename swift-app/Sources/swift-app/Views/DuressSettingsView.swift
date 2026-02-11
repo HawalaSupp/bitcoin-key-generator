@@ -9,6 +9,7 @@ struct DuressSettingsView: View {
     @State private var showChangePasscodeSheet = false
     @State private var showDisableConfirmation = false
     @State private var showPanicWipeConfirmation = false
+    @State private var showAuditLog = false
     @State private var errorMessage: String?
     
     var body: some View {
@@ -101,6 +102,25 @@ struct DuressSettingsView: View {
                 }
             }
             
+            // MARK: - ROADMAP-23 E8: Audit Log
+            if duressManager.isDuressEnabled && !duressManager.isInDecoyMode {
+                Section {
+                    Button(action: { showAuditLog = true }) {
+                        HStack {
+                            Label("Security Audit Log", systemImage: "clock.arrow.circlepath")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                } header: {
+                    Label("Monitoring", systemImage: "eye")
+                } footer: {
+                    Text("View timestamps of all duress activations.")
+                }
+            }
+            
             // MARK: - Tips
             Section {
                 DisclosureGroup {
@@ -130,6 +150,8 @@ struct DuressSettingsView: View {
             Button("Cancel", role: .cancel) { }
             Button("Disable", role: .destructive) {
                 duressManager.disableDuress()
+                // ROADMAP-23: Track duress mode disabled
+                AnalyticsService.shared.track(AnalyticsService.EventName.duressModeDisabled)
             }
         } message: {
             Text("This will remove the decoy wallet and its passcode. You can set it up again later.")
@@ -147,6 +169,10 @@ struct DuressSettingsView: View {
         }
         .sheet(isPresented: $showChangePasscodeSheet) {
             DuressChangePasscodeSheet(onComplete: { showChangePasscodeSheet = false })
+        }
+        // ROADMAP-23 E8: Audit log sheet
+        .sheet(isPresented: $showAuditLog) {
+            DuressAuditLogView()
         }
     }
     
@@ -342,6 +368,8 @@ struct DuressSetupSheet: View {
         
         do {
             try duressManager.setupDecoyWallet(passcode: passcode, realPasscodeHash: realPasscodeHash)
+            // ROADMAP-23: Track duress mode enabled
+            AnalyticsService.shared.track(AnalyticsService.EventName.duressModeEnabled)
             withAnimation { step = 3 }
         } catch {
             errorMessage = error.localizedDescription

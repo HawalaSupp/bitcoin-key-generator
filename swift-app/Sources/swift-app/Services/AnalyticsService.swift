@@ -106,7 +106,9 @@ final class AnalyticsService: ObservableObject {
         // ROADMAP-22: Hardware wallet events
         EventName.hwPairingStarted, EventName.hwPaired, EventName.hwPairingFailed,
         EventName.hwSigningRequested, EventName.hwSigningConfirmed, EventName.hwSigningRejected,
-        EventName.hwDisconnected, EventName.hwAddressVerified
+        EventName.hwDisconnected, EventName.hwAddressVerified,
+        // ROADMAP-23: Duress mode events
+        EventName.duressModeEnabled, EventName.duressModeDisabled
     ]
     
     // MARK: - Event Names (type-safe)
@@ -155,6 +157,9 @@ final class AnalyticsService: ObservableObject {
         static let hwSigningRejected = "hardware_wallet_signing_rejected"
         static let hwDisconnected = "hardware_wallet_disconnected"
         static let hwAddressVerified = "hardware_wallet_address_verified"
+        // ROADMAP-23: Duress mode events
+        static let duressModeEnabled = "duress_mode_enabled"
+        static let duressModeDisabled = "duress_mode_disabled"
     }
     
     // MARK: - Init
