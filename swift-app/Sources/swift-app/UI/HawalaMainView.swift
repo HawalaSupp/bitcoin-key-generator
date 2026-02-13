@@ -79,6 +79,9 @@ struct HawalaMainView: View {
     @Binding var showPasskeyAuthSheet: Bool
     @Binding var showGaslessTxSheet: Bool
     
+    // Hardware wallet
+    @Binding var showHardwareWalletSheet: Bool
+    
     // Actions
     var onGenerateKeys: () -> Void
     var onRefreshBalances: () -> Void
@@ -1515,7 +1518,7 @@ struct HawalaMainView: View {
                             description: "Ledger & Trezor",
                             color: HawalaTheme.Colors.success,
                             size: .compact
-                        ) { /* showHardwareWalletSheet = true */ }
+                        ) { showHardwareWalletSheet = true }
                         
                         DiscoverBentoCard(
                             icon: "link.circle.fill",
@@ -1963,15 +1966,15 @@ struct DiscoverBentoCard: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: size == .compact ? 8 : 12) {
-                // Icon badge
+                // Icon badge (monochrome)
                 ZStack {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(color.opacity(isHovered ? 0.25 : 0.15))
+                        .fill(Color.white.opacity(isHovered ? 0.10 : 0.06))
                         .frame(width: iconSize, height: iconSize)
                     
                     Image(systemName: icon)
                         .font(.system(size: iconFontSize, weight: .semibold))
-                        .foregroundColor(color)
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
                 }
                 
                 if size == .tall {
@@ -1999,26 +2002,15 @@ struct DiscoverBentoCard: View {
             .frame(minHeight: minCardHeight)
             .padding(size == .compact ? HawalaTheme.Spacing.md : HawalaTheme.Spacing.lg)
             .background(
-                ZStack {
-                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                        .fill(HawalaTheme.Colors.backgroundSecondary)
-                    
-                    // Subtle gradient accent at top
-                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [color.opacity(isHovered ? 0.08 : 0.03), .clear],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                    
-                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                        .strokeBorder(
-                            isHovered ? color.opacity(0.3) : HawalaTheme.Colors.border,
-                            lineWidth: 1
-                        )
-                }
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                    .fill(HawalaTheme.Colors.backgroundSecondary)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                    .strokeBorder(
+                        isHovered ? Color.white.opacity(0.12) : HawalaTheme.Colors.border,
+                        lineWidth: 1
+                    )
             )
             .scaleEffect(isHovered ? 1.02 : 1.0)
         }

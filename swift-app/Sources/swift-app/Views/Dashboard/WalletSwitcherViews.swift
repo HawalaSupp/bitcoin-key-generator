@@ -518,7 +518,7 @@ struct SidebarNavButton: View {
             HStack(spacing: 10) {
                 Image(systemName: icon)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(isSelected ? HawalaTheme.Colors.accent : HawalaTheme.Colors.textSecondary)
+                    .foregroundColor(isSelected ? HawalaTheme.Colors.textPrimary : HawalaTheme.Colors.textSecondary)
                     .frame(width: 20)
                 
                 Text(label)
@@ -529,7 +529,7 @@ struct SidebarNavButton: View {
                 
                 if isSelected {
                     RoundedRectangle(cornerRadius: 1.5)
-                        .fill(HawalaTheme.Colors.accent)
+                        .fill(Color.white)
                         .frame(width: 3, height: 16)
                 }
             }
@@ -539,8 +539,8 @@ struct SidebarNavButton: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(
                         isSelected
-                            ? HawalaTheme.Colors.accent.opacity(0.12)
-                            : (isHovered ? HawalaTheme.Colors.backgroundHover.opacity(0.6) : Color.clear)
+                            ? Color.white.opacity(0.08)
+                            : (isHovered ? Color.white.opacity(0.04) : Color.clear)
                     )
             )
             .contentShape(RoundedRectangle(cornerRadius: 8))

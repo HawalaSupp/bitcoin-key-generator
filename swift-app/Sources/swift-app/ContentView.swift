@@ -277,24 +277,13 @@ struct ContentView: View {
                 .padding(.bottom, 16)
             }
             .scrollContentBackground(.hidden)
-            .background(
-                ZStack {
-                    HawalaTheme.Colors.backgroundSecondary
-                    
-                    // Subtle accent gradient along the left edge
-                    LinearGradient(
-                        colors: [HawalaTheme.Colors.accent.opacity(0.06), .clear],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                }
-            )
+            .background(HawalaTheme.Colors.backgroundSecondary)
             .overlay(alignment: .trailing) {
                 Rectangle()
                     .fill(HawalaTheme.Colors.border)
                     .frame(width: 1)
             }
-            .navigationTitle("Hawala")
+            .toolbar(.hidden, for: .automatic)
             .frame(minWidth: 180, idealWidth: 220)
         } detail: {
             mainDetailContent
@@ -514,6 +503,7 @@ struct ContentView: View {
                     showGasAccountSheet: $navigationVM.showGasAccountSheet,
                     showPasskeyAuthSheet: $navigationVM.showPasskeyAuthSheet,
                     showGaslessTxSheet: $navigationVM.showGaslessTxSheet,
+                    showHardwareWalletSheet: $navigationVM.showHardwareWalletSheet,
                     onGenerateKeys: {
                         // Auto-acknowledge security notice for streamlined UX
                         if !hasAcknowledgedSecurityNotice {
