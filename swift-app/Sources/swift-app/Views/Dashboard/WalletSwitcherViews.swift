@@ -502,3 +502,54 @@ struct AddWalletSheet: View {
         .preferredColorScheme(.dark)
     }
 }
+
+// MARK: - Sidebar Navigation Button (Themed)
+/// A custom sidebar navigation button that matches HawalaTheme instead of default macOS List style.
+struct SidebarNavButton: View {
+    let label: String
+    let icon: String
+    let isSelected: Bool
+    let action: () -> Void
+    
+    @State private var isHovered = false
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(isSelected ? HawalaTheme.Colors.accent : HawalaTheme.Colors.textSecondary)
+                    .frame(width: 20)
+                
+                Text(label)
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                    .foregroundColor(isSelected ? HawalaTheme.Colors.textPrimary : HawalaTheme.Colors.textSecondary)
+                
+                Spacer()
+                
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(HawalaTheme.Colors.accent)
+                        .frame(width: 3, height: 16)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(
+                        isSelected
+                            ? HawalaTheme.Colors.accent.opacity(0.12)
+                            : (isHovered ? HawalaTheme.Colors.backgroundHover.opacity(0.6) : Color.clear)
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
+    }
+}

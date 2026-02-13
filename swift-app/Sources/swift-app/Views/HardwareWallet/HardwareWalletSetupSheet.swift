@@ -21,7 +21,46 @@ struct HardwareWalletSetupSheet: View {
     let onComplete: (HardwareWalletAccount) -> Void
     
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            // Custom header bar (matches HawalaAssetDetailView)
+            HStack {
+                Button(action: { dismiss() }) {
+                    HStack(spacing: HawalaTheme.Spacing.sm) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .background(HawalaTheme.Colors.backgroundTertiary)
+                            .clipShape(Circle())
+                    }
+                }
+                .buttonStyle(.plain)
+                
+                Spacer()
+                
+                // Step indicator
+                HStack(spacing: 6) {
+                    ForEach(0..<stepCount, id: \.self) { index in
+                        Circle()
+                            .fill(index <= currentStepIndex
+                                  ? HawalaTheme.Colors.accent
+                                  : HawalaTheme.Colors.backgroundTertiary)
+                            .frame(width: 6, height: 6)
+                    }
+                }
+                
+                Spacer()
+                
+                Text("Hardware Wallet")
+                    .font(HawalaTheme.Typography.h4)
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    .opacity(0) // Invisible spacer to center the dots
+            }
+            .padding(.horizontal, HawalaTheme.Spacing.xl)
+            .padding(.vertical, HawalaTheme.Spacing.lg)
+            .background(HawalaTheme.Colors.backgroundSecondary)
+            
+            // Content
             Group {
                 switch viewModel.step {
                 case .discovery:
@@ -38,15 +77,11 @@ struct HardwareWalletSetupSheet: View {
                     ErrorView(viewModel: viewModel)
                 }
             }
-            .navigationTitle("Hardware Wallet")
-            .toolbar(id: "setupToolbar") {
-                ToolbarItem(id: "cancel", placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-            }
         }
+        .frame(minWidth: 500, minHeight: 480)
+        .background(HawalaTheme.Colors.background)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .preferredColorScheme(.dark)
         .onAppear {
             viewModel.selectedChain = chain
             viewModel.startDiscovery()
@@ -58,6 +93,19 @@ struct HardwareWalletSetupSheet: View {
             if newStep == .complete, let account = viewModel.createdAccount {
                 onComplete(account)
             }
+        }
+    }
+    
+    private var stepCount: Int { 4 }
+    
+    private var currentStepIndex: Int {
+        switch viewModel.step {
+        case .discovery: return 0
+        case .connecting: return 1
+        case .selectApp: return 1
+        case .verifyAddress: return 2
+        case .complete: return 3
+        case .error: return 0
         }
     }
 }
@@ -245,65 +293,72 @@ struct DeviceDiscoveryView: View {
     @ObservedObject var viewModel: HardwareWalletSetupViewModel
     
     var body: some View {
-        VStack(spacing: 24) {
-            // Header
-            VStack(spacing: 12) {
-                Image(systemName: "cable.connector.horizontal")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.blue)
-                
-                Text("Connect Your Hardware Wallet")
-                    .font(.headline)
-                
-                Text("Connect your Ledger or Trezor device via USB or Bluetooth")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(.top, 32)
-            
-            Divider()
-            
-            // Device list
-            if viewModel.discoveredDevices.isEmpty {
-                VStack(spacing: 16) {
-                    ProgressView()
-                        .scaleEffect(1.2)
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: HawalaTheme.Spacing.xl) {
+                    // Hero icon
+                    VStack(spacing: HawalaTheme.Spacing.lg) {
+                        ZStack {
+                            Circle()
+                                .fill(HawalaTheme.Colors.accent.opacity(0.12))
+                                .frame(width: 80, height: 80)
+                            
+                            Image(systemName: "cable.connector.horizontal")
+                                .font(.system(size: 32, weight: .medium))
+                                .foregroundStyle(HawalaTheme.Colors.accent)
+                        }
+                        
+                        VStack(spacing: HawalaTheme.Spacing.sm) {
+                            Text("Connect Your Hardware Wallet")
+                                .font(HawalaTheme.Typography.h3)
+                                .foregroundColor(HawalaTheme.Colors.textPrimary)
+                            
+                            Text("Connect your Ledger or Trezor device via USB or Bluetooth")
+                                .font(HawalaTheme.Typography.bodySmall)
+                                .foregroundColor(HawalaTheme.Colors.textSecondary)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .padding(.top, HawalaTheme.Spacing.xl)
                     
-                    Text("Looking for devices...")
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    VStack(spacing: 12) {
-                        ForEach(viewModel.discoveredDevices) { device in
-                            DeviceRow(device: device) {
-                                viewModel.selectDevice(device)
+                    // Device list or scanning indicator
+                    if viewModel.discoveredDevices.isEmpty {
+                        VStack(spacing: HawalaTheme.Spacing.lg) {
+                            ProgressView()
+                                .scaleEffect(1.2)
+                                .tint(HawalaTheme.Colors.accent)
+                            
+                            Text("Scanning for devices…")
+                                .font(HawalaTheme.Typography.bodySmall)
+                                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 40)
+                    } else {
+                        VStack(spacing: HawalaTheme.Spacing.md) {
+                            ForEach(viewModel.discoveredDevices) { device in
+                                DeviceRow(device: device) {
+                                    viewModel.selectDevice(device)
+                                }
                             }
                         }
                     }
-                    .padding(.horizontal)
+                    
+                    // Instructions card
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Unlock your device", systemImage: "lock.open")
+                        Label("Connect via USB or enable Bluetooth", systemImage: "cable.connector")
+                        Label("Ensure the required app is installed", systemImage: "app.badge.checkmark")
+                    }
+                    .font(HawalaTheme.Typography.caption)
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .hawalaCard(padding: HawalaTheme.Spacing.lg)
                 }
+                .padding(.horizontal, HawalaTheme.Spacing.xl)
+                .padding(.bottom, HawalaTheme.Spacing.xl)
             }
-            
-            Spacer()
-            
-            // Instructions
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Unlock your device", systemImage: "lock.open")
-                Label("Connect via USB or enable Bluetooth", systemImage: "cable.connector")
-                Label("Ensure the required app is installed", systemImage: "app.badge.checkmark")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .padding(.horizontal)
         }
-        .padding(.bottom)
     }
 }
 
@@ -311,36 +366,62 @@ struct DeviceRow: View {
     let device: DiscoveredDevice
     let onSelect: () -> Void
     
+    @State private var isHovered = false
+    
     var body: some View {
         Button(action: onSelect) {
-            HStack(spacing: 16) {
+            HStack(spacing: HawalaTheme.Spacing.lg) {
                 // Device icon
-                Image(systemName: deviceIcon)
-                    .font(.title2)
-                    .foregroundStyle(.blue)
-                    .frame(width: 44, height: 44)
-                    .background(.blue.opacity(0.1))
-                    .clipShape(Circle())
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(device.name ?? device.deviceType.displayName)
-                        .font(.headline)
+                ZStack {
+                    Circle()
+                        .fill(HawalaTheme.Colors.accent.opacity(0.12))
+                        .frame(width: 44, height: 44)
                     
-                    Text(device.connectionType == .usb ? "USB" : "Bluetooth")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Image(systemName: deviceIcon)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(HawalaTheme.Colors.accent)
+                }
+                
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(device.name ?? device.deviceType.displayName)
+                        .font(HawalaTheme.Typography.h4)
+                        .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    
+                    HStack(spacing: 6) {
+                        Image(systemName: device.connectionType == .usb ? "cable.connector" : "wave.3.right")
+                            .font(.system(size: 10))
+                        Text(device.connectionType == .usb ? "USB" : "Bluetooth")
+                            .font(HawalaTheme.Typography.caption)
+                    }
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
                 }
                 
                 Spacer()
                 
                 Image(systemName: "chevron.right")
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
             }
-            .padding()
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(HawalaTheme.Spacing.lg)
+            .background(
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                    .fill(HawalaTheme.Colors.backgroundSecondary)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                    .strokeBorder(
+                        isHovered ? HawalaTheme.Colors.accent.opacity(0.3) : HawalaTheme.Colors.border,
+                        lineWidth: 1
+                    )
+            )
+            .scaleEffect(isHovered ? 1.01 : 1.0)
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
     }
     
     private var deviceIcon: String {
@@ -359,22 +440,35 @@ struct ConnectingView: View {
     @ObservedObject var viewModel: HardwareWalletSetupViewModel
     
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: HawalaTheme.Spacing.xl) {
             Spacer()
             
-            ProgressView()
-                .scaleEffect(1.5)
+            ZStack {
+                Circle()
+                    .fill(HawalaTheme.Colors.accent.opacity(0.08))
+                    .frame(width: 100, height: 100)
+                
+                ProgressView()
+                    .scaleEffect(1.5)
+                    .tint(HawalaTheme.Colors.accent)
+            }
             
-            Text(viewModel.statusMessage)
-                .font(.headline)
-            
-            if let device = viewModel.selectedDevice {
-                Text(device.deviceType.displayName)
-                    .foregroundStyle(.secondary)
+            VStack(spacing: HawalaTheme.Spacing.sm) {
+                Text(viewModel.statusMessage)
+                    .font(HawalaTheme.Typography.h3)
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                
+                if let device = viewModel.selectedDevice {
+                    Text(device.deviceType.displayName)
+                        .font(HawalaTheme.Typography.bodySmall)
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                }
             }
             
             Spacer()
         }
+        .frame(maxWidth: .infinity)
+        .padding(HawalaTheme.Spacing.xl)
     }
 }
 
@@ -385,31 +479,50 @@ struct SelectAppView: View {
     let chain: SupportedChain
     
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: HawalaTheme.Spacing.xl) {
             Spacer()
             
-            Image(systemName: "app.badge")
-                .font(.system(size: 64))
-                .foregroundStyle(.orange)
-            
-            Text("Open the \(chain.ledgerAppName) App")
-                .font(.headline)
-            
-            Text("Please open the \(chain.ledgerAppName) app on your hardware wallet to continue.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-            
-            Spacer()
-            
-            Button("Continue") {
-                viewModel.proceedToVerify()
+            ZStack {
+                Circle()
+                    .fill(Color.orange.opacity(0.12))
+                    .frame(width: 88, height: 88)
+                
+                Image(systemName: "app.badge")
+                    .font(.system(size: 36, weight: .medium))
+                    .foregroundColor(.orange)
             }
-            .buttonStyle(.borderedProminent)
+            
+            VStack(spacing: HawalaTheme.Spacing.md) {
+                Text("Open the \(chain.ledgerAppName) App")
+                    .font(HawalaTheme.Typography.h3)
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                
+                Text("Please open the \(chain.ledgerAppName) app on your hardware wallet to continue.")
+                    .font(HawalaTheme.Typography.bodySmall)
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, HawalaTheme.Spacing.xl)
+            }
+            
+            Spacer()
+            
+            Button {
+                viewModel.proceedToVerify()
+            } label: {
+                Text("Continue")
+                    .font(HawalaTheme.Typography.body.weight(.semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(HawalaTheme.Colors.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+            }
+            .buttonStyle(.plain)
             .disabled(viewModel.isLoading)
+            .opacity(viewModel.isLoading ? 0.5 : 1)
+            .padding(.horizontal, HawalaTheme.Spacing.xl)
+            .padding(.bottom, HawalaTheme.Spacing.xl)
         }
-        .padding()
     }
 }
 
@@ -419,66 +532,108 @@ struct VerifyAddressView: View {
     @ObservedObject var viewModel: HardwareWalletSetupViewModel
     
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: HawalaTheme.Spacing.xl) {
             if viewModel.isLoading {
                 Spacer()
-                ProgressView()
-                    .scaleEffect(1.2)
+                ZStack {
+                    Circle()
+                        .fill(HawalaTheme.Colors.accent.opacity(0.08))
+                        .frame(width: 80, height: 80)
+                    
+                    ProgressView()
+                        .scaleEffect(1.2)
+                        .tint(HawalaTheme.Colors.accent)
+                }
                 Text(viewModel.statusMessage)
-                    .foregroundStyle(.secondary)
+                    .font(HawalaTheme.Typography.bodySmall)
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
                 Spacer()
             } else if let address = viewModel.derivedAddress {
-                // Address display
-                VStack(spacing: 16) {
-                    Image(systemName: "checkmark.shield")
-                        .font(.system(size: 48))
-                        .foregroundStyle(.green)
-                    
-                    Text("Verify Address")
-                        .font(.headline)
-                    
-                    Text("Please verify this address matches the one shown on your device")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.top, 32)
-                
-                // Address box
-                VStack(spacing: 8) {
-                    Text(address.address)
-                        .font(.system(.body, design: .monospaced))
-                        .multilineTextAlignment(.center)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                    
-                    Text("Path: \(address.path.description)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal)
-                
-                Spacer()
-                
-                // Confirm button
-                VStack(spacing: 12) {
-                    Button("Address Matches") {
-                        viewModel.confirmAddress()
+                ScrollView {
+                    VStack(spacing: HawalaTheme.Spacing.xl) {
+                        // Icon
+                        ZStack {
+                            Circle()
+                                .fill(HawalaTheme.Colors.success.opacity(0.12))
+                                .frame(width: 72, height: 72)
+                            
+                            Image(systemName: "checkmark.shield")
+                                .font(.system(size: 28, weight: .medium))
+                                .foregroundColor(HawalaTheme.Colors.success)
+                        }
+                        .padding(.top, HawalaTheme.Spacing.lg)
+                        
+                        VStack(spacing: HawalaTheme.Spacing.sm) {
+                            Text("Verify Address")
+                                .font(HawalaTheme.Typography.h3)
+                                .foregroundColor(HawalaTheme.Colors.textPrimary)
+                            
+                            Text("Verify this address matches your device display")
+                                .font(HawalaTheme.Typography.bodySmall)
+                                .foregroundColor(HawalaTheme.Colors.textSecondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        
+                        // Address card
+                        VStack(spacing: HawalaTheme.Spacing.md) {
+                            Text(address.address)
+                                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                                .foregroundColor(HawalaTheme.Colors.textPrimary)
+                                .multilineTextAlignment(.center)
+                            
+                            Text("Path: \(address.path.description)")
+                                .font(HawalaTheme.Typography.caption)
+                                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        }
+                        .hawalaCard(padding: HawalaTheme.Spacing.lg)
+                        
+                        // Buttons
+                        VStack(spacing: HawalaTheme.Spacing.md) {
+                            Button {
+                                viewModel.confirmAddress()
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 16))
+                                    Text("Address Matches")
+                                        .font(HawalaTheme.Typography.body.weight(.semibold))
+                                }
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(HawalaTheme.Colors.success)
+                                .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            
+                            Button {
+                                viewModel.errorMessage = "Address mismatch. Please try again."
+                                viewModel.step = .error
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 16))
+                                    Text("Address Doesn't Match")
+                                        .font(HawalaTheme.Typography.body.weight(.semibold))
+                                }
+                                .foregroundColor(HawalaTheme.Colors.error)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(HawalaTheme.Colors.error.opacity(0.12))
+                                .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous)
+                                        .strokeBorder(HawalaTheme.Colors.error.opacity(0.3), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .buttonStyle(.borderedProminent)
-                    
-                    Button("Address Doesn't Match") {
-                        viewModel.errorMessage = "Address mismatch. Please try again."
-                        viewModel.step = .error
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.red)
+                    .padding(.horizontal, HawalaTheme.Spacing.xl)
+                    .padding(.bottom, HawalaTheme.Spacing.xl)
                 }
             }
         }
-        .padding()
     }
 }
 
@@ -489,36 +644,55 @@ struct CompleteView: View {
     @ObservedObject var viewModel: HardwareWalletSetupViewModel
     
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: HawalaTheme.Spacing.xl) {
             Spacer()
             
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 72))
-                .foregroundStyle(.green)
+            ZStack {
+                Circle()
+                    .fill(HawalaTheme.Colors.success.opacity(0.12))
+                    .frame(width: 96, height: 96)
+                
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 48, weight: .medium))
+                    .foregroundColor(HawalaTheme.Colors.success)
+            }
             
-            Text("Hardware Wallet Added")
-                .font(.title2)
-                .fontWeight(.bold)
-            
-            if let account = viewModel.createdAccount {
-                VStack(spacing: 8) {
-                    Text(account.deviceType.displayName)
-                        .font(.headline)
-                    
-                    Text(truncateAddress(account.address))
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(.secondary)
+            VStack(spacing: HawalaTheme.Spacing.md) {
+                Text("Hardware Wallet Added")
+                    .font(HawalaTheme.Typography.h2)
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                
+                if let account = viewModel.createdAccount {
+                    VStack(spacing: HawalaTheme.Spacing.sm) {
+                        Text(account.deviceType.displayName)
+                            .font(HawalaTheme.Typography.h4)
+                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                        
+                        Text(truncateAddress(account.address))
+                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    }
+                    .hawalaCard(padding: HawalaTheme.Spacing.lg)
                 }
             }
             
             Spacer()
             
-            Button("Done") {
+            Button {
                 dismiss()
+            } label: {
+                Text("Done")
+                    .font(HawalaTheme.Typography.body.weight(.semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(HawalaTheme.Colors.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.plain)
+            .padding(.horizontal, HawalaTheme.Spacing.xl)
+            .padding(.bottom, HawalaTheme.Spacing.xl)
         }
-        .padding()
     }
     
     private func truncateAddress(_ address: String) -> String {
@@ -533,37 +707,67 @@ struct ErrorView: View {
     @ObservedObject var viewModel: HardwareWalletSetupViewModel
     
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: HawalaTheme.Spacing.xl) {
             Spacer()
             
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 64))
-                .foregroundStyle(.red)
-            
-            Text("Connection Error")
-                .font(.headline)
-            
-            Text(viewModel.errorMessage ?? "An unknown error occurred")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-            
-            Spacer()
-            
-            VStack(spacing: 12) {
-                Button("Try Again") {
-                    viewModel.retryConnection()
-                }
-                .buttonStyle(.borderedProminent)
+            ZStack {
+                Circle()
+                    .fill(HawalaTheme.Colors.error.opacity(0.12))
+                    .frame(width: 88, height: 88)
                 
-                Button("Start Over") {
-                    viewModel.startOver()
-                }
-                .buttonStyle(.bordered)
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 36, weight: .medium))
+                    .foregroundColor(HawalaTheme.Colors.error)
             }
+            
+            VStack(spacing: HawalaTheme.Spacing.md) {
+                Text("Connection Error")
+                    .font(HawalaTheme.Typography.h3)
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                
+                Text(viewModel.errorMessage ?? "An unknown error occurred")
+                    .font(HawalaTheme.Typography.bodySmall)
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, HawalaTheme.Spacing.xl)
+            }
+            
+            Spacer()
+            
+            VStack(spacing: HawalaTheme.Spacing.md) {
+                Button {
+                    viewModel.retryConnection()
+                } label: {
+                    Text("Try Again")
+                        .font(HawalaTheme.Typography.body.weight(.semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(HawalaTheme.Colors.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                
+                Button {
+                    viewModel.startOver()
+                } label: {
+                    Text("Start Over")
+                        .font(HawalaTheme.Typography.body.weight(.medium))
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(HawalaTheme.Colors.backgroundTertiary)
+                        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous)
+                                .strokeBorder(HawalaTheme.Colors.border, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, HawalaTheme.Spacing.xl)
+            .padding(.bottom, HawalaTheme.Spacing.xl)
         }
-        .padding()
     }
 }
 

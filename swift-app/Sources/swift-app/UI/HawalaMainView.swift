@@ -1355,166 +1355,183 @@ struct HawalaMainView: View {
     
     // MARK: - Discover View
     private var discoverView: some View {
-        VStack(spacing: HawalaTheme.Spacing.xl) {
-            Text("Discover")
-                .font(HawalaTheme.Typography.h2)
-                .foregroundColor(HawalaTheme.Colors.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, HawalaTheme.Spacing.xl)
-            
-            // Phase 3 Feature cards
-            VStack(spacing: HawalaTheme.Spacing.md) {
-                // Section: User Experience
-                Text("USER EXPERIENCE")
-                    .font(HawalaTheme.Typography.label)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollView {
+            VStack(alignment: .leading, spacing: HawalaTheme.Spacing.xl) {
+                Text("Discover")
+                    .font(HawalaTheme.Typography.h2)
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    .padding(.horizontal, HawalaTheme.Spacing.xl)
                 
-                DiscoverCard(
-                    icon: "square.stack.3d.up.fill",
-                    title: "L2 Balance Aggregator",
-                    description: "View balances across L1 and L2 chains",
-                    color: HawalaTheme.Colors.ethereum
-                ) {
-                    showL2AggregatorSheet = true
+                // ── User Experience ──
+                VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
+                    Text("USER EXPERIENCE")
+                        .font(HawalaTheme.Typography.label)
+                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        .padding(.horizontal, HawalaTheme.Spacing.xl)
+                    
+                    LazyVGrid(columns: [
+                        GridItem(.flexible(), spacing: HawalaTheme.Spacing.md),
+                        GridItem(.flexible(), spacing: HawalaTheme.Spacing.md),
+                        GridItem(.flexible(), spacing: HawalaTheme.Spacing.md)
+                    ], spacing: HawalaTheme.Spacing.md) {
+                        // Tall feature card
+                        DiscoverBentoCard(
+                            icon: "square.stack.3d.up.fill",
+                            title: "L2 Aggregator",
+                            description: "View balances across L1 and L2 chains in one place",
+                            color: HawalaTheme.Colors.ethereum,
+                            size: .tall
+                        ) { showL2AggregatorSheet = true }
+                        
+                        // Stacked pair
+                        VStack(spacing: HawalaTheme.Spacing.md) {
+                            DiscoverBentoCard(
+                                icon: "link.badge.plus",
+                                title: "Payment Links",
+                                description: "Create & share requests",
+                                color: HawalaTheme.Colors.accent,
+                                size: .compact
+                            ) { showPaymentLinksSheet = true }
+                            
+                            DiscoverBentoCard(
+                                icon: "note.text",
+                                title: "Transaction Notes",
+                                description: "Add notes and tags",
+                                color: HawalaTheme.Colors.info,
+                                size: .compact
+                            ) { showTransactionNotesSheet = true }
+                        }
+                        
+                        // Stacked pair
+                        VStack(spacing: HawalaTheme.Spacing.md) {
+                            DiscoverBentoCard(
+                                icon: "banknote.fill",
+                                title: "Sell Crypto",
+                                description: "Convert to fiat",
+                                color: HawalaTheme.Colors.success,
+                                size: .compact
+                            ) { showSellCryptoSheet = true }
+                            
+                            DiscoverBentoCard(
+                                icon: "bell.badge.fill",
+                                title: "Price Alerts",
+                                description: "Track price moves",
+                                color: HawalaTheme.Colors.warning,
+                                size: .compact
+                            ) { showPriceAlertsSheet = true }
+                        }
+                    }
+                    .padding(.horizontal, HawalaTheme.Spacing.xl)
+                    
+                    // Wide swap & bridge card
+                    DiscoverBentoCard(
+                        icon: "arrow.triangle.2.circlepath",
+                        title: "Swap & Bridge",
+                        description: "Swap tokens and bridge assets across chains instantly",
+                        color: .purple,
+                        size: .wide
+                    ) { showSwapBridgeSheet = true }
+                    .padding(.horizontal, HawalaTheme.Spacing.xl)
                 }
                 
-                DiscoverCard(
-                    icon: "link.badge.plus",
-                    title: "Payment Links",
-                    description: "Create and share payment requests",
-                    color: HawalaTheme.Colors.accent
-                ) {
-                    showPaymentLinksSheet = true
+                // ── Account Abstraction ──
+                VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
+                    Text("ACCOUNT ABSTRACTION")
+                        .font(HawalaTheme.Typography.label)
+                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        .padding(.horizontal, HawalaTheme.Spacing.xl)
+                    
+                    LazyVGrid(columns: [
+                        GridItem(.flexible(), spacing: HawalaTheme.Spacing.md),
+                        GridItem(.flexible(), spacing: HawalaTheme.Spacing.md)
+                    ], spacing: HawalaTheme.Spacing.md) {
+                        DiscoverBentoCard(
+                            icon: "person.crop.circle.badge.checkmark",
+                            title: "Smart Accounts",
+                            description: "ERC-4337 account abstraction with gas sponsorship",
+                            color: HawalaTheme.Colors.accent,
+                            size: .standard
+                        ) { showSmartAccountSheet = true }
+                        
+                        DiscoverBentoCard(
+                            icon: "fuelpump.circle.fill",
+                            title: "Gas Account",
+                            description: "Unified gas balance across all chains",
+                            color: .orange,
+                            size: .standard
+                        ) { showGasAccountSheet = true }
+                        
+                        DiscoverBentoCard(
+                            icon: "faceid",
+                            title: "Passkey Auth",
+                            description: "Sign transactions with Face ID",
+                            color: HawalaTheme.Colors.accent,
+                            size: .standard
+                        ) { showPasskeyAuthSheet = true }
+                        
+                        DiscoverBentoCard(
+                            icon: "checkmark.seal.fill",
+                            title: "Gasless Tx",
+                            description: "Sponsored transactions via paymaster",
+                            color: HawalaTheme.Colors.success,
+                            size: .standard
+                        ) { showGaslessTxSheet = true }
+                    }
+                    .padding(.horizontal, HawalaTheme.Spacing.xl)
                 }
                 
-                DiscoverCard(
-                    icon: "note.text",
-                    title: "Transaction Notes",
-                    description: "Add notes and tags to transactions",
-                    color: HawalaTheme.Colors.info
-                ) {
-                    showTransactionNotesSheet = true
+                // ── Advanced Features ──
+                VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
+                    Text("ADVANCED FEATURES")
+                        .font(HawalaTheme.Typography.label)
+                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        .padding(.horizontal, HawalaTheme.Spacing.xl)
+                    
+                    LazyVGrid(columns: [
+                        GridItem(.flexible(), spacing: HawalaTheme.Spacing.md),
+                        GridItem(.flexible(), spacing: HawalaTheme.Spacing.md),
+                        GridItem(.flexible(), spacing: HawalaTheme.Spacing.md),
+                        GridItem(.flexible(), spacing: HawalaTheme.Spacing.md)
+                    ], spacing: HawalaTheme.Spacing.md) {
+                        DiscoverBentoCard(
+                            icon: "chart.line.uptrend.xyaxis",
+                            title: "Staking",
+                            description: "Earn rewards",
+                            color: HawalaTheme.Colors.accent,
+                            size: .compact
+                        ) { showStakingSheet = true }
+                        
+                        DiscoverBentoCard(
+                            icon: "person.3.fill",
+                            title: "Multisig",
+                            description: "Multi-signature",
+                            color: HawalaTheme.Colors.info,
+                            size: .compact
+                        ) { /* showMultisigSheet = true */ }
+                        
+                        DiscoverBentoCard(
+                            icon: "cpu",
+                            title: "Hardware Wallet",
+                            description: "Ledger & Trezor",
+                            color: HawalaTheme.Colors.success,
+                            size: .compact
+                        ) { /* showHardwareWalletSheet = true */ }
+                        
+                        DiscoverBentoCard(
+                            icon: "link.circle.fill",
+                            title: "WalletConnect",
+                            description: "Connect to dApps",
+                            color: HawalaTheme.Colors.info,
+                            size: .compact
+                        ) { showWalletConnectSheet = true }
+                    }
+                    .padding(.horizontal, HawalaTheme.Spacing.xl)
                 }
                 
-                DiscoverCard(
-                    icon: "banknote.fill",
-                    title: "Sell Crypto",
-                    description: "Convert crypto to fiat currency",
-                    color: HawalaTheme.Colors.success
-                ) {
-                    showSellCryptoSheet = true
-                }
-                
-                DiscoverCard(
-                    icon: "arrow.triangle.2.circlepath",
-                    title: "Swap & Bridge",
-                    description: "Swap tokens and bridge across chains",
-                    color: .purple
-                ) {
-                    showSwapBridgeSheet = true
-                }
-                
-                DiscoverCard(
-                    icon: "bell.badge.fill",
-                    title: "Price Alerts",
-                    description: "Get notified on price movements",
-                    color: HawalaTheme.Colors.warning
-                ) {
-                    showPriceAlertsSheet = true
-                }
-                
-                // Section: Account Abstraction (Phase 4)
-                Text("ACCOUNT ABSTRACTION")
-                    .font(HawalaTheme.Typography.label)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, HawalaTheme.Spacing.md)
-                
-                DiscoverCard(
-                    icon: "person.crop.circle.badge.checkmark",
-                    title: "Smart Accounts",
-                    description: "ERC-4337 account abstraction",
-                    color: HawalaTheme.Colors.accent
-                ) {
-                    showSmartAccountSheet = true
-                }
-                
-                DiscoverCard(
-                    icon: "fuelpump.circle.fill",
-                    title: "Gas Account",
-                    description: "Unified gas balance for all chains",
-                    color: .orange
-                ) {
-                    showGasAccountSheet = true
-                }
-                
-                DiscoverCard(
-                    icon: "faceid",
-                    title: "Passkey Auth",
-                    description: "Sign with Face ID, no passwords",
-                    color: HawalaTheme.Colors.accent
-                ) {
-                    showPasskeyAuthSheet = true
-                }
-                
-                DiscoverCard(
-                    icon: "checkmark.seal.fill",
-                    title: "Gasless Transactions",
-                    description: "Sponsored transactions via paymaster",
-                    color: HawalaTheme.Colors.success
-                ) {
-                    showGaslessTxSheet = true
-                }
-                
-                // Section: Advanced Features
-                Text("ADVANCED FEATURES")
-                    .font(HawalaTheme.Typography.label)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, HawalaTheme.Spacing.md)
-                
-                DiscoverCard(
-                    icon: "chart.line.uptrend.xyaxis",
-                    title: "Staking",
-                    description: "Earn rewards by staking your assets",
-                    color: HawalaTheme.Colors.accent
-                ) {
-                    showStakingSheet = true
-                }
-                
-                DiscoverCard(
-                    icon: "person.3.fill",
-                    title: "Multisig Wallets",
-                    description: "Enhanced security with multi-signature",
-                    color: HawalaTheme.Colors.info
-                ) {
-                    // showMultisigSheet = true
-                }
-                
-                DiscoverCard(
-                    icon: "cpu",
-                    title: "Hardware Wallet",
-                    description: "Connect Ledger or Trezor devices",
-                    color: HawalaTheme.Colors.success
-                ) {
-                    // showHardwareWalletSheet = true
-                }
-                
-                DiscoverCard(
-                    icon: "link.circle.fill",
-                    title: "WalletConnect",
-                    description: "Connect to dApps securely",
-                    color: HawalaTheme.Colors.info
-                ) {
-                    showWalletConnectSheet = true
-                }
+                Spacer(minLength: HawalaTheme.Spacing.xxl)
             }
-            .padding(.horizontal, HawalaTheme.Spacing.xl)
-            
-            Spacer()
+            .padding(.vertical, HawalaTheme.Spacing.lg)
         }
-        .padding(.vertical, HawalaTheme.Spacing.lg)
     }
     
     // MARK: - Helpers
@@ -1921,6 +1938,120 @@ struct DiscoverCard: View {
         .buttonStyle(.plain)
         .onHover { hovering in
             isHovered = hovering // No animation - instant response
+        }
+    }
+}
+
+// MARK: - Discover Bento Card (Grid Cell)
+struct DiscoverBentoCard: View {
+    let icon: String
+    let title: String
+    let description: String
+    let color: Color
+    var size: BentoSize = .standard
+    let action: () -> Void
+    
+    enum BentoSize {
+        case compact   // Small square-ish cell
+        case standard  // 2-column half-width
+        case tall      // Spans full height of a row
+        case wide      // Full width
+    }
+    
+    @State private var isHovered = false
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: size == .compact ? 8 : 12) {
+                // Icon badge
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(color.opacity(isHovered ? 0.25 : 0.15))
+                        .frame(width: iconSize, height: iconSize)
+                    
+                    Image(systemName: icon)
+                        .font(.system(size: iconFontSize, weight: .semibold))
+                        .foregroundColor(color)
+                }
+                
+                if size == .tall {
+                    Spacer()
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(size == .compact ? HawalaTheme.Typography.bodySmall.weight(.semibold) : HawalaTheme.Typography.h4)
+                        .foregroundColor(HawalaTheme.Colors.textPrimary)
+                        .lineLimit(1)
+                    
+                    Text(description)
+                        .font(size == .compact ? HawalaTheme.Typography.caption : HawalaTheme.Typography.bodySmall)
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                        .lineLimit(size == .tall ? 3 : 2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                
+                if size == .wide {
+                    // no extra spacer
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: minCardHeight)
+            .padding(size == .compact ? HawalaTheme.Spacing.md : HawalaTheme.Spacing.lg)
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                        .fill(HawalaTheme.Colors.backgroundSecondary)
+                    
+                    // Subtle gradient accent at top
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [color.opacity(isHovered ? 0.08 : 0.03), .clear],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                        .strokeBorder(
+                            isHovered ? color.opacity(0.3) : HawalaTheme.Colors.border,
+                            lineWidth: 1
+                        )
+                }
+            )
+            .scaleEffect(isHovered ? 1.02 : 1.0)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.2)) {
+                isHovered = hovering
+            }
+        }
+    }
+    
+    private var iconSize: CGFloat {
+        switch size {
+        case .compact: return 36
+        case .standard, .wide: return 44
+        case .tall: return 52
+        }
+    }
+    
+    private var iconFontSize: CGFloat {
+        switch size {
+        case .compact: return 16
+        case .standard, .wide: return 20
+        case .tall: return 24
+        }
+    }
+    
+    private var minCardHeight: CGFloat {
+        switch size {
+        case .compact: return 0    // Auto height
+        case .standard: return 120
+        case .tall: return 0       // Fills parent
+        case .wide: return 80
         }
     }
 }

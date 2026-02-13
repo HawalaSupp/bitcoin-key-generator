@@ -222,9 +222,11 @@ struct ContentView: View {
                     }
                 )
                 
-                Divider()
-                    .background(HawalaTheme.Colors.divider)
-                    .padding(.horizontal, 12)
+                Rectangle()
+                    .fill(HawalaTheme.Colors.divider)
+                    .frame(height: 1)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                 
                 // ROADMAP-22 E12: Hardware wallet connection status in sidebar
                 HardwareWalletConnectionBadge(
@@ -243,20 +245,57 @@ struct ContentView: View {
                     }
                 )
                 
-                List(SidebarItem.allCases, selection: $sidebarSelection) { item in
-                    Label(item.rawValue, systemImage: item.icon)
-                        .tag(item)
-                        // ROADMAP-14 E12: VoiceOver label for sidebar items
+                // Custom themed navigation items
+                VStack(spacing: 4) {
+                    ForEach(SidebarItem.allCases) { item in
+                        SidebarNavButton(
+                            label: item.rawValue,
+                            icon: item.icon,
+                            isSelected: sidebarSelection == item
+                        ) {
+                            sidebarSelection = item
+                        }
                         .accessibilityLabel(item.rawValue)
                         .accessibilityHint("Show \(item.rawValue) view")
+                    }
                 }
-                .listStyle(.sidebar)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
                 .accessibilityLabel("Navigation sidebar")
+                
+                Spacer()
+                
+                // Settings button at bottom
+                SidebarNavButton(
+                    label: "Settings",
+                    icon: "gearshape",
+                    isSelected: false
+                ) {
+                    navigationVM.showSettingsPanel = true
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 16)
             }
             .scrollContentBackground(.hidden)
-            .background(HawalaTheme.Colors.background)
+            .background(
+                ZStack {
+                    HawalaTheme.Colors.backgroundSecondary
+                    
+                    // Subtle accent gradient along the left edge
+                    LinearGradient(
+                        colors: [HawalaTheme.Colors.accent.opacity(0.06), .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                }
+            )
+            .overlay(alignment: .trailing) {
+                Rectangle()
+                    .fill(HawalaTheme.Colors.border)
+                    .frame(width: 1)
+            }
             .navigationTitle("Hawala")
-            .frame(minWidth: 160, idealWidth: 200)
+            .frame(minWidth: 180, idealWidth: 220)
         } detail: {
             mainDetailContent
                 .toolbar(.hidden, for: .automatic)
@@ -441,6 +480,10 @@ struct ContentView: View {
             if let item = newValue {
                 navigationVM.sidebarTab = item.rawValue
             }
+        }
+        // Sync BalanceService published states → local @State so HawalaMainView sees updates
+        .onChange(of: balanceService.balanceStates) { newStates in
+            balanceStates = newStates
         }
     }
 
