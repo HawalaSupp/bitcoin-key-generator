@@ -37,9 +37,9 @@ struct HawalaTheme {
         }
         
         // Accent colors - same across themes (used for large text/buttons, 3:1 acceptable)
-        static let accent = Color(hex: "835EF8")               // Purple accent
-        static let accentHover = Color(hex: "9B7BFA")
-        static let accentSubtle = Color(hex: "835EF8").opacity(0.15)
+        static let accent = Color(hex: "14B8A6")               // Teal accent
+        static let accentHover = Color(hex: "2DD4BF")
+        static let accentSubtle = Color(hex: "14B8A6").opacity(0.15)
         
         // Status colors - adaptive for WCAG AA compliance (4.5:1 contrast)
         static var success: Color {

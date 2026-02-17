@@ -5,7 +5,8 @@ import AppKit
 
 // MARK: - Settings View
 struct SettingsView: View {
-    @Environment(\.dismiss) private var dismiss
+    var onDismiss: (() -> Void)? = nil
+    @Environment(\.dismiss) private var envDismiss
     @ObservedObject var passcodeManager = PasscodeManager.shared
     @ObservedObject var themeManager = ThemeManager.shared
     @ObservedObject var privacyManager = PrivacyManager.shared
@@ -74,6 +75,15 @@ struct SettingsView: View {
         themeManager.currentTheme.colorScheme
     }
     
+    /// Unified dismiss: prefers overlay callback, falls back to sheet environment
+    private func dismiss() {
+        if let onDismiss {
+            onDismiss()
+        } else {
+            envDismiss()
+        }
+    }
+    
     var body: some View {
         ZStack {
             // Background
@@ -102,9 +112,10 @@ struct SettingsView: View {
                 .opacity(contentOpacity)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.xl, style: .continuous))
+        .frame(width: 500, height: 720)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: HawalaTheme.Radius.xl, style: .continuous)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(
                     LinearGradient(
                         colors: [Color.white.opacity(0.1), Color.white.opacity(0.03)],
@@ -114,6 +125,7 @@ struct SettingsView: View {
                     lineWidth: 1
                 )
         )
+        .shadow(color: Color.black.opacity(0.5), radius: 50, x: 0, y: 25)
         .onAppear {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                 contentOpacity = 1

@@ -42,10 +42,20 @@ enum BitcoinAddressFormat: String, CaseIterable, Identifiable {
 // MARK: - Modern Receive View
 
 struct ReceiveViewModern: View {
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismiss) private var envDismiss
     
     let chains: [ChainInfo]
     let onCopy: (String) -> Void
+    var onDismiss: (() -> Void)? = nil
+    
+    /// Unified dismiss: prefers overlay callback, falls back to sheet environment
+    private func dismiss() {
+        if let onDismiss {
+            onDismiss()
+        } else {
+            envDismiss()
+        }
+    }
     
     @State private var selectedChain: ChainInfo?
     @State private var requestAmount: String = ""
@@ -65,11 +75,16 @@ struct ReceiveViewModern: View {
     private let ethPrice: Double = 2250.0
     private let ltcPrice: Double = 72.0
     
-    init(chains: [ChainInfo], onCopy: @escaping (String) -> Void) {
+    init(chains: [ChainInfo], initialChain: ChainInfo? = nil, onCopy: @escaping (String) -> Void, onDismiss: (() -> Void)? = nil) {
         self.chains = chains
         self.onCopy = onCopy
-        // Default to first chain with an address
-        _selectedChain = State(initialValue: chains.first(where: { $0.receiveAddress != nil }))
+        self.onDismiss = onDismiss
+        // Use provided chain or default to first chain with an address
+        if let initial = initialChain {
+            _selectedChain = State(initialValue: initial)
+        } else {
+            _selectedChain = State(initialValue: chains.first(where: { $0.receiveAddress != nil }))
+        }
     }
     
     @ObservedObject private var passcodeManager = PasscodeManager.shared
@@ -77,9 +92,8 @@ struct ReceiveViewModern: View {
     
     var body: some View {
         ZStack {
-            // Background
-            HawalaTheme.Colors.background
-                .ignoresSafeArea()
+            // Background — popup card
+            Color(red: 0.10, green: 0.10, blue: 0.12)
             
             // ROADMAP-06 E8: Gate receive view when wallet is locked
             if passcodeManager.isLocked {
@@ -91,7 +105,7 @@ struct ReceiveViewModern: View {
                 
                 // Content
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: HawalaTheme.Spacing.lg) {
+                    VStack(spacing: 16) {
                         // Chain Selector
                         chainSelectorSection
                         
@@ -114,9 +128,9 @@ struct ReceiveViewModern: View {
                             actionButtonsSection(chain: chain, address: address)
                         }
                     }
-                    .padding(.horizontal, HawalaTheme.Spacing.lg)
-                    .padding(.top, HawalaTheme.Spacing.md)
-                    .padding(.bottom, HawalaTheme.Spacing.xxl)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+                    .padding(.bottom, 32)
                 }
             }
             
@@ -136,9 +150,23 @@ struct ReceiveViewModern: View {
             }
             } // end else (wallet not locked)
         }
+        .frame(width: 480, height: 700)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.1), Color.white.opacity(0.03)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .shadow(color: Color.black.opacity(0.5), radius: 50, x: 0, y: 25)
         .preferredColorScheme(.dark)
         .onAppear {
-            withAnimation(HawalaTheme.Animation.spring) {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                 appearAnimation = true
             }
         }
@@ -151,15 +179,15 @@ struct ReceiveViewModern: View {
             Spacer()
             Image(systemName: "lock.shield.fill")
                 .font(.system(size: 56))
-                .foregroundColor(HawalaTheme.Colors.warning)
+                .foregroundColor(Color.orange.opacity(0.8))
             
             Text("Wallet Locked")
-                .font(HawalaTheme.Typography.h2)
-                .foregroundColor(HawalaTheme.Colors.textPrimary)
+                .font(.clashGroteskMedium(size: 20))
+                .foregroundColor(.white)
             
             Text("Unlock your wallet to view receive addresses.")
-                .font(HawalaTheme.Typography.body)
-                .foregroundColor(HawalaTheme.Colors.textSecondary)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(Color.white.opacity(0.5))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
             
@@ -185,17 +213,17 @@ struct ReceiveViewModern: View {
                     Image(systemName: "faceid")
                     Text("Unlock")
                 }
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.black)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(Color(red: 0.10, green: 0.10, blue: 0.12))
                 .frame(maxWidth: 200)
-                .padding(.vertical, 14)
+                .frame(height: 48)
                 .background(Color.white)
-                .clipShape(Capsule())
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.plain)
             
             Button("Cancel") { dismiss() }
-                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                .foregroundColor(Color.white.opacity(0.4))
                 .buttonStyle(.plain)
             
             Spacer()
@@ -205,58 +233,57 @@ struct ReceiveViewModern: View {
     // MARK: - Header
     
     private var receiveHeader: some View {
-        HStack {
-            Button(action: { dismiss() }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
-                    .frame(width: 32, height: 32)
-                    .background(HawalaTheme.Colors.backgroundTertiary)
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
-            .accessibilityHint("Dismiss receive view")
-            .accessibilityIdentifier("receive_close_button")
-            
-            Spacer()
-            
+        ZStack {
+            // Centered title
             Text("Receive")
-                .font(HawalaTheme.Typography.h3)
-                .foregroundColor(HawalaTheme.Colors.textPrimary)
+                .font(.clashGroteskMedium(size: 20))
+                .foregroundColor(.white)
             
-            Spacer()
-            
-            Color.clear.frame(width: 32, height: 32)
+            // Close button — right aligned
+            HStack {
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Circle()
+                        .fill(Color.white.opacity(0.08))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Image(systemName: "xmark")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(Color.white.opacity(0.5))
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+                .accessibilityHint("Dismiss receive view")
+                .accessibilityIdentifier("receive_close_button")
+            }
         }
-        .padding(.horizontal, HawalaTheme.Spacing.lg)
-        .padding(.vertical, HawalaTheme.Spacing.md)
-        .background(HawalaTheme.Colors.background)
+        .padding(.horizontal, 24)
+        .padding(.top, 24)
+        .padding(.bottom, 20)
     }
     
     // MARK: - Chain Selector
     
     private var chainSelectorSection: some View {
-        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("NETWORK")
-                .font(HawalaTheme.Typography.label)
-                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(Color.white.opacity(0.4))
                 .tracking(1)
             
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: HawalaTheme.Spacing.sm) {
+                HStack(spacing: 8) {
                     ForEach(chains.filter { $0.receiveAddress != nil }) { chain in
                         ReceiveChainPill(
                             chain: chain,
                             isSelected: selectedChain?.id == chain.id,
                             action: { 
-                                withAnimation(HawalaTheme.Animation.spring) {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                                     selectedChain = chain
-                                    // Reset amount when switching chains
                                     requestAmount = ""
                                     requestAmountUSD = ""
                                 }
-                                // Animate QR code
                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
                                     qrAnimationScale = 0.9
                                 }
@@ -276,19 +303,19 @@ struct ReceiveViewModern: View {
     // MARK: - Address Format Section (Bitcoin)
     
     private var addressFormatSection: some View {
-        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("ADDRESS FORMAT")
-                .font(HawalaTheme.Typography.label)
-                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(Color.white.opacity(0.4))
                 .tracking(1)
             
-            HStack(spacing: HawalaTheme.Spacing.sm) {
+            HStack(spacing: 8) {
                 ForEach(BitcoinAddressFormat.allCases) { format in
                     AddressFormatPill(
                         format: format,
                         isSelected: selectedAddressFormat == format,
                         action: {
-                            withAnimation(HawalaTheme.Animation.spring) {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                                 selectedAddressFormat = format
                             }
                         }
@@ -297,89 +324,72 @@ struct ReceiveViewModern: View {
             }
             
             // Info text
-            HStack(spacing: HawalaTheme.Spacing.xs) {
+            HStack(spacing: 4) {
                 Image(systemName: "info.circle")
                     .font(.system(size: 11))
                 Text(selectedAddressFormat.description)
-                    .font(HawalaTheme.Typography.caption)
+                    .font(.system(size: 11))
             }
-            .foregroundColor(HawalaTheme.Colors.textTertiary)
+            .foregroundColor(Color.white.opacity(0.4))
         }
-        .hawalaCard()
+        .padding(16)
+        .background(Color.white.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+        )
         .opacity(appearAnimation ? 1 : 0)
         .offset(y: appearAnimation ? 0 : 20)
-        .animation(HawalaTheme.Animation.spring.delay(0.05), value: appearAnimation)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85).delay(0.05), value: appearAnimation)
     }
     
     // MARK: - QR Code Section
     
     private func qrCodeSection(chain: ChainInfo, address: String) -> some View {
-        VStack(spacing: HawalaTheme.Spacing.md) {
-            // QR Code with Chain Branding — responsive sizing (ROADMAP-06 E1)
-            GeometryReader { geo in
-                let maxQR = min(geo.size.width * 0.6, 400) // max 60% width, capped at 400pt
-                let qrSize = max(250, maxQR) // min 250pt
-                let bgSize = qrSize + 20
-                let glowSize = qrSize + 40
-                ZStack {
-                    // Glow effect behind QR
-                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg + 8, style: .continuous)
-                        .fill(HawalaTheme.Colors.forChain(chain.id).opacity(0.1))
-                        .frame(width: glowSize, height: glowSize)
-                        .blur(radius: 20)
-                    
-                    // White background for QR
-                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                        .fill(.white)
-                        .frame(width: bgSize, height: bgSize)
-                    
-                    // QR Code
-                    QRCodeView(content: generatePaymentURI(chain: chain, address: address), size: qrSize)
+        VStack(spacing: 16) {
+            // QR Code with Hawala Logo — clean centered design
+            ZStack {
+                // Subtle glow behind QR
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white.opacity(0.04))
+                    .frame(width: 280, height: 280)
+                    .blur(radius: 30)
                 
-                // Chain Icon Overlay
-                ZStack {
-                    Circle()
-                        .fill(.white)
-                        .frame(width: 44, height: 44)
-                    
-                    Circle()
-                        .fill(HawalaTheme.Colors.forChain(chain.id))
-                        .frame(width: 36, height: 36)
-                    
-                    Image(systemName: chain.iconName)
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.white)
-                }
+                // White background for QR
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(.white)
+                    .frame(width: 260, height: 260)
+                
+                // QR Code with embedded Hawala logo
+                QRCodeView(content: generatePaymentURI(chain: chain, address: address), size: 240, showLogo: true)
             }
-                .scaleEffect(qrAnimationScale)
-                .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
-                .accessibilityLabel("QR code for receiving \(chain.symbol)")
-                .accessibilityHint("Scan this code to send \(chain.symbol) to your wallet")
-                .accessibilityIdentifier("receive_qr_code")
-                .frame(maxWidth: .infinity)
-                }
-            .frame(height: 340) // Reserve space for GeometryReader
+            .scaleEffect(qrAnimationScale)
+            .shadow(color: Color.black.opacity(0.3), radius: 20, x: 0, y: 10)
+            .accessibilityLabel("QR code for receiving \(chain.symbol)")
+            .accessibilityHint("Scan this code to send \(chain.symbol) to your wallet")
+            .accessibilityIdentifier("receive_qr_code")
             
             // Chain Name Badge with Amount
             HStack(spacing: 6) {
                 Circle()
-                    .fill(HawalaTheme.Colors.forChain(chain.id))
+                    .fill(Color.white.opacity(0.3))
                     .frame(width: 8, height: 8)
                 Text(chain.title)
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.5))
                 
                 if !requestAmount.isEmpty {
                     Text("•")
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        .foregroundColor(Color.white.opacity(0.3))
                     Text("\(requestAmount) \(chain.symbol)")
-                        .font(HawalaTheme.Typography.captionBold)
-                        .foregroundColor(HawalaTheme.Colors.accent)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white)
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(HawalaTheme.Colors.backgroundTertiary)
+            .background(Color.white.opacity(0.06))
             .clipShape(Capsule())
             
             // Verify Address Button
@@ -388,42 +398,42 @@ struct ReceiveViewModern: View {
                     Image(systemName: "checkmark.shield")
                         .font(.system(size: 12, weight: .semibold))
                     Text("Verify on Device")
-                        .font(HawalaTheme.Typography.caption)
+                        .font(.system(size: 12, weight: .medium))
                 }
-                .foregroundColor(HawalaTheme.Colors.success)
+                .foregroundColor(Color.white.opacity(0.5))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Verify address on device")
             .accessibilityHint("Confirm your wallet address matches displayed address")
             .accessibilityIdentifier("receive_verify_button")
         }
-        .padding(.vertical, HawalaTheme.Spacing.lg)
+        .padding(.vertical, 16)
         .opacity(appearAnimation ? 1 : 0)
         .offset(y: appearAnimation ? 0 : 20)
-        .animation(HawalaTheme.Animation.spring.delay(0.05), value: appearAnimation)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85).delay(0.05), value: appearAnimation)
     }
     
     // MARK: - Address Section
     
     private func addressSection(address: String) -> some View {
-        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("YOUR ADDRESS")
-                    .font(HawalaTheme.Typography.label)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.4))
                     .tracking(1)
                 
                 Spacer()
                 
-                // Copy button with feedback
+                // Copy button
                 Button(action: { copyAddress(address) }) {
                     HStack(spacing: 4) {
                         Image(systemName: "doc.on.doc")
                             .font(.system(size: 11))
                         Text("Copy")
-                            .font(HawalaTheme.Typography.label)
+                            .font(.system(size: 12, weight: .medium))
                     }
-                    .foregroundColor(HawalaTheme.Colors.accent)
+                    .foregroundColor(.white)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Copy address")
@@ -435,27 +445,29 @@ struct ReceiveViewModern: View {
             Button(action: { copyAddress(address) }) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        // Split address for better readability
                         Text(formatAddress(address).prefix)
-                            .font(HawalaTheme.Typography.mono)
-                            .foregroundColor(HawalaTheme.Colors.textPrimary)
+                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white)
                         
                         Text(formatAddress(address).suffix)
-                            .font(HawalaTheme.Typography.mono)
-                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            .foregroundColor(Color.white.opacity(0.5))
                     }
                     .textSelection(.enabled)
                     
                     Spacer()
                     
-                    // Visual tap hint
                     Image(systemName: "hand.tap")
                         .font(.system(size: 14))
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        .foregroundColor(Color.white.opacity(0.25))
                 }
-                .padding(HawalaTheme.Spacing.md)
-                .background(HawalaTheme.Colors.backgroundTertiary)
-                .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+                .padding(14)
+                .background(Color.white.opacity(0.03))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                )
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Wallet address")
@@ -464,19 +476,25 @@ struct ReceiveViewModern: View {
             .accessibilityIdentifier("receive_address_display")
             
             // Warning text
-            HStack(spacing: HawalaTheme.Spacing.xs) {
+            HStack(spacing: 4) {
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 10))
                 Text("Only send \(selectedChain?.symbol ?? "") to this address")
-                    .font(HawalaTheme.Typography.caption)
+                    .font(.system(size: 11))
             }
-            .foregroundColor(HawalaTheme.Colors.warning)
+            .foregroundColor(Color.orange.opacity(0.8))
             .accessibilityLabel("Warning: Only send \(selectedChain?.symbol ?? "") to this address")
         }
-        .hawalaCard()
+        .padding(16)
+        .background(Color.white.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+        )
         .opacity(appearAnimation ? 1 : 0)
         .offset(y: appearAnimation ? 0 : 20)
-        .animation(HawalaTheme.Animation.spring.delay(0.1), value: appearAnimation)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85).delay(0.1), value: appearAnimation)
     }
     
     // Helper to format address for display
@@ -489,24 +507,23 @@ struct ReceiveViewModern: View {
     // MARK: - Request Amount Section
     
     private func requestAmountSection(chain: ChainInfo) -> some View {
-        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("REQUEST AMOUNT")
-                    .font(HawalaTheme.Typography.label)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.4))
                     .tracking(1)
                 
                 Text("(Optional)")
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .font(.system(size: 11))
+                    .foregroundColor(Color.white.opacity(0.3))
                 
                 Spacer()
                 
                 // USD/Crypto toggle
                 Button(action: { 
-                    withAnimation(HawalaTheme.Animation.fast) {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
                         isAmountInUSD.toggle()
-                        // Convert amounts when toggling
                         if isAmountInUSD {
                             if let crypto = Double(requestAmount), crypto > 0 {
                                 requestAmountUSD = String(format: "%.2f", crypto * priceForChain(chain))
@@ -520,34 +537,34 @@ struct ReceiveViewModern: View {
                 }) {
                     HStack(spacing: 4) {
                         Text(isAmountInUSD ? "USD" : chain.symbol)
-                            .font(HawalaTheme.Typography.captionBold)
+                            .font(.system(size: 11, weight: .semibold))
                         Image(systemName: "arrow.left.arrow.right")
                             .font(.system(size: 10))
                     }
-                    .foregroundColor(HawalaTheme.Colors.accent)
+                    .foregroundColor(.white)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(HawalaTheme.Colors.accentSubtle)
+                    .background(Color.white.opacity(0.08))
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
             }
             
             // Amount input
-            HStack(spacing: HawalaTheme.Spacing.sm) {
+            HStack(spacing: 8) {
                 Image(systemName: isAmountInUSD ? "dollarsign" : chain.iconName)
                     .font(.system(size: 16))
-                    .foregroundColor(isAmountInUSD ? HawalaTheme.Colors.success : HawalaTheme.Colors.forChain(chain.id))
+                    .foregroundColor(Color.white.opacity(0.4))
                     .frame(width: 24)
                 
                 TextField("", text: isAmountInUSD ? $requestAmountUSD : $requestAmount)
                     .textFieldStyle(.plain)
                     .font(.system(size: 20, weight: .medium, design: .rounded))
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    .foregroundColor(.white)
                     .placeholder(when: (isAmountInUSD ? requestAmountUSD : requestAmount).isEmpty) {
                         Text("0.00")
                             .font(.system(size: 20, weight: .medium, design: .rounded))
-                            .foregroundColor(HawalaTheme.Colors.textTertiary)
+                            .foregroundColor(Color.white.opacity(0.25))
                     }
                     .onChange(of: requestAmount) { newValue in
                         if !isAmountInUSD, let crypto = Double(newValue), crypto > 0 {
@@ -563,64 +580,78 @@ struct ReceiveViewModern: View {
                 Spacer()
                 
                 Text(isAmountInUSD ? "USD" : chain.symbol)
-                    .font(HawalaTheme.Typography.body)
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.4))
             }
-            .padding(HawalaTheme.Spacing.md)
-            .background(HawalaTheme.Colors.backgroundTertiary)
-            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+            .padding(14)
+            .background(Color.white.opacity(0.03))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+            )
             
             // Conversion preview
             if !requestAmount.isEmpty, let amount = Double(requestAmount), amount > 0 {
                 HStack {
                     Text("≈")
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        .foregroundColor(Color.white.opacity(0.3))
                     if isAmountInUSD {
                         Text("\(requestAmount) \(chain.symbol)")
-                            .font(HawalaTheme.Typography.caption)
-                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                            .font(.system(size: 11))
+                            .foregroundColor(Color.white.opacity(0.5))
                     } else {
                         Text("$\(String(format: "%.2f", amount * priceForChain(chain))) USD")
-                            .font(HawalaTheme.Typography.caption)
-                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                            .font(.system(size: 11))
+                            .foregroundColor(Color.white.opacity(0.5))
                     }
                 }
-                .padding(.horizontal, HawalaTheme.Spacing.sm)
+                .padding(.horizontal, 8)
             }
             
             // Memo field
-            HStack(spacing: HawalaTheme.Spacing.sm) {
+            HStack(spacing: 8) {
                 Image(systemName: "text.alignleft")
                     .font(.system(size: 14))
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .foregroundColor(Color.white.opacity(0.3))
                 
                 TextField("", text: $memo)
                     .textFieldStyle(.plain)
-                    .font(HawalaTheme.Typography.body)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
                     .placeholder(when: memo.isEmpty) {
                         Text("Memo / Note (optional)")
-                            .font(HawalaTheme.Typography.body)
-                            .foregroundColor(HawalaTheme.Colors.textTertiary)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Color.white.opacity(0.25))
                     }
             }
-            .padding(HawalaTheme.Spacing.md)
-            .background(HawalaTheme.Colors.backgroundTertiary)
-            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+            .padding(14)
+            .background(Color.white.opacity(0.03))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+            )
             
             // Info text
-            HStack(spacing: HawalaTheme.Spacing.xs) {
+            HStack(spacing: 4) {
                 Image(systemName: "qrcode")
                     .font(.system(size: 10))
                 Text("QR code updates automatically with amount")
-                    .font(HawalaTheme.Typography.caption)
+                    .font(.system(size: 11))
             }
-            .foregroundColor(HawalaTheme.Colors.textTertiary)
+            .foregroundColor(Color.white.opacity(0.3))
         }
-        .hawalaCard()
+        .padding(16)
+        .background(Color.white.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+        )
         .opacity(appearAnimation ? 1 : 0)
         .offset(y: appearAnimation ? 0 : 20)
-        .animation(HawalaTheme.Animation.spring.delay(0.15), value: appearAnimation)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85).delay(0.15), value: appearAnimation)
     }
     
     // Helper for price conversion
@@ -636,76 +667,80 @@ struct ReceiveViewModern: View {
     // MARK: - Action Buttons
     
     private func actionButtonsSection(chain: ChainInfo, address: String) -> some View {
-        VStack(spacing: HawalaTheme.Spacing.sm) {
-            // Copy Address Button
+        VStack(spacing: 8) {
+            // Copy Address — primary action
             Button(action: { copyAddress(address) }) {
-                HStack(spacing: HawalaTheme.Spacing.sm) {
+                HStack(spacing: 8) {
                     Image(systemName: "doc.on.doc")
+                        .font(.system(size: 14, weight: .medium))
                     Text("Copy Address")
-                        .font(HawalaTheme.Typography.h4)
+                        .font(.system(size: 14, weight: .semibold))
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, HawalaTheme.Spacing.md)
-                .background(HawalaTheme.Colors.accent)
-                .foregroundColor(.white)
-                .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+                .frame(height: 48)
+                .background(Color.white)
+                .foregroundColor(Color(red: 0.10, green: 0.10, blue: 0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.plain)
             
-            HStack(spacing: HawalaTheme.Spacing.sm) {
+            HStack(spacing: 8) {
                 // Copy Payment Link
                 Button(action: { copyPaymentLink(chain: chain, address: address) }) {
-                    HStack(spacing: HawalaTheme.Spacing.xs) {
+                    HStack(spacing: 4) {
                         Image(systemName: "link")
+                            .font(.system(size: 12, weight: .medium))
                         Text("Copy Link")
-                            .font(HawalaTheme.Typography.body)
+                            .font(.system(size: 13, weight: .medium))
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, HawalaTheme.Spacing.md)
-                    .background(HawalaTheme.Colors.backgroundTertiary)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+                    .frame(height: 48)
+                    .background(Color.white.opacity(0.08))
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous)
-                            .strokeBorder(HawalaTheme.Colors.border, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)
                 
-                // Share Button
+                // Share
                 Button(action: { shareAddress(chain: chain, address: address) }) {
-                    HStack(spacing: HawalaTheme.Spacing.xs) {
+                    HStack(spacing: 4) {
                         Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 12, weight: .medium))
                         Text("Share")
-                            .font(HawalaTheme.Typography.body)
+                            .font(.system(size: 13, weight: .medium))
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, HawalaTheme.Spacing.md)
-                    .background(HawalaTheme.Colors.backgroundTertiary)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+                    .frame(height: 48)
+                    .background(Color.white.opacity(0.08))
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous)
-                            .strokeBorder(HawalaTheme.Colors.border, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)
                 
-                // Save QR Button
+                // Save QR
                 Button(action: { saveQRCode(chain: chain, address: address) }) {
-                    HStack(spacing: HawalaTheme.Spacing.xs) {
+                    HStack(spacing: 4) {
                         Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 12, weight: .medium))
                         Text("Save QR")
-                            .font(HawalaTheme.Typography.body)
+                            .font(.system(size: 13, weight: .medium))
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, HawalaTheme.Spacing.md)
-                    .background(HawalaTheme.Colors.backgroundTertiary)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+                    .frame(height: 48)
+                    .background(Color.white.opacity(0.08))
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous)
-                            .strokeBorder(HawalaTheme.Colors.border, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)
@@ -713,24 +748,28 @@ struct ReceiveViewModern: View {
         }
         .opacity(appearAnimation ? 1 : 0)
         .offset(y: appearAnimation ? 0 : 20)
-        .animation(HawalaTheme.Animation.spring.delay(0.2), value: appearAnimation)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85).delay(0.2), value: appearAnimation)
     }
     
     // MARK: - Toast View
     
     private var copiedToastView: some View {
-        HStack(spacing: HawalaTheme.Spacing.sm) {
+        HStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(HawalaTheme.Colors.success)
+                .foregroundColor(Color.green)
             
             Text(copiedText)
-                .font(HawalaTheme.Typography.body)
-                .foregroundColor(HawalaTheme.Colors.textPrimary)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white)
         }
-        .padding(.horizontal, HawalaTheme.Spacing.lg)
-        .padding(.vertical, HawalaTheme.Spacing.md)
-        .background(HawalaTheme.Colors.backgroundSecondary)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(Color.white.opacity(0.1))
         .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+        )
         .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
     }
     
@@ -906,90 +945,93 @@ struct ReceiveViewModern: View {
     
     private var addressVerificationOverlay: some View {
         ZStack {
-            // Blur background
             Color.black.opacity(0.7)
                 .ignoresSafeArea()
                 .onTapGesture {
-                    withAnimation(HawalaTheme.Animation.spring) {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                         showAddressVerification = false
                     }
                 }
             
             // Verification card
-            VStack(spacing: HawalaTheme.Spacing.xl) {
+            VStack(spacing: 24) {
                 // Icon
                 ZStack {
                     Circle()
-                        .fill(verificationStep == 3 ? HawalaTheme.Colors.success.opacity(0.2) : HawalaTheme.Colors.accent.opacity(0.2))
+                        .fill(verificationStep == 3 ? Color.green.opacity(0.15) : Color.white.opacity(0.08))
                         .frame(width: 80, height: 80)
                     
                     if verificationStep < 3 {
-                        // Loading indicator
                         Circle()
                             .trim(from: 0, to: 0.7)
-                            .stroke(HawalaTheme.Colors.accent, lineWidth: 3)
+                            .stroke(Color.white.opacity(0.5), lineWidth: 3)
                             .frame(width: 60, height: 60)
                             .rotationEffect(.degrees(verificationStep > 0 ? 360 : 0))
                             .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: verificationStep)
                         
                         Image(systemName: "shield")
                             .font(.system(size: 24, weight: .semibold))
-                            .foregroundColor(HawalaTheme.Colors.accent)
+                            .foregroundColor(.white)
                     } else {
-                        // Success checkmark
                         Image(systemName: "checkmark.shield.fill")
                             .font(.system(size: 32, weight: .semibold))
-                            .foregroundColor(HawalaTheme.Colors.success)
+                            .foregroundColor(Color.green)
                     }
                 }
                 
-                // Status text
-                VStack(spacing: HawalaTheme.Spacing.sm) {
+                VStack(spacing: 8) {
                     Text(verificationStatusTitle)
-                        .font(HawalaTheme.Typography.h3)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
+                        .font(.clashGroteskMedium(size: 18))
+                        .foregroundColor(.white)
                     
                     Text(verificationStatusSubtitle)
-                        .font(HawalaTheme.Typography.body)
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.5))
                         .multilineTextAlignment(.center)
                 }
                 
-                // Progress steps
-                HStack(spacing: HawalaTheme.Spacing.md) {
+                // Progress dots
+                HStack(spacing: 12) {
                     ForEach(0..<3) { step in
                         Circle()
-                            .fill(step <= verificationStep ? HawalaTheme.Colors.accent : HawalaTheme.Colors.backgroundTertiary)
+                            .fill(step <= verificationStep ? Color.white : Color.white.opacity(0.15))
                             .frame(width: 8, height: 8)
                     }
                 }
                 
-                // Dismiss button (only when complete)
+                // Done button
                 if verificationStep == 3 {
                     Button(action: {
-                        withAnimation(HawalaTheme.Animation.spring) {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                             showAddressVerification = false
                         }
                     }) {
                         Text("Done")
-                            .font(HawalaTheme.Typography.h4)
-                            .foregroundColor(.white)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(Color(red: 0.10, green: 0.10, blue: 0.12))
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, HawalaTheme.Spacing.md)
-                            .background(HawalaTheme.Colors.success)
-                            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
+                            .frame(height: 48)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                    .padding(.top, HawalaTheme.Spacing.md)
+                    .padding(.top, 8)
                 }
             }
-            .padding(HawalaTheme.Spacing.xl)
+            .padding(32)
             .frame(maxWidth: 300)
-            .background(HawalaTheme.Colors.backgroundSecondary)
-            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.xl, style: .continuous))
+            .background(Color(red: 0.10, green: 0.10, blue: 0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: HawalaTheme.Radius.xl, style: .continuous)
-                    .strokeBorder(HawalaTheme.Colors.border, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.1), Color.white.opacity(0.03)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
             )
             .shadow(color: .black.opacity(0.5), radius: 30, x: 0, y: 10)
         }
@@ -1024,6 +1066,8 @@ struct AddressFormatPill: View {
     let isSelected: Bool
     let action: () -> Void
     
+    @State private var isHovered = false
+    
     var body: some View {
         Button(action: action) {
             VStack(spacing: 4) {
@@ -1031,19 +1075,20 @@ struct AddressFormatPill: View {
                     .font(.system(size: 14, weight: .semibold))
                 
                 Text(format.rawValue)
-                    .font(HawalaTheme.Typography.caption)
+                    .font(.system(size: 11, weight: .medium))
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, HawalaTheme.Spacing.sm)
-            .background(isSelected ? HawalaTheme.Colors.accent.opacity(0.2) : HawalaTheme.Colors.backgroundTertiary)
-            .foregroundColor(isSelected ? HawalaTheme.Colors.accent : HawalaTheme.Colors.textSecondary)
-            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+            .padding(.vertical, 10)
+            .background(isSelected ? Color.white.opacity(0.1) : (isHovered ? Color.white.opacity(0.04) : Color.clear))
+            .foregroundColor(isSelected ? .white : Color.white.opacity(0.4))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous)
-                    .strokeBorder(isSelected ? HawalaTheme.Colors.accent.opacity(0.5) : Color.clear, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(isSelected ? Color.white.opacity(0.15) : Color.white.opacity(0.06), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -1054,6 +1099,8 @@ struct ReceiveChainPill: View {
     let isSelected: Bool
     let action: () -> Void
     
+    @State private var isHovered = false
+    
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
@@ -1061,23 +1108,20 @@ struct ReceiveChainPill: View {
                     .font(.system(size: 12, weight: .semibold))
                 
                 Text(chain.symbol)
-                    .font(HawalaTheme.Typography.captionBold)
+                    .font(.system(size: 12, weight: .semibold))
             }
-            .padding(.horizontal, HawalaTheme.Spacing.md)
-            .padding(.vertical, HawalaTheme.Spacing.sm)
-            .background(isSelected ? chainColor.opacity(0.2) : HawalaTheme.Colors.backgroundTertiary)
-            .foregroundColor(isSelected ? chainColor : HawalaTheme.Colors.textSecondary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(isSelected ? Color.white.opacity(0.1) : (isHovered ? Color.white.opacity(0.04) : Color.clear))
+            .foregroundColor(isSelected ? .white : Color.white.opacity(0.4))
             .clipShape(Capsule())
             .overlay(
                 Capsule()
-                    .strokeBorder(isSelected ? chainColor.opacity(0.5) : Color.clear, lineWidth: 1)
+                    .strokeBorder(isSelected ? Color.white.opacity(0.15) : Color.white.opacity(0.06), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
-    }
-    
-    private var chainColor: Color {
-        HawalaTheme.Colors.forChain(chain.id)
+        .onHover { isHovered = $0 }
     }
 }
 

@@ -105,32 +105,13 @@ struct SheetCoordinator: ViewModifier {
                 )
                 .hawalaModal()
             }
-            // Receive
-            .sheet(isPresented: $navigationVM.showReceiveSheet) {
-                if let keys {
-                    ReceiveViewModern(chains: keys.chainInfos, onCopy: onCopyToClipboard)
-                        .frame(minWidth: 500, minHeight: 650)
-                        .hawalaModal(allowSwipeDismiss: true)
-                } else {
-                    NoKeysPlaceholderView()
-                }
-            }
-            // Send (from chain context)
-            .sheet(item: $navigationVM.sendChainContext, onDismiss: { navigationVM.sendChainContext = nil }) { chain in
-                if let keys {
-                    SendView(keys: keys, initialChain: SendFlowHelper.mapToChain(chain.id), onSuccess: { result in
-                        onHandleTransactionSuccess(result)
-                    })
-                    .hawalaModal()
-                } else {
-                    Text("Keys not available")
-                }
-            }
+            // Receive — now presented as ZStack overlay in HawalaMainView
+            // Send (from chain context) — now presented as ZStack overlay in HawalaMainView
             // Send picker
             .sheet(isPresented: $navigationVM.showSendPicker, onDismiss: onPresentQueuedSend) {
                 if let keys {
                     SendAssetPickerSheet(
-                        chains: SendFlowHelper.sendEligibleChains(from: keys),
+                        chains: keys.chainInfos,
                         onSelect: { chain in
                             navigationVM.pendingSendChain = chain
                             navigationVM.showSendPicker = false
@@ -270,29 +251,7 @@ struct SheetCoordinator: ViewModifier {
                 BatchTransactionView()
                     .frame(minWidth: 520, minHeight: 500)
             }
-            // Settings
-            .sheet(isPresented: $navigationVM.showSettingsPanel) {
-                SettingsPanelView(
-                    hasKeys: keys != nil,
-                    onShowKeys: {
-                        if keys != nil {
-                            Task { await onRevealPrivateKeys() }
-                        } else {
-                            onShowStatus("Generate keys before viewing private material.", .info, true)
-                        }
-                    },
-                    onOpenSecurity: {
-                        DispatchQueue.main.async {
-                            navigationVM.showSecuritySettings = true
-                        }
-                    },
-                    selectedCurrency: $storedFiatCurrency,
-                    onCurrencyChanged: {
-                        onStartFXRatesFetch()
-                        onFetchPrices()
-                    }
-                )
-            }
+            // Settings — now presented as ZStack overlay in HawalaMainView
             // Security
             .sheet(isPresented: $navigationVM.showSecurityNotice) {
                 SecurityNoticeView {

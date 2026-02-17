@@ -2851,6 +2851,7 @@ extension HawalaChain {
         case .xrpMainnet: self = .xrp
         case .xrpTestnet: self = .xrpTestnet
         case .monero: self = .monero
+        case .arbitrum, .optimism, .base, .avalanche, .fantom, .gnosis, .scroll: self = .ethereum
         }
     }
 }

@@ -16,6 +16,14 @@ enum Chain: String, CaseIterable, Identifiable {
     case xrpTestnet = "xrp-testnet"
     case xrpMainnet = "xrp-mainnet"
     case monero
+    // EVM L2 & compatible chains
+    case arbitrum
+    case optimism
+    case base
+    case avalanche
+    case fantom
+    case gnosis
+    case scroll
     
     var id: String { self.rawValue }
     
@@ -33,6 +41,13 @@ enum Chain: String, CaseIterable, Identifiable {
         case .xrpTestnet: return "xrp-testnet"
         case .xrpMainnet: return "xrp-mainnet"
         case .monero: return "monero"
+        case .arbitrum: return "arbitrum"
+        case .optimism: return "optimism"
+        case .base: return "base"
+        case .avalanche: return "avalanche"
+        case .fantom: return "fantom"
+        case .gnosis: return "gnosis"
+        case .scroll: return "scroll"
         }
     }
     
@@ -50,6 +65,13 @@ enum Chain: String, CaseIterable, Identifiable {
         case .xrpTestnet: return "XRP Testnet"
         case .xrpMainnet: return "XRP Mainnet"
         case .monero: return "Monero"
+        case .arbitrum: return "Arbitrum"
+        case .optimism: return "Optimism"
+        case .base: return "Base"
+        case .avalanche: return "Avalanche"
+        case .fantom: return "Fantom"
+        case .gnosis: return "Gnosis"
+        case .scroll: return "Scroll"
         }
     }
     
@@ -67,6 +89,13 @@ enum Chain: String, CaseIterable, Identifiable {
         case .xrpTestnet: return "x.circle"
         case .xrpMainnet: return "x.circle.fill"
         case .monero: return "m.circle.fill"
+        case .arbitrum: return "a.circle.fill"
+        case .optimism: return "o.circle.fill"
+        case .base: return "b.circle.fill"
+        case .avalanche: return "a.circle.fill"
+        case .fantom: return "f.circle.fill"
+        case .gnosis: return "g.circle.fill"
+        case .scroll: return "scroll.fill"
         }
     }
     
@@ -83,7 +112,13 @@ enum Chain: String, CaseIterable, Identifiable {
     }
     
     var isEVM: Bool {
-        self == .ethereumSepolia || self == .ethereumMainnet || self == .polygon || self == .bnb
+        switch self {
+        case .ethereumSepolia, .ethereumMainnet, .polygon, .bnb,
+             .arbitrum, .optimism, .base, .avalanche, .fantom, .gnosis, .scroll:
+            return true
+        default:
+            return false
+        }
     }
     
     var isEthereum: Bool {
@@ -114,6 +149,13 @@ enum Chain: String, CaseIterable, Identifiable {
         case .ethereumMainnet: return 1         // Ethereum mainnet
         case .polygon: return 137               // Polygon mainnet
         case .bnb: return 56                    // BSC mainnet
+        case .arbitrum: return 42161             // Arbitrum One
+        case .optimism: return 10                // OP Mainnet
+        case .base: return 8453                  // Base
+        case .avalanche: return 43114            // Avalanche C-Chain
+        case .fantom: return 250                 // Fantom Opera
+        case .gnosis: return 100                 // Gnosis Chain
+        case .scroll: return 534352              // Scroll
         default: return nil
         }
     }
@@ -129,6 +171,13 @@ enum Chain: String, CaseIterable, Identifiable {
         case .solanaDevnet, .solanaMainnet: return "SOL"
         case .xrpTestnet, .xrpMainnet: return "XRP"
         case .monero: return "XMR"
+        case .arbitrum: return "ETH"
+        case .optimism: return "ETH"
+        case .base: return "ETH"
+        case .avalanche: return "AVAX"
+        case .fantom: return "FTM"
+        case .gnosis: return "xDAI"
+        case .scroll: return "ETH"
         }
     }
     
@@ -250,32 +299,61 @@ struct SendView: View {
     @State private var isEstimatingGas = false
     @State private var autoEstimateGas = true // Auto-estimate when address changes
     
-    // Animation
+    // Animation — matches AssetDetailPopup entrance feel
     @State private var appearAnimation = false
+    @State private var cardScale: CGFloat = 0.92
+    @State private var contentOpacity: Double = 0
+    
+    // Hover states for bottom buttons
+    @State private var reviewHovered: Bool = false
     
     var onSuccess: ((TransactionBroadcastResult) -> Void)?
+    var onDismiss: (() -> Void)?
     
-    init(keys: AllKeys, initialChain: Chain = .bitcoinTestnet, onSuccess: ((TransactionBroadcastResult) -> Void)? = nil) {
+    init(keys: AllKeys, initialChain: Chain = .bitcoinTestnet, onSuccess: ((TransactionBroadcastResult) -> Void)? = nil, onDismiss: (() -> Void)? = nil) {
         self.keys = keys
         _selectedChain = State(initialValue: initialChain)
         self.onSuccess = onSuccess
+        self.onDismiss = onDismiss
     }
     
     var body: some View {
         ZStack {
-            // Dark background
-            HawalaTheme.Colors.background
-                .ignoresSafeArea()
-            
             mainContent
+                .opacity(contentOpacity)
             
             // Loading Overlay
             if isLoading {
                 loadingOverlay
             }
         }
-        .preferredColorScheme(.dark)
-        .onAppear(perform: handleOnAppear)
+        .frame(width: 480, height: 680)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.1), Color.white.opacity(0.03)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: Color.black.opacity(0.5), radius: 50, x: 0, y: 25)
+        .scaleEffect(cardScale)
+        .onAppear {
+            handleOnAppear()
+            // Smooth entrance animation matching AssetDetailPopup
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                cardScale = 1
+                contentOpacity = 1
+            }
+        }
         .onChange(of: selectedChain, perform: handleChainChange)
         .onChange(of: selectedFeePriority) { _ in updateFeeFromPriority() }
         .onChange(of: amount) { newValue in
@@ -370,25 +448,25 @@ struct SendView: View {
             // Warning icon
             Image(systemName: "exclamationmark.shield.fill")
                 .font(.system(size: 48))
-                .foregroundColor(.orange)
+                .foregroundColor(HawalaTheme.Colors.warning)
                 .padding(.top, 32)
             
             // Title
             Text("Backup verification required")
-                .font(.custom("ClashGrotesk-Bold", size: 24))
-                .foregroundColor(.white)
+                .font(HawalaTheme.Typography.h1)
+                .foregroundColor(HawalaTheme.Colors.textPrimary)
                 .multilineTextAlignment(.center)
             
             // Explanation
             VStack(alignment: .leading, spacing: 12) {
                 Text("To send more than $\(Int(BackupVerificationManager.shared.unverifiedSendLimitUSD)), you need to verify your recovery phrase backup.")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(.white.opacity(0.7))
+                    .font(HawalaTheme.Typography.bodySmall)
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
                     .multilineTextAlignment(.center)
                 
                 Text("This ensures you can recover your funds if you lose access to this device.")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.white.opacity(0.5))
+                    .font(HawalaTheme.Typography.caption)
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
                     .multilineTextAlignment(.center)
             }
             .padding(.horizontal, 24)
@@ -403,12 +481,12 @@ struct SendView: View {
                     // For now just dismiss - in production would navigate
                 }) {
                     Text("Verify backup in Settings")
-                        .font(.custom("ClashGrotesk-Semibold", size: 16))
-                        .foregroundColor(.black)
+                        .font(HawalaTheme.Typography.h4)
+                        .foregroundColor(HawalaTheme.Colors.background)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
-                        .background(Color.white)
-                        .cornerRadius(12)
+                        .background(HawalaTheme.Colors.textPrimary)
+                        .cornerRadius(HawalaTheme.Radius.lg)
                 }
                 .buttonStyle(.plain)
                 
@@ -416,8 +494,8 @@ struct SendView: View {
                     showBackupRequiredSheet = false
                 }) {
                     Text("Send smaller amount instead")
-                        .font(.custom("ClashGrotesk-Medium", size: 14))
-                        .foregroundColor(.white.opacity(0.7))
+                        .font(HawalaTheme.Typography.body)
+                        .foregroundColor(HawalaTheme.Colors.textSecondary)
                 }
                 .buttonStyle(.plain)
             }
@@ -425,8 +503,8 @@ struct SendView: View {
             .padding(.bottom, 32)
         }
         .frame(maxWidth: 450, maxHeight: 450)
-        .background(Color(hex: "#1A1A1A"))
-        .cornerRadius(20)
+        .background(HawalaTheme.Colors.backgroundSecondary)
+        .cornerRadius(HawalaTheme.Radius.xl)
     }
     
     private func securityCheckSheet() -> some View {
@@ -462,6 +540,13 @@ struct SendView: View {
         case .xrpTestnet: return .xrpTestnet
         case .xrpMainnet: return .xrp
         case .monero: return .ethereum // fallback, monero not supported for sending
+        case .arbitrum: return .ethereum
+        case .optimism: return .ethereum
+        case .base: return .ethereum
+        case .avalanche: return .ethereum
+        case .fantom: return .ethereum
+        case .gnosis: return .ethereum
+        case .scroll: return .ethereum
         }
     }
     
@@ -550,7 +635,7 @@ struct SendView: View {
                             return
                         }
                         
-                        dismiss()
+                        dismissSendView()
                         let result = TransactionBroadcastResult(
                             txid: details.txId,
                             chainId: details.chain.chainId,
@@ -662,51 +747,52 @@ struct SendView: View {
             // Bottom spacer for button
             Color.clear.frame(height: 100)
         }
-        .padding(.horizontal, HawalaTheme.Spacing.lg)
-        .padding(.top, HawalaTheme.Spacing.md)
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
     }
 
     
     // MARK: - Header
     
     private var sendHeader: some View {
-        HStack {
-            Button(action: { dismiss() }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
-                    .frame(width: 32, height: 32)
-                    .background(HawalaTheme.Colors.backgroundTertiary)
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            
-            Spacer()
-            
+        ZStack {
+            // Centered title
             Text("Send")
-                .font(HawalaTheme.Typography.h3)
-                .foregroundColor(HawalaTheme.Colors.textPrimary)
+                .font(.clashGroteskMedium(size: 20))
+                .foregroundColor(.white)
             
-            Spacer()
-            
-            Color.clear.frame(width: 32, height: 32)
+            // Close button aligned right
+            HStack {
+                Spacer()
+                Button(action: { dismissSendView() }) {
+                    Circle()
+                        .fill(Color.white.opacity(0.08))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Image(systemName: "xmark")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(Color.white.opacity(0.5))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .padding(.horizontal, HawalaTheme.Spacing.lg)
-        .padding(.vertical, HawalaTheme.Spacing.md)
-        .background(HawalaTheme.Colors.background)
+        .padding(.horizontal, 24)
+        .padding(.top, 24)
+        .padding(.bottom, 16)
     }
     
     // MARK: - Chain Selector
     
     private var chainSelectorSection: some View {
-        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("NETWORK")
-                .font(HawalaTheme.Typography.label)
-                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(Color.white.opacity(0.4))
                 .tracking(1)
             
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: HawalaTheme.Spacing.sm) {
+                HStack(spacing: 6) {
                     ForEach(Chain.allCases) { chain in
                         SendChainPill(
                             chain: chain,
@@ -714,7 +800,9 @@ struct SendView: View {
                             action: {
                                 // ROADMAP-19 #18: Block network switch while send is in-flight
                                 guard EdgeCaseGuards.canSwitchNetwork(isTransactionInFlight: isLoading) else { return }
-                                selectedChain = chain
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    selectedChain = chain
+                                }
                             }
                         )
                         .opacity(isLoading && selectedChain != chain ? 0.4 : 1.0)
@@ -723,17 +811,17 @@ struct SendView: View {
             }
         }
         .opacity(appearAnimation ? 1 : 0)
-        .offset(y: appearAnimation ? 0 : 20)
+        .offset(y: appearAnimation ? 0 : 12)
     }
     
     // MARK: - Recipient Section
     
     private var recipientSection: some View {
-        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("RECIPIENT")
-                    .font(HawalaTheme.Typography.label)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.4))
                     .tracking(1)
                 
                 Spacer()
@@ -742,31 +830,31 @@ struct SendView: View {
                 if isValidatingAddress {
                     ProgressView()
                         .scaleEffect(0.6)
-                        .tint(HawalaTheme.Colors.accent)
+                        .tint(Color.white.opacity(0.5))
                 } else if let result = addressValidationResult {
                     HStack(spacing: 4) {
                         Image(systemName: result.isValid ? "checkmark.circle.fill" : "xmark.circle.fill")
                         Text(result.isValid ? "Valid" : "Invalid")
-                            .font(HawalaTheme.Typography.caption)
+                            .font(.system(size: 11, weight: .medium))
                     }
                     .foregroundColor(result.isValid ? HawalaTheme.Colors.success : HawalaTheme.Colors.error)
                 }
             }
             
             // Address Input Field
-            HStack(spacing: HawalaTheme.Spacing.sm) {
+            HStack(spacing: 8) {
                 Image(systemName: "wallet.pass")
-                    .font(.system(size: 16))
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .font(.system(size: 14))
+                    .foregroundColor(Color.white.opacity(0.35))
                 
                 TextField("", text: $recipientAddress)
                     .textFieldStyle(.plain)
-                    .font(HawalaTheme.Typography.mono)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white)
                     .placeholder(when: recipientAddress.isEmpty) {
                         Text("Address or ENS domain")
-                            .font(HawalaTheme.Typography.body)
-                            .foregroundColor(HawalaTheme.Colors.textTertiary)
+                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            .foregroundColor(Color.white.opacity(0.2))
                     }
                     .disableAutocorrection(true)
                     .accessibilityLabel("Recipient address")
@@ -784,7 +872,7 @@ struct SendView: View {
                 Button(action: scanQRCode) {
                     Image(systemName: "qrcode.viewfinder")
                         .font(.system(size: 14))
-                        .foregroundColor(HawalaTheme.Colors.accent)
+                        .foregroundColor(Color.white.opacity(0.5))
                 }
                 .buttonStyle(.plain)
                 .help("Scan QR code")
@@ -796,7 +884,7 @@ struct SendView: View {
                 Button(action: pasteFromClipboard) {
                     Image(systemName: "doc.on.clipboard")
                         .font(.system(size: 14))
-                        .foregroundColor(HawalaTheme.Colors.accent)
+                        .foregroundColor(Color.white.opacity(0.5))
                 }
                 .buttonStyle(.plain)
                 .help("Paste from clipboard")
@@ -808,7 +896,7 @@ struct SendView: View {
                 Button(action: { showingContactPicker = true }) {
                     Image(systemName: "person.crop.circle")
                         .font(.system(size: 14))
-                        .foregroundColor(HawalaTheme.Colors.accent)
+                        .foregroundColor(Color.white.opacity(0.5))
                 }
                 .buttonStyle(.plain)
                 .help("Pick from contacts")
@@ -816,9 +904,15 @@ struct SendView: View {
                 .accessibilityHint("Select a recipient from your address book")
                 .accessibilityIdentifier("send_contact_picker_button")
             }
-            .padding(HawalaTheme.Spacing.md)
-            .background(HawalaTheme.Colors.backgroundTertiary)
-            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(0.03))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+            )
             
             // ENS Resolution
             if let ensName = resolvedENSName {
@@ -826,15 +920,15 @@ struct SendView: View {
                     Image(systemName: "link")
                         .font(.caption)
                     Text("Resolves to: \(ensName)")
-                        .font(HawalaTheme.Typography.caption)
+                        .font(.system(size: 11, weight: .medium))
                 }
-                .foregroundColor(HawalaTheme.Colors.accent)
+                .foregroundColor(Color.white.opacity(0.5))
             }
             
             // Validation Error
             if case .invalid(let error) = addressValidationResult {
                 Text(error)
-                    .font(HawalaTheme.Typography.caption)
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundColor(HawalaTheme.Colors.error)
             }
             
@@ -844,46 +938,45 @@ struct SendView: View {
                     Image(systemName: "sparkles")
                         .font(.caption2)
                     Text("Supports ENS (.eth) and Unstoppable Domains")
-                        .font(HawalaTheme.Typography.caption)
+                        .font(.system(size: 11, weight: .medium))
                 }
-                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                .foregroundColor(Color.white.opacity(0.3))
             }
         }
-        .hawalaCard()
         .opacity(appearAnimation ? 1 : 0)
-        .offset(y: appearAnimation ? 0 : 20)
-        .animation(HawalaTheme.Animation.spring.delay(0.05), value: appearAnimation)
+        .offset(y: appearAnimation ? 0 : 12)
+        .animation(.easeOut(duration: 0.4).delay(0.05), value: appearAnimation)
     }
     
     // MARK: - Amount Section
     
     private var amountSection: some View {
-        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("AMOUNT")
-                .font(HawalaTheme.Typography.label)
-                .foregroundColor(HawalaTheme.Colors.textTertiary)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(Color.white.opacity(0.4))
                 .tracking(1)
             
-            HStack(spacing: HawalaTheme.Spacing.sm) {
-                // Chain Icon
+            HStack(spacing: 8) {
+                // Chain Icon — matches popup's minimal style
                 ZStack {
                     Circle()
-                        .fill(HawalaTheme.Colors.forChain(selectedChain.chainId).opacity(0.2))
+                        .fill(Color.white.opacity(0.06))
                         .frame(width: 32, height: 32)
                     
                     Image(systemName: selectedChain.iconName)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(HawalaTheme.Colors.forChain(selectedChain.chainId))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Color.white.opacity(0.5))
                 }
                 
                 TextField("", text: $amount)
                     .textFieldStyle(.plain)
                     .font(.system(size: 28, weight: .semibold, design: .rounded))
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                    .foregroundColor(.white)
                     .placeholder(when: amount.isEmpty) {
                         Text("0.00")
                             .font(.system(size: 28, weight: .semibold, design: .rounded))
-                            .foregroundColor(HawalaTheme.Colors.textTertiary)
+                            .foregroundColor(Color.white.opacity(0.2))
                     }
                     .accessibilityLabel("Amount to send")
                     .accessibilityHint("Enter amount in \(chainSymbol)")
@@ -894,12 +987,11 @@ struct SendView: View {
                 // Send Max button
                 Button(action: fillMaxAmount) {
                     Text("MAX")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundColor(HawalaTheme.Colors.accent)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(HawalaTheme.Colors.accent.opacity(0.15))
-                        .clipShape(Capsule())
+                        .background(Capsule().fill(Color.white.opacity(0.1)))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Send maximum amount")
@@ -907,32 +999,37 @@ struct SendView: View {
                 .accessibilityIdentifier("send_max_button")
                 
                 Text(chainSymbol)
-                    .font(HawalaTheme.Typography.h3)
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(Color.white.opacity(0.4))
             }
-            .padding(HawalaTheme.Spacing.md)
-            .background(HawalaTheme.Colors.backgroundTertiary)
-            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(0.03))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+            )
             
             // Available balance row
             HStack {
                 Text(amountHint)
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.3))
                 
                 Spacer()
                 
                 if let balance = availableBalanceString {
                     Text("Available: \(balance) \(chainSymbol)")
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.4))
                 }
             }
         }
-        .hawalaCard()
         .opacity(appearAnimation ? 1 : 0)
-        .offset(y: appearAnimation ? 0 : 20)
-        .animation(HawalaTheme.Animation.spring.delay(0.1), value: appearAnimation)
+        .offset(y: appearAnimation ? 0 : 12)
+        .animation(.easeOut(duration: 0.4).delay(0.1), value: appearAnimation)
     }
     
     // MARK: - Recent Recipients (ROADMAP-05 E7)
@@ -960,14 +1057,14 @@ struct SendView: View {
                                             .fill(HawalaTheme.Colors.accent.opacity(0.15))
                                             .frame(width: 36, height: 36)
                                         Text(String(entry.address.suffix(2)).uppercased())
-                                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                            .font(HawalaTheme.Typography.mono)
                                             .foregroundColor(HawalaTheme.Colors.accent)
                                     }
                                     Text(truncateAddress(entry.address))
-                                        .font(.system(size: 10, design: .monospaced))
+                                        .font(HawalaTheme.Typography.monoSmall)
                                         .foregroundColor(HawalaTheme.Colors.textSecondary)
                                     Text("\(entry.count)×")
-                                        .font(.system(size: 9, weight: .medium))
+                                        .font(HawalaTheme.Typography.caption)
                                         .foregroundColor(HawalaTheme.Colors.textTertiary)
                                 }
                                 .padding(.horizontal, 8)
@@ -997,19 +1094,25 @@ struct SendView: View {
         let (_, _, _, eta) = calculateFeeDetails()
         return HStack(spacing: 8) {
             Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: 14))
-                .foregroundColor(HawalaTheme.Colors.accent)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(Color.white.opacity(0.4))
             Text("Estimated arrival")
-                .font(HawalaTheme.Typography.caption)
-                .foregroundColor(HawalaTheme.Colors.textSecondary)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(Color.white.opacity(0.4))
             Spacer()
             Text("~\(eta)")
-                .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundColor(HawalaTheme.Colors.textPrimary)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundColor(.white)
         }
-        .padding(HawalaTheme.Spacing.md)
-        .background(HawalaTheme.Colors.backgroundTertiary)
-        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.03))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+        )
     }
     
     // MARK: - Fee Expiry Warning (ROADMAP-05 E16)
@@ -1017,33 +1120,33 @@ struct SendView: View {
     private var feeExpiredWarningBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(.orange)
+                .foregroundColor(HawalaTheme.Colors.warning)
             Text("Fee estimate may have changed.")
                 .font(HawalaTheme.Typography.caption)
-                .foregroundColor(.orange)
+                .foregroundColor(HawalaTheme.Colors.warning)
             Spacer()
             Button(action: {
                 refreshFees()
             }) {
                 Text("Refresh")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(HawalaTheme.Typography.captionBold)
                     .foregroundColor(HawalaTheme.Colors.accent)
             }
             .buttonStyle(.plain)
         }
         .padding(HawalaTheme.Spacing.md)
-        .background(Color.orange.opacity(0.1))
+        .background(HawalaTheme.Colors.warning.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
     }
     
     // MARK: - Fee Section
     
     private var feeSection: some View {
-        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("NETWORK FEE")
-                    .font(HawalaTheme.Typography.label)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.4))
                     .tracking(1)
                 
                 Spacer()
@@ -1086,19 +1189,19 @@ struct SendView: View {
             if feeEstimator.isFeeSpike(forChainId: selectedChain.chainId) {
                 HStack(spacing: 8) {
                     Image(systemName: "flame.fill")
-                        .foregroundColor(.orange)
+                        .foregroundColor(HawalaTheme.Colors.warning)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Fees are unusually high")
                             .font(HawalaTheme.Typography.captionBold)
-                            .foregroundColor(.orange)
+                            .foregroundColor(HawalaTheme.Colors.warning)
                         Text("Current rates are more than 2× the recent average. Consider waiting.")
-                            .font(.system(size: 10))
+                            .font(HawalaTheme.Typography.caption)
                             .foregroundColor(HawalaTheme.Colors.textSecondary)
                     }
                     Spacer()
                 }
                 .padding(HawalaTheme.Spacing.sm)
-                .background(Color.orange.opacity(0.1))
+                .background(HawalaTheme.Colors.warning.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm, style: .continuous))
                 .accessibilityIdentifier("fee_spike_warning_banner")
             }
@@ -1218,8 +1321,8 @@ struct SendView: View {
         }
         .hawalaCard()
         .opacity(appearAnimation ? 1 : 0)
-        .offset(y: appearAnimation ? 0 : 20)
-        .animation(HawalaTheme.Animation.spring.delay(0.15), value: appearAnimation)
+        .offset(y: appearAnimation ? 0 : 12)
+        .animation(.easeOut(duration: 0.4).delay(0.15), value: appearAnimation)
     }
     
     // MARK: - Fee Warnings Section
@@ -1473,38 +1576,69 @@ struct SendView: View {
     
     private var bottomActionBar: some View {
         VStack(spacing: 0) {
-            Divider()
-                .background(HawalaTheme.Colors.border)
+            // Subtle divider matching popup
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
+                .padding(.horizontal, 24)
             
             Button(action: initiateSecurityCheckAndReview) {
-                HStack(spacing: HawalaTheme.Spacing.sm) {
+                HStack(spacing: 8) {
                     if isLoading {
                         ProgressView()
-                            .scaleEffect(0.8)
+                            .scaleEffect(0.7)
                             .tint(.white)
                     } else {
                         Image(systemName: "paperplane.fill")
+                            .font(.system(size: 14, weight: .semibold))
                     }
                     Text(isLoading ? "Sending..." : "Review Transaction")
-                        .font(HawalaTheme.Typography.h4)
+                        .font(.system(size: 14, weight: .semibold))
                 }
+                .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, HawalaTheme.Spacing.md)
-                .background(canSend ? HawalaTheme.Colors.accent : HawalaTheme.Colors.backgroundTertiary)
-                .foregroundColor(canSend ? .white : HawalaTheme.Colors.textTertiary)
-                .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+                .frame(height: 48)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(canSend
+                            ? (reviewHovered ? Color.white.opacity(0.15) : Color.white.opacity(0.10))
+                            : Color.white.opacity(0.04))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(canSend
+                            ? Color.white.opacity(reviewHovered ? 0.15 : 0.08)
+                            : Color.white.opacity(0.05), lineWidth: 1)
+                )
             }
             .buttonStyle(.plain)
             .disabled(!canSend || isLoading)
+            .opacity(canSend ? 1 : 0.4)
+            .onHover { reviewHovered = $0 }
             .accessibilityLabel(isLoading ? "Sending transaction" : "Review transaction")
             .accessibilityHint("Review and confirm transaction details before sending")
             .accessibilityIdentifier("send_review_button")
-            .padding(HawalaTheme.Spacing.lg)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
         }
-        .background(HawalaTheme.Colors.background)
     }
     
     // MARK: - Helper Functions
+    
+    /// Dismiss the send view — uses onDismiss callback (overlay mode) or Environment dismiss (sheet mode)
+    private func dismissSendView() {
+        if let onDismiss = onDismiss {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                contentOpacity = 0
+                cardScale = 0.95
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                onDismiss()
+            }
+        } else {
+            dismiss()
+        }
+    }
     
     private func pasteFromClipboard() {
         #if canImport(AppKit)
@@ -1762,8 +1896,8 @@ struct SendView: View {
             let feeRateSats = Decimal(effectiveBitcoinFeeRate)
             let estimatedSats = feeRateSats * 200 + 1000 // buffer for change output
             feeReserve = estimatedSats / Decimal(100_000_000)
-        case .ethereumSepolia, .ethereumMainnet, .polygon, .bnb:
-            // ETH: fee = gasPrice (gwei) * gasLimit → convert to ETH
+        case .ethereumSepolia, .ethereumMainnet, .polygon, .bnb, .arbitrum, .optimism, .base, .avalanche, .fantom, .gnosis, .scroll:
+            // ETH/EVM: fee = gasPrice (gwei) * gasLimit → convert to native unit
             let gasPriceVal = Decimal(string: gasPrice) ?? 20
             let gasLimitVal = Decimal(string: gasLimit) ?? 21000
             feeReserve = (gasPriceVal * gasLimitVal) / Decimal(string: "1000000000")! // gwei to ETH
@@ -1801,6 +1935,10 @@ struct SendView: View {
         case .solanaDevnet, .solanaMainnet: return "Amount in SOL (e.g., 0.1)"
         case .xrpTestnet, .xrpMainnet: return "Amount in XRP (e.g., 10)"
         case .monero: return "Amount in XMR"
+        case .arbitrum, .optimism, .base, .scroll: return "Amount in ETH"
+        case .avalanche: return "Amount in AVAX"
+        case .fantom: return "Amount in FTM"
+        case .gnosis: return "Amount in xDAI"
         }
     }
     
@@ -1814,6 +1952,10 @@ struct SendView: View {
         case .solanaDevnet, .solanaMainnet: return "SOL"
         case .xrpTestnet, .xrpMainnet: return "XRP"
         case .monero: return "XMR"
+        case .arbitrum, .optimism, .base, .scroll: return "ETH"
+        case .avalanche: return "AVAX"
+        case .fantom: return "FTM"
+        case .gnosis: return "xDAI"
         }
     }
     
@@ -1831,6 +1973,13 @@ struct SendView: View {
         case .xrpTestnet: return "XRP Testnet"
         case .xrpMainnet: return "XRP Mainnet"
         case .monero: return "Monero Stagenet"
+        case .arbitrum: return "Arbitrum One"
+        case .optimism: return "Optimism"
+        case .base: return "Base"
+        case .avalanche: return "Avalanche C-Chain"
+        case .fantom: return "Fantom Opera"
+        case .gnosis: return "Gnosis Chain"
+        case .scroll: return "Scroll"
         }
     }
     
@@ -1865,7 +2014,7 @@ struct SendView: View {
                 estimatedFeeSats: feeSats,
                 balanceLoaded: balanceLoaded
             )
-        case .ethereumSepolia, .ethereumMainnet, .polygon, .bnb:
+        case .ethereumSepolia, .ethereumMainnet, .polygon, .bnb, .arbitrum, .optimism, .base, .avalanche, .fantom, .gnosis, .scroll:
             let available: Decimal
             if let balStr = availableBalanceString, let d = Decimal(string: balStr) {
                 available = d
@@ -1987,6 +2136,13 @@ struct SendView: View {
         case .xrpTestnet: urlString = "https://testnet.xrpl.org/transactions/\(txId)"
         case .xrpMainnet: urlString = "https://xrpscan.com/tx/\(txId)"
         case .monero: urlString = "https://stagenet.xmrchain.net/search?value=\(txId)"
+        case .arbitrum: urlString = "https://arbiscan.io/tx/\(txId)"
+        case .optimism: urlString = "https://optimistic.etherscan.io/tx/\(txId)"
+        case .base: urlString = "https://basescan.org/tx/\(txId)"
+        case .avalanche: urlString = "https://snowtrace.io/tx/\(txId)"
+        case .fantom: urlString = "https://ftmscan.com/tx/\(txId)"
+        case .gnosis: urlString = "https://gnosisscan.io/tx/\(txId)"
+        case .scroll: urlString = "https://scrollscan.com/tx/\(txId)"
         }
         
         if let url = URL(string: urlString) {
@@ -2249,7 +2405,7 @@ struct SendView: View {
             let txSizeVBytes = 140
             let fee = (rate * Double(txSizeVBytes)) / 100_000_000
             return (fee, rate, "lit/vB", "~2.5 min")
-        case .ethereumSepolia, .ethereumMainnet, .polygon, .bnb:
+        case .ethereumSepolia, .ethereumMainnet, .polygon, .bnb, .arbitrum, .optimism, .base, .avalanche, .fantom, .gnosis, .scroll:
             let rate = Double(effectiveGasPrice)
             let limit = UInt64(gasLimit) ?? 21000
             let fee = (rate * Double(limit)) / 1_000_000_000
@@ -2383,7 +2539,7 @@ struct SendView: View {
     
     // ROADMAP-16 E13: Shared dismiss-after-success logic (used by save-contact prompt callbacks)
     private func finishAfterSuccess() {
-        dismiss()
+        dismissSendView()
         if let details = successTransactionDetails {
             let result = TransactionBroadcastResult(
                 txid: details.txId,
@@ -2502,6 +2658,20 @@ struct SendView: View {
                 txId = try await sendXRP(isTestnet: false)
             case .monero:
                 throw NSError(domain: "App", code: 2, userInfo: [NSLocalizedDescriptionKey: "Monero sending not yet supported"])
+            case .arbitrum:
+                (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 42161, isTestnet: false)
+            case .optimism:
+                (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 10, isTestnet: false)
+            case .base:
+                (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 8453, isTestnet: false)
+            case .avalanche:
+                (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 43114, isTestnet: false)
+            case .fantom:
+                (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 250, isTestnet: false)
+            case .gnosis:
+                (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 100, isTestnet: false)
+            case .scroll:
+                (txId, capturedFeeRate, capturedNonce) = try await sendEthereum(chainId: 534352, isTestnet: false)
             }
             
             // Success! Show confirmation sheet
@@ -2749,11 +2919,19 @@ struct SendView: View {
             let feeLits = rate * 140
             let feeLTC = Double(feeLits) / 100_000_000.0
             return (String(format: "%.8f LTC", feeLTC), "lit/vB")
-        case .ethereumSepolia, .ethereumMainnet, .polygon, .bnb:
+        case .ethereumSepolia, .ethereumMainnet, .polygon, .bnb, .arbitrum, .optimism, .base, .avalanche, .fantom, .gnosis, .scroll:
             // Gas price in Gwei, typical 21000 gas for transfer
             let feeGwei = Double(rate) * 21000.0
             let feeETH = feeGwei / 1_000_000_000.0
-            let symbol = selectedChain == .polygon ? "MATIC" : selectedChain == .bnb ? "BNB" : "ETH"
+            let symbol: String
+            switch selectedChain {
+            case .polygon: symbol = "POL"
+            case .bnb: symbol = "BNB"
+            case .avalanche: symbol = "AVAX"
+            case .fantom: symbol = "FTM"
+            case .gnosis: symbol = "xDAI"
+            default: symbol = "ETH"
+            }
             return (String(format: "%.6f \(symbol)", feeETH), "Gwei")
         case .solanaDevnet, .solanaMainnet:
             return ("0.000005 SOL", "lamports")
@@ -2769,7 +2947,7 @@ struct SendView: View {
         case .bitcoinTestnet: return keys.bitcoinTestnet.address
         case .bitcoinMainnet: return keys.bitcoin.address
         case .litecoin: return keys.litecoin.address
-        case .ethereumSepolia, .ethereumMainnet, .polygon, .bnb: return keys.ethereum.address
+        case .ethereumSepolia, .ethereumMainnet, .polygon, .bnb, .arbitrum, .optimism, .base, .avalanche, .fantom, .gnosis, .scroll: return keys.ethereum.address
         case .solanaDevnet, .solanaMainnet: return keys.solana.publicKeyBase58
         case .xrpTestnet, .xrpMainnet: return keys.xrp.classicAddress
         case .monero: return keys.monero.address
@@ -2810,6 +2988,14 @@ struct SendView: View {
             pricePerUnit = 2.50 // ~$2.50 per XRP
         case .monero:
             pricePerUnit = 200 // ~$200 per XMR
+        case .arbitrum, .optimism, .base, .scroll:
+            pricePerUnit = 3200 // ETH-based L2s
+        case .avalanche:
+            pricePerUnit = 35 // ~$35 per AVAX
+        case .fantom:
+            pricePerUnit = 0.70 // ~$0.70 per FTM
+        case .gnosis:
+            pricePerUnit = 1.0 // ~$1 per xDAI
         }
         
         return amountValue * pricePerUnit
@@ -2820,20 +3006,25 @@ struct SendView: View {
     private var loadingOverlay: some View {
         ZStack {
             Color.black.opacity(0.6)
-                .ignoresSafeArea()
             
             VStack(spacing: 16) {
                 ProgressView()
-                    .scaleEffect(1.5)
+                    .scaleEffect(1.3)
                     .tint(.white)
                 
                 Text("Processing...")
-                    .font(HawalaTheme.Typography.body)
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.white)
             }
             .padding(32)
-            .background(HawalaTheme.Colors.backgroundSecondary)
-            .cornerRadius(16)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+            )
         }
     }
 
@@ -3303,6 +3494,13 @@ struct TransactionSuccessDetails {
         case .xrpTestnet: urlString = "https://testnet.xrpl.org/transactions/\(txId)"
         case .xrpMainnet: urlString = "https://xrpscan.com/tx/\(txId)"
         case .monero: urlString = "https://stagenet.xmrchain.net/search?value=\(txId)"
+        case .arbitrum: urlString = "https://arbiscan.io/tx/\(txId)"
+        case .optimism: urlString = "https://optimistic.etherscan.io/tx/\(txId)"
+        case .base: urlString = "https://basescan.org/tx/\(txId)"
+        case .avalanche: urlString = "https://snowtrace.io/tx/\(txId)"
+        case .fantom: urlString = "https://ftmscan.com/tx/\(txId)"
+        case .gnosis: urlString = "https://gnosisscan.io/tx/\(txId)"
+        case .scroll: urlString = "https://scrollscan.com/tx/\(txId)"
         }
         return URL(string: urlString)
     }
@@ -3317,6 +3515,13 @@ struct TransactionSuccessDetails {
         case .solanaDevnet, .solanaMainnet: return "Solana Explorer"
         case .xrpTestnet, .xrpMainnet: return "XRPL Explorer"
         case .monero: return "XMRChain"
+        case .arbitrum: return "Arbiscan"
+        case .optimism: return "Optimistic Etherscan"
+        case .base: return "BaseScan"
+        case .avalanche: return "Snowtrace"
+        case .fantom: return "FtmScan"
+        case .gnosis: return "GnosisScan"
+        case .scroll: return "ScrollScan"
         }
     }
     
@@ -3325,11 +3530,18 @@ struct TransactionSuccessDetails {
         case .bitcoinTestnet, .bitcoinMainnet: return "BTC"
         case .litecoin: return "LTC"
         case .ethereumSepolia, .ethereumMainnet: return "ETH"
-        case .polygon: return "MATIC"
+        case .polygon: return "POL"
         case .bnb: return "BNB"
         case .solanaDevnet, .solanaMainnet: return "SOL"
         case .xrpTestnet, .xrpMainnet: return "XRP"
         case .monero: return "XMR"
+        case .arbitrum: return "ETH"
+        case .optimism: return "ETH"
+        case .base: return "ETH"
+        case .avalanche: return "AVAX"
+        case .fantom: return "FTM"
+        case .gnosis: return "xDAI"
+        case .scroll: return "ETH"
         }
     }
     
@@ -3347,6 +3559,13 @@ struct TransactionSuccessDetails {
         case .xrpTestnet: return "XRP Testnet"
         case .xrpMainnet: return "XRP Mainnet"
         case .monero: return "Monero Stagenet"
+        case .arbitrum: return "Arbitrum One"
+        case .optimism: return "Optimism"
+        case .base: return "Base"
+        case .avalanche: return "Avalanche C-Chain"
+        case .fantom: return "Fantom Opera"
+        case .gnosis: return "Gnosis Chain"
+        case .scroll: return "Scroll"
         }
     }
 }
@@ -3416,11 +3635,11 @@ struct TransactionSuccessView: View {
                     
                     VStack(spacing: 4) {
                         Text("Transaction Sent!")
-                            .font(.system(size: 24, weight: .bold))
+                            .font(HawalaTheme.Typography.h1)
                             .foregroundColor(HawalaTheme.Colors.textPrimary)
                         
                         Text("Your \(details.currencySymbol) is on its way")
-                            .font(.subheadline)
+                            .font(HawalaTheme.Typography.bodySmall)
                             .foregroundColor(HawalaTheme.Colors.textSecondary)
                     }
                     .opacity(showContent ? 1 : 0)
@@ -3473,7 +3692,7 @@ struct TransactionSuccessView: View {
                 // Fee
                 detailRow(
                     icon: "flame.fill",
-                    iconColor: .orange,
+                    iconColor: HawalaTheme.Colors.warning,
                     title: "Network Fee",
                     value: details.estimatedFee
                 )
@@ -3490,7 +3709,7 @@ struct TransactionSuccessView: View {
                 )
             }
             .background(HawalaTheme.Colors.backgroundSecondary)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.xl, style: .continuous))
             .padding(.horizontal, 20)
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 20)
@@ -3503,7 +3722,7 @@ struct TransactionSuccessView: View {
                 
                 HStack {
                     Text(details.txId)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(HawalaTheme.Typography.monoSmall)
                         .foregroundColor(HawalaTheme.Colors.textSecondary)
                         .lineLimit(2)
                     
@@ -3548,12 +3767,12 @@ struct TransactionSuccessView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(Color.orange.opacity(0.15))
-                            .foregroundColor(.orange)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .background(HawalaTheme.Colors.warning.opacity(0.15))
+                            .foregroundColor(HawalaTheme.Colors.warning)
+                            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                                    .stroke(HawalaTheme.Colors.warning.opacity(0.3), lineWidth: 1)
                             )
                         }
                         .buttonStyle(.plain)
@@ -3575,12 +3794,12 @@ struct TransactionSuccessView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(Color.red.opacity(0.15))
-                            .foregroundColor(.red)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .background(HawalaTheme.Colors.error.opacity(0.15))
+                            .foregroundColor(HawalaTheme.Colors.error)
+                            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(Color.red.opacity(0.3), lineWidth: 1)
+                                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
+                                    .stroke(HawalaTheme.Colors.error.opacity(0.3), lineWidth: 1)
                             )
                         }
                         .buttonStyle(.plain)
@@ -3598,31 +3817,44 @@ struct TransactionSuccessView: View {
                 Button(action: onViewExplorer) {
                     HStack(spacing: 8) {
                         Image(systemName: "arrow.up.right.square.fill")
+                            .font(.system(size: 14, weight: .semibold))
                         Text("View on \(details.explorerName)")
-                            .fontWeight(.semibold)
+                            .font(.system(size: 14, weight: .semibold))
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(HawalaTheme.Colors.accent)
                     .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.white.opacity(0.10))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                    )
                 }
                 .buttonStyle(.plain)
                 
                 // Done Button
                 Button(action: onDone) {
                     Text("Done")
-                        .fontWeight(.medium)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(HawalaTheme.Colors.backgroundSecondary)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .frame(height: 48)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color.white.opacity(0.08))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                        )
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
             .opacity(showContent ? 1 : 0)
             }
             
@@ -3632,7 +3864,24 @@ struct TransactionSuccessView: View {
                     .allowsHitTesting(false)
             }
         }
-        .background(HawalaTheme.Colors.background)
+        .frame(width: 480, height: 680)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.1), Color.white.opacity(0.03)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: Color.black.opacity(0.5), radius: 50, x: 0, y: 25)
         .sheet(isPresented: $showCancellationSheet) {
             if let keys = keys {
                 TransactionCancellationSheet(
@@ -3674,18 +3923,18 @@ struct TransactionSuccessView: View {
     ) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 16))
+                .font(HawalaTheme.Typography.body)
                 .foregroundColor(iconColor)
                 .frame(width: 24)
             
             Text(title)
-                .font(.subheadline)
+                .font(HawalaTheme.Typography.bodySmall)
                 .foregroundColor(HawalaTheme.Colors.textSecondary)
             
             Spacer()
             
             Text(value)
-                .font(isAddress ? .system(size: 13, design: .monospaced) : .subheadline)
+                .font(isAddress ? HawalaTheme.Typography.monoSmall : HawalaTheme.Typography.bodySmall)
                 .fontWeight(.medium)
                 .foregroundColor(HawalaTheme.Colors.textPrimary)
                 .lineLimit(1)
@@ -3729,30 +3978,31 @@ struct SendChainPill: View {
     let isSelected: Bool
     let action: () -> Void
     
+    @State private var isHovered: Bool = false
+    
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: chain.iconName)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                 
                 Text(chain.displayName)
-                    .font(HawalaTheme.Typography.captionBold)
+                    .font(.system(size: 12, weight: .medium))
             }
-            .padding(.horizontal, HawalaTheme.Spacing.md)
-            .padding(.vertical, HawalaTheme.Spacing.sm)
-            .background(isSelected ? chainColor.opacity(0.2) : HawalaTheme.Colors.backgroundTertiary)
-            .foregroundColor(isSelected ? chainColor : HawalaTheme.Colors.textSecondary)
-            .clipShape(Capsule())
+            .foregroundColor(isSelected ? .white : Color.white.opacity(0.4))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                Capsule()
+                    .fill(isSelected ? Color.white.opacity(0.1) : (isHovered ? Color.white.opacity(0.05) : Color.clear))
+            )
             .overlay(
                 Capsule()
-                    .strokeBorder(isSelected ? chainColor.opacity(0.5) : Color.clear, lineWidth: 1)
+                    .strokeBorder(isSelected ? Color.white.opacity(0.08) : Color.clear, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
-    }
-    
-    private var chainColor: Color {
-        HawalaTheme.Colors.forChain(chain.chainId)
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -3765,61 +4015,59 @@ struct SendFeePriorityCard: View {
     let chain: Chain
     let action: () -> Void
     
+    @State private var isHovered: Bool = false
+    
     var body: some View {
         Button(action: action) {
             VStack(spacing: 6) {
                 Image(systemName: priority.icon)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(isSelected ? priorityColor : HawalaTheme.Colors.textTertiary)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(isSelected ? .white : Color.white.opacity(0.35))
                 
                 Text(priority.rawValue)
-                    .font(HawalaTheme.Typography.captionBold)
-                    .foregroundColor(isSelected ? HawalaTheme.Colors.textPrimary : HawalaTheme.Colors.textSecondary)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(isSelected ? .white : Color.white.opacity(0.5))
                 
                 if let est = estimate {
                     Text(est.formattedFeeRate)
-                        .font(HawalaTheme.Typography.monoSmall)
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(isSelected ? .white : Color.white.opacity(0.4))
                     
                     Text(chain.isBitcoin ? "sat/vB" : "Gwei")
-                        .font(.system(size: 9))
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.3))
                     
                     // ROADMAP-17 E6: Show USD equivalent if available
                     if let fiat = est.fiatValue {
                         Text(fiat < 0.01 ? "<$0.01" : String(format: "$%.2f", fiat))
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(HawalaTheme.Colors.textSecondary)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(Color.white.opacity(0.4))
                     }
                 } else {
                     Text("--")
-                        .font(HawalaTheme.Typography.monoSmall)
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(Color.white.opacity(0.3))
                 }
                 
                 Text(chain.isBitcoin ? priority.description : priority.ethDescription)
-                    .font(.system(size: 9))
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.3))
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, HawalaTheme.Spacing.md)
-            .background(isSelected ? priorityColor.opacity(0.15) : HawalaTheme.Colors.backgroundTertiary)
-            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous))
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isSelected ? Color.white.opacity(0.1) : (isHovered ? Color.white.opacity(0.05) : Color.white.opacity(0.03)))
+            )
             .overlay(
-                RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous)
-                    .strokeBorder(isSelected ? priorityColor.opacity(0.5) : HawalaTheme.Colors.border, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(isSelected ? Color.white.opacity(0.12) : (isHovered ? Color.white.opacity(0.08) : Color.white.opacity(0.04)), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
     
-    private var priorityColor: Color {
-        switch priority {
-        case .slow: return HawalaTheme.Colors.success
-        case .average: return HawalaTheme.Colors.warning
-        case .fast: return HawalaTheme.Colors.error
-        }
-    }
 }
 
 // MARK: - Confetti View
@@ -3842,8 +4090,14 @@ struct ConfettiView: View {
     
     private func createConfetti(in size: CGSize) {
         let colors: [Color] = [
-            .green, .yellow, .orange, .red, .pink, .purple, .blue, .cyan,
-            HawalaTheme.Colors.success, HawalaTheme.Colors.accent, HawalaTheme.Colors.warning
+            HawalaTheme.Colors.accent,
+            HawalaTheme.Colors.accent.opacity(0.7),
+            HawalaTheme.Colors.success,
+            HawalaTheme.Colors.success.opacity(0.6),
+            HawalaTheme.Colors.textPrimary.opacity(0.5),
+            HawalaTheme.Colors.textSecondary.opacity(0.6),
+            HawalaTheme.Colors.textTertiary.opacity(0.4),
+            HawalaTheme.Colors.border
         ]
         
         for i in 0..<80 {

@@ -60,6 +60,8 @@ struct HawalaMainView: View {
     // Sheets
     @Binding var showSendPicker: Bool
     @Binding var showReceiveSheet: Bool
+    @Binding var sendChainContext: ChainInfo?
+    @Binding var receiveChainContext: ChainInfo?
     @Binding var showSettingsPanel: Bool
     @Binding var showStakingSheet: Bool
     @Binding var showNotificationsSheet: Bool
@@ -86,6 +88,7 @@ struct HawalaMainView: View {
     var onGenerateKeys: () -> Void
     var onRefreshBalances: () -> Void
     var onRefreshHistory: () -> Void
+    var onHandleTransactionSuccess: (TransactionBroadcastResult) -> Void = { _ in }
     var selectedFiatSymbol: String
     var fxRates: [String: Double]
     var selectedFiatCurrency: String
@@ -139,12 +142,16 @@ struct HawalaMainView: View {
         case portfolio = "Portfolio"
         case activity = "Activity"
         case discover = "Discover"
+        case buySell = "Buy & Sell"
+        case swap = "Swap"
         
         var icon: String {
             switch self {
             case .portfolio: return "chart.pie.fill"
             case .activity: return "clock.arrow.circlepath"
             case .discover: return "sparkles"
+            case .buySell: return "creditcard.fill"
+            case .swap: return "arrow.triangle.2.circlepath"
             }
         }
         
@@ -161,6 +168,8 @@ struct HawalaMainView: View {
             case .portfolio: return 0
             case .activity: return 1
             case .discover: return 2
+            case .buySell: return 3
+            case .swap: return 4
             }
         }
         
@@ -216,14 +225,17 @@ struct HawalaMainView: View {
                     isPresented: $showAssetDetailPopup,
                     onSend: {
                         showAssetDetailPopup = false
-                        // Find the chain and trigger send
+                        // Go directly to send screen for this chain
                         if let chain = keys?.chainInfos.first(where: { $0.id == assetInfo.chain.id }) {
-                            selectedChain = chain
-                            showSendPicker = true
+                            sendChainContext = chain
                         }
                     },
                     onReceive: {
                         showAssetDetailPopup = false
+                        // Go directly to receive screen pre-selected to this chain
+                        if let chain = keys?.chainInfos.first(where: { $0.id == assetInfo.chain.id }) {
+                            receiveChainContext = chain
+                        }
                         showReceiveSheet = true
                     }
                 )
@@ -232,6 +244,98 @@ struct HawalaMainView: View {
                     removal: .opacity.combined(with: .scale(scale: 0.98))
                 ))
                 .zIndex(100)
+            }
+            
+            // Send View Overlay — presented identically to AssetDetailPopup
+            if sendChainContext != nil, let keys = keys {
+                ZStack {
+                    // Dimmed backdrop — same as AssetDetailPopup
+                    Color.black.opacity(0.75)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                                sendChainContext = nil
+                            }
+                        }
+                    
+                    SendView(
+                        keys: keys,
+                        initialChain: SendFlowHelper.mapToChain(sendChainContext!.id),
+                        onSuccess: { result in
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                                sendChainContext = nil
+                            }
+                            onHandleTransactionSuccess(result)
+                        },
+                        onDismiss: {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                                sendChainContext = nil
+                            }
+                        }
+                    )
+                }
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(99)
+            }
+            
+            // Settings Overlay — presented identically to AssetDetailPopup
+            if showSettingsPanel {
+                ZStack {
+                    // Dimmed backdrop
+                    Color.black.opacity(0.75)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                                showSettingsPanel = false
+                            }
+                        }
+                    
+                    SettingsView(onDismiss: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showSettingsPanel = false
+                        }
+                    })
+                }
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(98)
+            }
+            
+            // Receive Overlay — presented identically to AssetDetailPopup
+            if showReceiveSheet, let keys = keys {
+                ZStack {
+                    // Dimmed backdrop
+                    Color.black.opacity(0.75)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                                showReceiveSheet = false
+                                receiveChainContext = nil
+                            }
+                        }
+                    
+                    ReceiveViewModern(
+                        chains: keys.chainInfos,
+                        initialChain: receiveChainContext,
+                        onCopy: { _ in },
+                        onDismiss: {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                                showReceiveSheet = false
+                                receiveChainContext = nil
+                            }
+                        }
+                    )
+                }
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(97)
             }
         }
         .coachmarkOverlay()
@@ -250,10 +354,6 @@ struct HawalaMainView: View {
                     selectedTab = tab
                 }
             }
-        }
-        .sheet(isPresented: $showSettingsPanel) {
-            SettingsView()
-                .frame(minWidth: 500, minHeight: 700)
         }
         .sheet(item: $selectedTransaction) { transaction in
             TransactionDetailSheet(transaction: transaction)
@@ -585,6 +685,10 @@ struct HawalaMainView: View {
                             activityView
                         case .discover:
                             discoverView
+                        case .buySell:
+                            buySellView
+                        case .swap:
+                            swapTabView
                         }
                     }
                     .transition(.asymmetric(
@@ -1354,6 +1458,16 @@ struct HawalaMainView: View {
     private func shortenHash(_ hash: String?) -> String? {
         guard let hash = hash, hash.count > 12 else { return hash }
         return "\(hash.prefix(6))...\(hash.suffix(4))"
+    }
+    
+    // MARK: - Swap View
+    private var swapTabView: some View {
+        SwapCryptoView(keys: keys)
+    }
+    
+    // MARK: - Buy & Sell View
+    private var buySellView: some View {
+        BuySellView(keys: keys)
     }
     
     // MARK: - Discover View

@@ -4,7 +4,10 @@ import Foundation
 enum SendFlowHelper {
     /// Chain IDs that support sending from Hawala.
     static let sendEnabledChainIDs: Set<String> = [
-        "bitcoin", "bitcoin-testnet", "litecoin", "ethereum", "ethereum-sepolia", "bnb", "solana"
+        "bitcoin", "bitcoin-testnet", "litecoin",
+        "ethereum", "ethereum-sepolia", "bnb", "solana",
+        "polygon", "xrp", "xrp-testnet",
+        "arbitrum", "optimism", "base", "avalanche", "fantom", "gnosis", "scroll"
     ]
 
     /// Map a chain-ID string to the `Chain` enum used by `SendView`.
@@ -20,6 +23,13 @@ enum SendFlowHelper {
         if chainId == "xrp-testnet" { return .xrpTestnet }
         if chainId == "xrp" || chainId == "xrp-mainnet" { return .xrpMainnet }
         if chainId == "monero" { return .monero }
+        if chainId == "arbitrum" { return .arbitrum }
+        if chainId == "optimism" { return .optimism }
+        if chainId == "base" { return .base }
+        if chainId == "avalanche" { return .avalanche }
+        if chainId == "fantom" { return .fantom }
+        if chainId == "gnosis" { return .gnosis }
+        if chainId == "scroll" { return .scroll }
         return .bitcoinTestnet
     }
 

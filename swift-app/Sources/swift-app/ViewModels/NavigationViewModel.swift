@@ -80,6 +80,9 @@ final class NavigationViewModel: ObservableObject {
     @Published var sendChainContext: ChainInfo?
     @Published var pendingSendChain: ChainInfo?
     
+    // MARK: - Receive Flow Context
+    @Published var receiveChainContext: ChainInfo?
+    
     // MARK: - Transaction Detail
     @Published var selectedTransactionForDetail: HawalaTransactionEntry?
     @Published var speedUpTransaction: PendingTransactionManager.PendingTransaction?
@@ -183,5 +186,6 @@ final class NavigationViewModel: ObservableObject {
         showAuditLogSheet = false
         sendChainContext = nil
         pendingSendChain = nil
+        receiveChainContext = nil
     }
 }

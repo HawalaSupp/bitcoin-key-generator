@@ -11,6 +11,8 @@ enum NavigationDestination: Hashable, Equatable {
     case portfolio
     case activity
     case discover
+    case buySell
+    case swapTab
     
     // Actions
     case send(chainId: String? = nil)
@@ -41,6 +43,8 @@ enum NavigationDestination: Hashable, Equatable {
         case .portfolio: return "Portfolio"
         case .activity: return "Activity"
         case .discover: return "Discover"
+        case .buySell: return "Buy & Sell"
+        case .swapTab: return "Swap"
         case .send: return "Send"
         case .receive: return "Receive"
         case .swap: return "Swap"
@@ -197,6 +201,8 @@ final class NavigationRouter: ObservableObject {
             return .receive(chainId: queryDict["chain"])
         case "swap":
             return .swap(fromChain: queryDict["from"], toChain: queryDict["to"])
+        case "buysell", "buy", "sell":
+            return .buySell
         case "settings":
             return .settings
         case "security":

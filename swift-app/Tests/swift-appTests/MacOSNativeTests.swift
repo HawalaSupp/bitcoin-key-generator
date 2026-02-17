@@ -77,9 +77,11 @@ struct MacOSNativeTests {
         let items: [(String, String)] = [
             ("Portfolio", "chart.pie.fill"),
             ("Activity", "clock.arrow.circlepath"),
-            ("Discover", "sparkles")
+            ("Discover", "sparkles"),
+            ("Buy & Sell", "creditcard.fill"),
+            ("Swap", "arrow.triangle.2.circlepath")
         ]
-        #expect(items.count == 3)
+        #expect(items.count == 5)
         for (name, icon) in items {
             #expect(!name.isEmpty)
             #expect(!icon.isEmpty)

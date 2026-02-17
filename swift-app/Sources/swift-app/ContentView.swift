@@ -180,6 +180,8 @@ struct ContentView: View {
         case portfolio = "Portfolio"
         case activity  = "Activity"
         case discover  = "Discover"
+        case buySell   = "Buy & Sell"
+        case swap      = "Swap"
 
         var id: String { rawValue }
         var icon: String {
@@ -187,6 +189,8 @@ struct ContentView: View {
             case .portfolio: return "chart.pie.fill"
             case .activity:  return "clock.arrow.circlepath"
             case .discover:  return "sparkles"
+            case .buySell:   return "creditcard.fill"
+            case .swap:      return "arrow.triangle.2.circlepath"
             }
         }
     }
@@ -200,6 +204,8 @@ struct ContentView: View {
         case .portfolio: return "Portfolio — Hawala"
         case .activity:  return "Activity — Hawala"
         case .discover:  return "Discover — Hawala"
+        case .buySell:   return "Buy & Sell — Hawala"
+        case .swap:      return "Swap — Hawala"
         case .none:      return "Hawala"
         }
     }
@@ -488,6 +494,8 @@ struct ContentView: View {
                     sparklineCache: sparklineCache,
                     showSendPicker: $navigationVM.showSendPicker,
                     showReceiveSheet: $navigationVM.showReceiveSheet,
+                    sendChainContext: $navigationVM.sendChainContext,
+                    receiveChainContext: $navigationVM.receiveChainContext,
                     showSettingsPanel: $navigationVM.showSettingsPanel,
                     showStakingSheet: $navigationVM.showStakingSheet,
                     showNotificationsSheet: $navigationVM.showNotificationsSheet,
@@ -523,6 +531,7 @@ struct ContentView: View {
                     onRefreshHistory: {
                         refreshTransactionHistory(force: true)
                     },
+                    onHandleTransactionSuccess: handleTransactionSuccess,
                     selectedFiatSymbol: selectedFiatCurrency.symbol,
                     fxRates: priceService.fxRates,
                     selectedFiatCurrency: storedFiatCurrency,
@@ -545,10 +554,11 @@ struct ContentView: View {
                     ),
                     sparklineData: sparklineCache.sparklines[chain.id] ?? [],
                     onSend: {
-                        navigationVM.pendingSendChain = chain
                         navigationVM.selectedChain = nil
+                        openSendSheet(for: chain)
                     },
                     onReceive: {
+                        navigationVM.receiveChainContext = chain
                         navigationVM.showReceiveSheet = true
                     },
                     onClose: {
