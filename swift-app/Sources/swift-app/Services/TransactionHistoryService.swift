@@ -23,6 +23,7 @@ final class TransactionHistoryService: ObservableObject {
     
     private var cachedEntries: [String: [TransactionEntry]] = [:] // chainId -> entries
     private var lastFetchTime: [String: Date] = [:]
+    private var failedChains: [String: Date] = [:] // chainId -> last failure time (for backoff)
     private let cacheDuration: TimeInterval = 120 // 2 minutes
     
     // MARK: - API Keys (optional)
@@ -53,14 +54,30 @@ final class TransactionHistoryService: ObservableObject {
                 continue
             }
             
+            // Skip chains that recently failed (back off for 60s)
+            if !force, let lastFail = failedChains[target.chainId],
+               Date().timeIntervalSince(lastFail) < 60 {
+                // Use stale cache if available
+                if let stale = cachedEntries[target.chainId] {
+                    allEntries.append(contentsOf: stale)
+                }
+                continue
+            }
+            
             do {
                 let entries = try await fetchHistory(for: target)
                 cachedEntries[target.chainId] = entries
                 lastFetchTime[target.chainId] = Date()
+                failedChains.removeValue(forKey: target.chainId)
                 allEntries.append(contentsOf: entries)
             } catch {
-                // Don't fail entirely, just note the error
+                // Record failure time for backoff
+                failedChains[target.chainId] = Date()
                 errorMessages.append("\(target.displayName): \(error.localizedDescription)")
+                // Still include stale cached data if available
+                if let stale = cachedEntries[target.chainId] {
+                    allEntries.append(contentsOf: stale)
+                }
             }
             
             // Small delay between chains to avoid rate limits
@@ -74,8 +91,12 @@ final class TransactionHistoryService: ObservableObject {
         isLoading = false
         lastUpdated = Date()
         
+        // Only surface errors when ALL chains failed and we have no data at all
         if !errorMessages.isEmpty && allEntries.isEmpty {
             error = errorMessages.first
+        } else {
+            // Clear error if we have any data — partial success is fine
+            error = nil
         }
         
         saveToDisk()
@@ -185,15 +206,98 @@ final class TransactionHistoryService: ObservableObject {
     }
     
     private func fetchLitecoinHistory(target: HistoryTarget) async throws -> [TransactionEntry] {
-        // Use Blockchair API for Litecoin
-        let urlString = "https://api.blockchair.com/litecoin/dashboards/address/\(target.address)?transaction_details=true&limit=50"
-        
-        guard let url = URL(string: urlString) else {
-            throw HistoryError.invalidURL
+        // Try BlockCypher first, then Blockchair as fallback
+        if let results = try? await fetchLitecoinFromBlockCypher(target: target), !results.isEmpty {
+            return results
         }
+        if let results = try? await fetchLitecoinFromBlockchair(target: target), !results.isEmpty {
+            return results
+        }
+        // No transactions found or both APIs failed — return empty (not an error for new addresses)
+        return []
+    }
+    
+    private func fetchLitecoinFromBlockCypher(target: HistoryTarget) async throws -> [TransactionEntry] {
+        let urlString = "https://api.blockcypher.com/v1/ltc/main/addrs/\(target.address)/full?limit=50"
+        guard let url = URL(string: urlString) else { throw HistoryError.invalidURL }
         
         let (data, response) = try await URLSession.shared.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse else { throw HistoryError.invalidResponse }
         
+        if httpResponse.statusCode == 429 { throw HistoryError.rateLimited }
+        guard httpResponse.statusCode == 200 else { throw HistoryError.httpError(httpResponse.statusCode) }
+        
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let txs = json["txs"] as? [[String: Any]] else {
+            return []
+        }
+        
+        return txs.prefix(50).compactMap { tx -> TransactionEntry? in
+            guard let hash = tx["hash"] as? String else { return nil }
+            
+            // Calculate net value for this address
+            var inputSum: Int64 = 0
+            var outputSum: Int64 = 0
+            
+            if let inputs = tx["inputs"] as? [[String: Any]] {
+                for input in inputs {
+                    if let addrs = input["addresses"] as? [String], addrs.contains(target.address),
+                       let val = input["output_value"] as? Int64 {
+                        inputSum += val
+                    }
+                }
+            }
+            if let outputs = tx["outputs"] as? [[String: Any]] {
+                for output in outputs {
+                    if let addrs = output["addresses"] as? [String], addrs.contains(target.address),
+                       let val = output["value"] as? Int64 {
+                        outputSum += val
+                    }
+                }
+            }
+            
+            let netSats = outputSum - inputSum
+            let isReceive = netSats > 0
+            let amountLTC = Double(abs(netSats)) / 100_000_000.0
+            
+            var timestamp: Date? = nil
+            if let timeStr = tx["received"] as? String ?? tx["confirmed"] as? String {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                timestamp = formatter.date(from: timeStr)
+                if timestamp == nil {
+                    formatter.formatOptions = [.withInternetDateTime]
+                    timestamp = formatter.date(from: timeStr)
+                }
+            }
+            
+            let confirmed = tx["confirmations"] as? Int ?? 0
+            let blockHeight = tx["block_height"] as? Int
+            let feeSats = tx["fees"] as? Int64
+            let feeLTC = feeSats.map { Double($0) / 100_000_000.0 }
+            
+            return TransactionEntry(
+                id: "\(target.chainId)-\(hash)",
+                chainId: target.chainId,
+                txHash: hash,
+                type: isReceive ? .receive : .send,
+                amount: amountLTC,
+                symbol: target.symbol,
+                timestamp: timestamp,
+                status: confirmed > 0 ? .confirmed : .pending,
+                confirmations: confirmed,
+                fee: feeLTC,
+                feeSymbol: target.symbol,
+                blockNumber: blockHeight
+            )
+        }
+    }
+    
+    private func fetchLitecoinFromBlockchair(target: HistoryTarget) async throws -> [TransactionEntry] {
+        let urlString = "https://api.blockchair.com/litecoin/dashboards/address/\(target.address)?transaction_details=true&limit=50"
+        guard let url = URL(string: urlString) else { throw HistoryError.invalidURL }
+        
+        let (data, response) = try await URLSession.shared.data(from: url)
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             throw HistoryError.invalidResponse
         }
