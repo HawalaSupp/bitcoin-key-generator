@@ -109,6 +109,66 @@ struct HawalaMainView: View {
     @State private var selectedAssetForDetail: AssetDetailInfo? = nil
     @State private var showAssetDetailPopup: Bool = false
     
+    // Node Management overlay
+    @State private var showNodeManagement: Bool = false
+    
+    // Network overlay
+    @State private var showNetworkOverlay: Bool = false
+    
+    // Backup overlay
+    @State private var showBackupOverlay: Bool = false
+    
+    // Tokens overlay
+    @State private var showTokensOverlay: Bool = false
+    
+    // Security Policies overlay
+    @State private var showSecurityPoliciesOverlay: Bool = false
+    
+    // L2 Aggregator overlay
+    @State private var showL2AggregatorOverlay: Bool = false
+    
+    // Payment Links overlay
+    @State private var showPaymentLinksOverlay: Bool = false
+    
+    // Transaction Notes overlay
+    @State private var showTransactionNotesOverlay: Bool = false
+    
+    // Price Alerts overlay
+    @State private var showPriceAlertsOverlay: Bool = false
+    
+    // Swap & Bridge overlay
+    @State private var showSwapBridgeOverlay: Bool = false
+    
+    // Smart Accounts overlay
+    @State private var showSmartAccountsOverlay: Bool = false
+    
+    // Gas Account overlay
+    @State private var showGasAccountOverlay: Bool = false
+    
+    // Passkey Auth overlay
+    @State private var showPasskeyAuthOverlay: Bool = false
+    
+    // Gasless Tx overlay
+    @State private var showGaslessTxOverlay: Bool = false
+    
+    // Staking overlay
+    @State private var showStakingOverlay: Bool = false
+    
+    // Multisig overlay
+    @State private var showMultisigOverlay: Bool = false
+    
+    // Hardware Wallet overlay
+    @State private var showHardwareWalletOverlay: Bool = false
+    
+    // WalletConnect overlay
+    @State private var showWalletConnectOverlay: Bool = false
+    
+    // Security overlay
+    @State private var showSecurityOverlay: Bool = false
+    
+    // Privacy overlay
+    @State private var showPrivacyOverlay: Bool = false
+    
     // Chains that support sending
     private let sendEnabledChainIDs: Set<String> = [
         "bitcoin", "bitcoin-testnet", "litecoin", "ethereum", "ethereum-sepolia", "bnb", "solana"
@@ -297,6 +357,48 @@ struct HawalaMainView: View {
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                             showSettingsPanel = false
                         }
+                    }, onOpenSecurity: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showSettingsPanel = false
+                        }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showSecurityOverlay = true
+                        }
+                    }, onOpenPrivacy: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showSettingsPanel = false
+                        }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showPrivacyOverlay = true
+                        }
+                    }, onOpenNetwork: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showSettingsPanel = false
+                        }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showNetworkOverlay = true
+                        }
+                    }, onOpenBackup: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showSettingsPanel = false
+                        }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showBackupOverlay = true
+                        }
+                    }, onOpenTokens: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showSettingsPanel = false
+                        }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showTokensOverlay = true
+                        }
+                    }, onOpenSecurityPolicies: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showSettingsPanel = false
+                        }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showSecurityPoliciesOverlay = true
+                        }
                     })
                 }
                 .transition(.asymmetric(
@@ -304,6 +406,262 @@ struct HawalaMainView: View {
                     removal: .opacity.combined(with: .scale(scale: 0.98))
                 ))
                 .zIndex(98)
+            }
+            
+            // Node Management Overlay (legacy)
+            if showNodeManagement {
+                ZStack {
+                    Color.black.opacity(0.75)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                                showNodeManagement = false
+                            }
+                        }
+                    
+                    NodeManagementView(onDismiss: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showNodeManagement = false
+                        }
+                    })
+                }
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(96)
+            }
+            
+            // Network Overlay
+            if showNetworkOverlay {
+                NetworkOverlay(
+                    isPresented: $showNetworkOverlay
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(80)
+            }
+            
+            // Backup Overlay
+            if showBackupOverlay {
+                BackupOverlay(
+                    isPresented: $showBackupOverlay
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(79)
+            }
+            
+            // Tokens Overlay
+            if showTokensOverlay {
+                TokensOverlay(
+                    isPresented: $showTokensOverlay
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(78)
+            }
+            
+            // Security Policies Overlay
+            if showSecurityPoliciesOverlay {
+                SecurityPoliciesOverlay(
+                    isPresented: $showSecurityPoliciesOverlay
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(77)
+            }
+            
+            // L2 Aggregator Overlay
+            if showL2AggregatorOverlay {
+                L2AggregatorOverlay(
+                    isPresented: $showL2AggregatorOverlay,
+                    address: keys?.chainInfos.first(where: { $0.id == "ethereum" })?.receiveAddress ?? ""
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(95)
+            }
+            
+            // Payment Links Overlay
+            if showPaymentLinksOverlay {
+                PaymentLinksOverlay(
+                    isPresented: $showPaymentLinksOverlay,
+                    receiveAddress: keys?.chainInfos.first(where: { $0.id == "bitcoin" })?.receiveAddress ?? ""
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(94)
+            }
+            
+            // Transaction Notes Overlay
+            if showTransactionNotesOverlay {
+                TransactionNotesOverlay(
+                    isPresented: $showTransactionNotesOverlay,
+                    transactions: historyEntries
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(93)
+            }
+            
+            // Price Alerts Overlay
+            if showPriceAlertsOverlay {
+                PriceAlertsOverlay(
+                    isPresented: $showPriceAlertsOverlay
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(92)
+            }
+            
+            // Swap & Bridge Overlay
+            if showSwapBridgeOverlay {
+                SwapBridgeOverlay(
+                    isPresented: $showSwapBridgeOverlay,
+                    keys: keys
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(91)
+            }
+            
+            // Smart Accounts Overlay
+            if showSmartAccountsOverlay {
+                SmartAccountsOverlay(
+                    isPresented: $showSmartAccountsOverlay
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(90)
+            }
+            
+            // Gas Account Overlay
+            if showGasAccountOverlay {
+                GasAccountOverlay(
+                    isPresented: $showGasAccountOverlay
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(89)
+            }
+            
+            // Passkey Auth Overlay
+            if showPasskeyAuthOverlay {
+                PasskeyAuthOverlay(
+                    isPresented: $showPasskeyAuthOverlay
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(88)
+            }
+            
+            // Gasless Tx Overlay
+            if showGaslessTxOverlay {
+                GaslessTxOverlay(
+                    isPresented: $showGaslessTxOverlay
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(87)
+            }
+            
+            // Staking Overlay
+            if showStakingOverlay {
+                StakingOverlay(
+                    isPresented: $showStakingOverlay
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(86)
+            }
+            
+            // Multisig Overlay
+            if showMultisigOverlay {
+                MultisigOverlay(
+                    isPresented: $showMultisigOverlay
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(85)
+            }
+            
+            // Hardware Wallet Overlay
+            if showHardwareWalletOverlay {
+                HardwareWalletOverlay(
+                    isPresented: $showHardwareWalletOverlay
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(84)
+            }
+            
+            // WalletConnect Overlay
+            if showWalletConnectOverlay {
+                WalletConnectOverlay(
+                    isPresented: $showWalletConnectOverlay
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(83)
+            }
+            
+            // Security Overlay
+            if showSecurityOverlay {
+                SecurityOverlay(
+                    isPresented: $showSecurityOverlay
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(82)
+            }
+            
+            // Privacy Overlay
+            if showPrivacyOverlay {
+                PrivacyOverlay(
+                    isPresented: $showPrivacyOverlay
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(81)
             }
             
             // Receive Overlay — presented identically to AssetDetailPopup
@@ -341,6 +699,16 @@ struct HawalaMainView: View {
         .coachmarkOverlay()
         .ignoresSafeArea() // Ignore safe area to push content to very top
         .preferredColorScheme(.dark)
+        .onReceive(NotificationCenter.default.publisher(for: .openNodeManagement)) { _ in
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                showSettingsPanel = false
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    showNodeManagement = true
+                }
+            }
+        }
         .onAppear {
             // Show first-launch coachmarks after a short delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -358,17 +726,7 @@ struct HawalaMainView: View {
         .sheet(item: $selectedTransaction) { transaction in
             TransactionDetailSheet(transaction: transaction)
         }
-        .sheet(isPresented: $showSwapBridgeSheet) {
-            NavigationStack {
-                SwapBridgeView(keys: keys)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Close") { showSwapBridgeSheet = false }
-                        }
-                    }
-            }
-            .frame(minWidth: 600, minHeight: 700)
-        }
+
     }
     
     // MARK: - First Launch Coachmarks
@@ -1498,7 +1856,11 @@ struct HawalaMainView: View {
                             description: "View balances across L1 and L2 chains in one place",
                             color: HawalaTheme.Colors.ethereum,
                             size: .tall
-                        ) { showL2AggregatorSheet = true }
+                        ) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                showL2AggregatorOverlay = true
+                            }
+                        }
                         
                         // Stacked pair
                         VStack(spacing: HawalaTheme.Spacing.md) {
@@ -1508,7 +1870,11 @@ struct HawalaMainView: View {
                                 description: "Create & share requests",
                                 color: HawalaTheme.Colors.accent,
                                 size: .compact
-                            ) { showPaymentLinksSheet = true }
+                            ) {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                    showPaymentLinksOverlay = true
+                                }
+                            }
                             
                             DiscoverBentoCard(
                                 icon: "note.text",
@@ -1516,7 +1882,11 @@ struct HawalaMainView: View {
                                 description: "Add notes and tags",
                                 color: HawalaTheme.Colors.info,
                                 size: .compact
-                            ) { showTransactionNotesSheet = true }
+                            ) {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                    showTransactionNotesOverlay = true
+                                }
+                            }
                         }
                         
                         // Stacked pair
@@ -1535,7 +1905,11 @@ struct HawalaMainView: View {
                                 description: "Track price moves",
                                 color: HawalaTheme.Colors.warning,
                                 size: .compact
-                            ) { showPriceAlertsSheet = true }
+                            ) {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                    showPriceAlertsOverlay = true
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal, HawalaTheme.Spacing.xl)
@@ -1547,7 +1921,11 @@ struct HawalaMainView: View {
                         description: "Swap tokens and bridge assets across chains instantly",
                         color: .purple,
                         size: .wide
-                    ) { showSwapBridgeSheet = true }
+                    ) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showSwapBridgeOverlay = true
+                        }
+                    }
                     .padding(.horizontal, HawalaTheme.Spacing.xl)
                 }
                 
@@ -1568,7 +1946,11 @@ struct HawalaMainView: View {
                             description: "ERC-4337 account abstraction with gas sponsorship",
                             color: HawalaTheme.Colors.accent,
                             size: .standard
-                        ) { showSmartAccountSheet = true }
+                        ) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                showSmartAccountsOverlay = true
+                            }
+                        }
                         
                         DiscoverBentoCard(
                             icon: "fuelpump.circle.fill",
@@ -1576,7 +1958,11 @@ struct HawalaMainView: View {
                             description: "Unified gas balance across all chains",
                             color: .orange,
                             size: .standard
-                        ) { showGasAccountSheet = true }
+                        ) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                showGasAccountOverlay = true
+                            }
+                        }
                         
                         DiscoverBentoCard(
                             icon: "faceid",
@@ -1584,7 +1970,11 @@ struct HawalaMainView: View {
                             description: "Sign transactions with Face ID",
                             color: HawalaTheme.Colors.accent,
                             size: .standard
-                        ) { showPasskeyAuthSheet = true }
+                        ) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                showPasskeyAuthOverlay = true
+                            }
+                        }
                         
                         DiscoverBentoCard(
                             icon: "checkmark.seal.fill",
@@ -1592,7 +1982,11 @@ struct HawalaMainView: View {
                             description: "Sponsored transactions via paymaster",
                             color: HawalaTheme.Colors.success,
                             size: .standard
-                        ) { showGaslessTxSheet = true }
+                        ) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                showGaslessTxOverlay = true
+                            }
+                        }
                     }
                     .padding(.horizontal, HawalaTheme.Spacing.xl)
                 }
@@ -1616,7 +2010,11 @@ struct HawalaMainView: View {
                             description: "Earn rewards",
                             color: HawalaTheme.Colors.accent,
                             size: .compact
-                        ) { showStakingSheet = true }
+                        ) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                showStakingOverlay = true
+                            }
+                        }
                         
                         DiscoverBentoCard(
                             icon: "person.3.fill",
@@ -1624,7 +2022,11 @@ struct HawalaMainView: View {
                             description: "Multi-signature",
                             color: HawalaTheme.Colors.info,
                             size: .compact
-                        ) { /* showMultisigSheet = true */ }
+                        ) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                showMultisigOverlay = true
+                            }
+                        }
                         
                         DiscoverBentoCard(
                             icon: "cpu",
@@ -1632,7 +2034,11 @@ struct HawalaMainView: View {
                             description: "Ledger & Trezor",
                             color: HawalaTheme.Colors.success,
                             size: .compact
-                        ) { showHardwareWalletSheet = true }
+                        ) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                showHardwareWalletOverlay = true
+                            }
+                        }
                         
                         DiscoverBentoCard(
                             icon: "link.circle.fill",
@@ -1640,7 +2046,7 @@ struct HawalaMainView: View {
                             description: "Connect to dApps",
                             color: HawalaTheme.Colors.info,
                             size: .compact
-                        ) { showWalletConnectSheet = true }
+                        ) { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { showWalletConnectOverlay = true } }
                     }
                     .padding(.horizontal, HawalaTheme.Spacing.xl)
                 }

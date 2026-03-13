@@ -6,6 +6,12 @@ import AppKit
 // MARK: - Settings View
 struct SettingsView: View {
     var onDismiss: (() -> Void)? = nil
+    var onOpenSecurity: (() -> Void)? = nil
+    var onOpenPrivacy: (() -> Void)? = nil
+    var onOpenNetwork: (() -> Void)? = nil
+    var onOpenBackup: (() -> Void)? = nil
+    var onOpenTokens: (() -> Void)? = nil
+    var onOpenSecurityPolicies: (() -> Void)? = nil
     @Environment(\.dismiss) private var envDismiss
     @ObservedObject var passcodeManager = PasscodeManager.shared
     @ObservedObject var themeManager = ThemeManager.shared
@@ -403,11 +409,7 @@ struct SettingsView: View {
                     accentColor: .white
                 ) {
                     triggerHaptic()
-                    if passcodeManager.hasPasscode {
-                        showChangePasscode = true
-                    } else {
-                        showSetPasscode = true
-                    }
+                    onOpenSecurity?()
                 }
                 
                 SettingsGridCard(
@@ -417,7 +419,11 @@ struct SettingsView: View {
                     accentColor: .white
                 ) {
                     triggerHaptic()
-                    showPrivacySettings = true
+                    if let onOpenPrivacy = onOpenPrivacy {
+                        onOpenPrivacy()
+                    } else {
+                        showPrivacySettings = true
+                    }
                 }
             }
             
@@ -430,7 +436,11 @@ struct SettingsView: View {
                     accentColor: .white
                 ) {
                     triggerHaptic()
-                    showProviderSettings = true
+                    if let onOpenNetwork = onOpenNetwork {
+                        onOpenNetwork()
+                    } else {
+                        showProviderSettings = true
+                    }
                 }
                 
                 SettingsGridCard(
@@ -453,7 +463,11 @@ struct SettingsView: View {
                     accentColor: .white
                 ) {
                     triggerHaptic()
-                    showBackupSheet = true
+                    if let onOpenBackup {
+                        onOpenBackup()
+                    } else {
+                        showBackupSheet = true
+                    }
                 }
                 
                 SettingsGridCard(
@@ -463,7 +477,11 @@ struct SettingsView: View {
                     accentColor: .white
                 ) {
                     triggerHaptic()
-                    showCustomTokensSheet = true
+                    if let onOpenTokens {
+                        onOpenTokens()
+                    } else {
+                        showCustomTokensSheet = true
+                    }
                 }
             }
             
@@ -477,7 +495,11 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             SettingsListRow(icon: "shield.checkered", title: "Security Policies") {
                 triggerHaptic()
-                showSecurityPolicies = true
+                if let onOpenSecurityPolicies {
+                    onOpenSecurityPolicies()
+                } else {
+                    showSecurityPolicies = true
+                }
             }
             
             Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
@@ -520,6 +542,13 @@ struct SettingsView: View {
             SettingsListRow(icon: "network", title: "Network Settings") {
                 triggerHaptic()
                 showNetworkSettingsSheet = true
+            }
+            
+            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
+            
+            SettingsListRow(icon: "server.rack", title: "Node Management") {
+                triggerHaptic()
+                NotificationCenter.default.post(name: .openNodeManagement, object: nil)
             }
             
             Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)

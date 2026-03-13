@@ -26,6 +26,17 @@ final class TransactionHistoryService: ObservableObject {
     private var failedChains: [String: Date] = [:] // chainId -> last failure time (for backoff)
     private let cacheDuration: TimeInterval = 120 // 2 minutes
     
+    // MARK: - Networking
+    
+    /// Dedicated session with short timeouts — prevents one slow API from blocking all chains
+    private lazy var historySession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 10   // 10s per request
+        config.timeoutIntervalForResource = 15  // 15s total per resource
+        config.waitsForConnectivity = false
+        return URLSession(configuration: config)
+    }()
+    
     // MARK: - API Keys (optional)
     
     var etherscanAPIKey: String?
@@ -136,7 +147,7 @@ final class TransactionHistoryService: ObservableObject {
             throw HistoryError.invalidURL
         }
         
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await historySession.data(from: url)
         
         guard let httpResponse = response as? HTTPURLResponse else {
             throw HistoryError.invalidResponse
@@ -221,7 +232,7 @@ final class TransactionHistoryService: ObservableObject {
         let urlString = "https://api.blockcypher.com/v1/ltc/main/addrs/\(target.address)/full?limit=50"
         guard let url = URL(string: urlString) else { throw HistoryError.invalidURL }
         
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await historySession.data(from: url)
         guard let httpResponse = response as? HTTPURLResponse else { throw HistoryError.invalidResponse }
         
         if httpResponse.statusCode == 429 { throw HistoryError.rateLimited }
@@ -297,7 +308,7 @@ final class TransactionHistoryService: ObservableObject {
         let urlString = "https://api.blockchair.com/litecoin/dashboards/address/\(target.address)?transaction_details=true&limit=50"
         guard let url = URL(string: urlString) else { throw HistoryError.invalidURL }
         
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await historySession.data(from: url)
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             throw HistoryError.invalidResponse
         }
@@ -365,7 +376,7 @@ final class TransactionHistoryService: ObservableObject {
             throw HistoryError.invalidURL
         }
         
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let (data, _) = try await historySession.data(from: url)
         
         // Parse response - handle both array and error string responses
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -448,7 +459,7 @@ final class TransactionHistoryService: ObservableObject {
             throw HistoryError.invalidURL
         }
         
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let (data, _) = try await historySession.data(from: url)
         
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let results = json["result"] as? [[String: Any]] else {
@@ -519,7 +530,7 @@ final class TransactionHistoryService: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
         
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, _) = try await historySession.data(for: request)
         
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let results = json["result"] as? [[String: Any]] else {
@@ -574,7 +585,7 @@ final class TransactionHistoryService: ObservableObject {
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await historySession.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
             throw HistoryError.invalidResponse

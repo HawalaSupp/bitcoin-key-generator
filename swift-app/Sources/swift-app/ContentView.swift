@@ -1188,11 +1188,12 @@ struct ContentView: View {
             let entries = await transactionHistoryService.fetchAllHistoryAsHawala(targets: targets, force: force)
             
             await MainActor.run {
+                // Always clear loading state — even if cancelled — to prevent stuck spinner
+                self.isHistoryLoading = false
+                self.historyFetchTask = nil
                 guard !Task.isCancelled else { return }
                 self.historyEntries = entries
-                self.isHistoryLoading = false
                 self.historyError = transactionHistoryService.error
-                self.historyFetchTask = nil
                 #if DEBUG
                 print("📜 History fetch complete: \(entries.count) total transactions")
                 #endif
