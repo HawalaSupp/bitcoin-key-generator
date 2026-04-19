@@ -91,7 +91,6 @@ rust-app/src/bridge/
 **Completed Tasks:**
 - [x] Implement Wormhole bridge API client
   - Token bridge for EVM ↔ Solana
-  - NFT bridge support
   - VAA (Verified Action Approval) tracking
 - [x] Implement LayerZero bridge API client
   - OFT (Omnichain Fungible Token) transfers
@@ -333,27 +332,14 @@ swift-app/Sources/swift-app/Lightning/
 - [ ] Add QR scanner for lightning: URIs
 - [ ] (Future) LDK node integration
 
-### 7.3 Ordinals/BRC-20 Display
-**Files to create:**
-```
-rust-app/src/ordinals/
-├── mod.rs
-├── types.rs          # Inscription, BRC20Token
-├── indexer.rs        # Ordinals API client
-└── parser.rs         # Inscription content parsing
+### 7.3 Bitcoin Extended Asset Display (Deferred)
+**Status:** Deferred out of launch scope
 
-swift-app/Sources/swift-app/Views/Ordinals/
-├── OrdinalsGalleryView.swift
-├── InscriptionDetailView.swift
-└── BRC20TokenView.swift
-```
-
-**Tasks:**
-- [ ] Integrate Ordinals indexer API (Hiro, OrdAPI)
-- [ ] Fetch inscriptions for address
-- [ ] Display inscription content (image, text, HTML)
-- [ ] Parse BRC-20 token balances
-- [ ] Show inscription number and satoshi location
+**Focus instead:**
+- core Bitcoin balances
+- send and receive reliability
+- transaction history correctness
+- fee estimation and safety
 
 ---
 
@@ -438,7 +424,7 @@ swift-app/Sources/swift-app/Services/AutoCompoundService.swift
 | Fiat On-Ramp | High | Small | P2 |
 | CPFP | Low | Small | P3 |
 | Lightning Network | Medium | Large | P3 |
-| Ordinals/BRC-20 | Medium | Medium | P3 |
+| Bitcoin Extended Assets (Deferred) | Medium | Medium | Deferred |
 | Lido Staking | Medium | Small | P3 |
 | XRP Escrow | Low | Small | P4 |
 | Social Recovery | Medium | Large | P4 |
@@ -485,7 +471,7 @@ Each phase requires:
 | CoinGecko | Price charts | Free (rate limited) |
 | MoonPay | Fiat on-ramp | Partner agreement |
 | Transak | Fiat on-ramp | Partner agreement |
-| Hiro/OrdAPI | Ordinals indexing | Free |
+| Bitcoin extended-asset indexer | Deferred | N/A |
 | Infura/Alchemy | Enhanced RPC | Paid |
 
 ---
@@ -527,7 +513,6 @@ rust-app/src/
 ├── ibc/           # Phase 3
 ├── abi/           # Phase 4
 ├── lightning/     # Phase 6
-├── ordinals/      # Phase 6
 └── recovery/      # Phase 7
 ```
 
@@ -539,6 +524,5 @@ swift-app/Sources/swift-app/
 ├── Views/Contract/# Phase 4
 ├── Views/Charts/  # Phase 5
 ├── Lightning/     # Phase 6
-├── Views/Ordinals/# Phase 6
 └── Views/Recovery/# Phase 7
 ```

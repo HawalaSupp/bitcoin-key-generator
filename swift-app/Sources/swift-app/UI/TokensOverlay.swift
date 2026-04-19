@@ -5,85 +5,53 @@ import AppKit
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // MARK: – Tokens Overlay
-// Token curation command center.
-// Collection tiles, drag-reorder, hold-to-hide,
-// contract address scanning animation,
-// spam filter with geometric strike, metadata materialization.
-// Monochrome. Monumental. Curated.
+// Token curation command center — fully wired to CustomTokenManager.
+// No mock data. Every feature functional.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-// MARK: - Token Display Model
-
-struct TkDisplayToken: Identifiable, Equatable {
-    let id: UUID
-    let name: String
-    let symbol: String
-    let contractAddress: String
-    let chain: String          // "Ethereum", "Solana", "BNB Chain"
-    let chainIcon: String      // SF symbol
-    let decimals: Int
-    let balance: Double
-    let usdValue: Double
-    var isVisible: Bool
-    var isSpam: Bool
-    var isCustom: Bool
-    var sortOrder: Int
-
-    static func == (lhs: TkDisplayToken, rhs: TkDisplayToken) -> Bool {
-        lhs.id == rhs.id
-    }
-}
-
-// MARK: - Token List Source
-
-struct TkTokenList: Identifiable {
-    let id = UUID()
-    let name: String
-    let source: String
-    let tokenCount: Int
-    var isImported: Bool
-    let icon: String
-}
 
 struct TokensOverlay: View {
     @Binding var isPresented: Bool
+    var onBackToSettings: (() -> Void)? = nil
+
+    // ── Services ──
+    @StateObject private var tokenManager = CustomTokenManager.shared
 
     // ── Section nav ──
     @State private var activeSection: TkSection = .collection
 
     enum TkSection: String, CaseIterable {
-        case collection  = "COLLECTION"
-        case add         = "ADD TOKEN"
-        case lists       = "LISTS"
-        case spam        = "SPAM"
-        case settings    = "SETTINGS"
+        case collection = "COLLECTION"
+        case add        = "ADD TOKEN"
+        case lists      = "LISTS"
+        case spam       = "SPAM"
+        case settings   = "SETTINGS"
     }
 
-    // ── Token collection ──
-    @State private var tokens: [TkDisplayToken] = []
+    // ── Collection ──
     @State private var searchText: String = ""
-    @State private var showHiddenTokens: Bool = false
-    @State private var draggedToken: TkDisplayToken? = nil
+    @State private var selectedToken: CustomToken? = nil
 
-    // ── Add custom token ──
+    // ── Add token ──
     @State private var addAddress: String = ""
-    @State private var addChain: String = "Ethereum"
+    @State private var addChain: TokenChain = .ethereum
     @State private var addScanning: Bool = false
-    @State private var addScanProgress: CGFloat = 0
-    @State private var addFound: Bool = false
-    @State private var addError: Bool = false
-    @State private var addPreviewToken: TkDisplayToken? = nil
+    @State private var addError: String? = nil
+    @State private var addPreview: CustomToken? = nil
+    @State private var addManual: Bool = false
+    @State private var addManualSymbol: String = ""
+    @State private var addManualName: String = ""
+    @State private var addManualDecimals: String = "18"
 
-    // ── Token lists ──
-    @State private var tokenLists: [TkTokenList] = []
-    @State private var importURL: String = ""
+    // ── Spam ──
+    @AppStorage("hawala.tokens.flaggedSpam") private var flaggedSpamData: Data = Data()
+    @State private var flaggedSpamIds: Set<String> = []
+    @AppStorage("hawala.tokens.autoHideSpam") private var autoHideSpam: Bool = true
 
-    // ── Spam filter ──
-    @State private var autoHideSpam: Bool = true
-    @State private var showSpamWarning: Bool = true
-
-    // ── Token detail ──
-    @State private var selectedToken: TkDisplayToken? = nil
+    // ── Settings ──
+    @AppStorage("hawala.tokens.showChainBadges") private var showChainBadges: Bool = true
+    @AppStorage("hawala.tokens.showContracts") private var showContracts: Bool = false
+    @AppStorage("hawala.tokens.compactView") private var compactView: Bool = false
+    @State private var showClearConfirm: Bool = false
 
     // ── Animation ──
     @State private var contentOpacity: Double = 0
@@ -92,6 +60,7 @@ struct TokensOverlay: View {
 
     // ── Hover ──
     @State private var closeHovered: Bool = false
+    @State private var backHovered: Bool = false
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // MARK: – Body
@@ -99,51 +68,58 @@ struct TokensOverlay: View {
 
     var body: some View {
         ZStack {
-            // Backdrop
-            Color.black.opacity(0.75)
-                .ignoresSafeArea()
-                .onTapGesture { dismissOverlay() }
-
-            // Detail sub-overlay
-            if selectedToken != nil {
-                tokenDetailSheet
-            } else {
-                mainCard
+            backdrop
+            cardShell
+            if let token = selectedToken {
+                TkTokenDetailCard(
+                    token: token,
+                    onDismiss: { selectedToken = nil },
+                    onRemove: {
+                        tokenManager.removeToken(token)
+                        selectedToken = nil
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(10)
             }
         }
         .background(
             EscapeKeyHandler(isPresented: $isPresented, onEscape: dismissOverlay)
         )
         .onAppear {
-            loadMockData()
             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                 cardScale = 1; contentOpacity = 1
             }
-            withAnimation(.linear(duration: 6.0).repeatForever(autoreverses: false)) {
-                silkPhase = 1.5
-            }
+            startAnimations()
+            loadFlaggedSpam()
         }
     }
 
+    private var backdrop: some View {
+        Color.black.opacity(0.75)
+            .ignoresSafeArea()
+            .onTapGesture { dismissOverlay() }
+    }
+
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Main Card
+    // MARK: – Card
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    private var mainCard: some View {
+    private var cardShell: some View {
         VStack(spacing: 0) {
-            tkHeader
-            tkSectionPicker
-            tkSectionContent
+            headerBar
+            sectionPicker
+            sectionContent
         }
         .frame(width: 460, height: 680)
-        .background(tkCardBg)
-        .overlay(tkCardStroke)
+        .background(cardBg)
+        .overlay(cardStroke)
         .shadow(color: .black.opacity(0.5), radius: 50, y: 25)
         .scaleEffect(cardScale)
         .opacity(contentOpacity)
     }
 
-    private var tkCardBg: some View {
+    private var cardBg: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 20)
                 .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
@@ -158,7 +134,7 @@ struct TokensOverlay: View {
         }
     }
 
-    private var tkCardStroke: some View {
+    private var cardStroke: some View {
         RoundedRectangle(cornerRadius: 20)
             .strokeBorder(
                 LinearGradient(
@@ -172,19 +148,41 @@ struct TokensOverlay: View {
     // MARK: – Header
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    private var tkHeader: some View {
+    private var headerBar: some View {
         ZStack {
             Text("TOKENS")
-                .font(.clashGroteskMedium(size: 14))
+                .font(.clashGroteskMedium(size: 15))
                 .tracking(3)
-                .foregroundColor(.white.opacity(0.5))
+                .foregroundColor(.white.opacity(0.6))
+
             HStack {
+                if onBackToSettings != nil {
+                    Button {
+                        dismissOverlay()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            onBackToSettings?()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text("SETTINGS")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .tracking(0.5)
+                        }
+                        .foregroundColor(.white.opacity(backHovered ? 0.7 : 0.35))
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { backHovered = $0 }
+                }
+
                 Spacer()
+
                 Button(action: dismissOverlay) {
                     Image(systemName: "xmark")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.white.opacity(closeHovered ? 0.9 : 0.4))
-                        .frame(width: 28, height: 28)
+                        .foregroundColor(.white.opacity(closeHovered ? 0.9 : 0.45))
+                        .frame(width: 30, height: 30)
                         .background(Circle().fill(.white.opacity(closeHovered ? 0.12 : 0.06)))
                 }
                 .buttonStyle(.plain)
@@ -200,14 +198,14 @@ struct TokensOverlay: View {
     // MARK: – Section Picker
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    private var tkSectionPicker: some View {
+    private var sectionPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
                 ForEach(TkSection.allCases, id: \.self) { sec in
                     tkTabButton(sec)
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 16)
         }
         .padding(.bottom, 8)
     }
@@ -221,11 +219,11 @@ struct TokensOverlay: View {
                 Text(sec.rawValue)
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .tracking(1)
-                    .foregroundColor(.white.opacity(selected ? 0.8 : 0.3))
+                    .foregroundColor(.white.opacity(selected ? 0.85 : 0.35))
                     .padding(.horizontal, 8)
                 RoundedRectangle(cornerRadius: 1)
-                    .fill(.white.opacity(selected ? 0.4 : 0))
-                    .frame(height: 1.5)
+                    .fill(.white.opacity(selected ? 0.5 : 0))
+                    .frame(height: 2)
             }
             .padding(.vertical, 6)
         }
@@ -233,678 +231,675 @@ struct TokensOverlay: View {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Section Router
+    // MARK: – Section Content
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    private var tkSectionContent: some View {
+    private var sectionContent: some View {
         ScrollView(.vertical, showsIndicators: false) {
             Group {
                 switch activeSection {
                 case .collection: collectionContent
-                case .add:        addTokenContent
-                case .lists:      listsContent
-                case .spam:       spamContent
-                case .settings:   settingsContent
+                case .add: addTokenContent
+                case .lists: listsContent
+                case .spam: spamContent
+                case .settings: settingsContent
                 }
             }
-            .padding(.horizontal, 28)
+            .padding(.horizontal, 24)
             .padding(.top, 4)
-            .padding(.bottom, 28)
+            .padding(.bottom, 24)
         }
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Collection
+    // MARK: – COLLECTION
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    private var filteredTokens: [CustomToken] {
+        let base = autoHideSpam
+            ? tokenManager.tokens.filter { !flaggedSpamIds.contains($0.contractAddress.lowercased()) }
+            : tokenManager.tokens
+        if searchText.isEmpty { return base }
+        let q = searchText.lowercased()
+        return base.filter {
+            $0.name.lowercased().contains(q) ||
+            $0.symbol.lowercased().contains(q) ||
+            $0.contractAddress.lowercased().contains(q)
+        }
+    }
 
     private var collectionContent: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 16) {
             // Search bar
-            searchBar
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.20))
 
-            // Stats row
-            collectionStats
+                TextField("Search tokens...", text: $searchText)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.60))
+                    .textFieldStyle(.plain)
 
-            // Visible tokens
-            tkSectionLabel("VISIBLE TOKENS")
-            visibleTokensList
+                if !searchText.isEmpty {
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.20))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.06)))
+            )
 
-            // Hidden tokens
-            hiddenTokensSection
+            // Stats
+            HStack(spacing: 12) {
+                tkStatPill(label: "TOTAL", value: "\(tokenManager.tokens.count)")
+                tkStatPill(label: "ERC-20", value: "\(tokenManager.getTokens(for: .ethereum).count)")
+                tkStatPill(label: "BEP-20", value: "\(tokenManager.getTokens(for: .bsc).count)")
+                tkStatPill(label: "SPL", value: "\(tokenManager.getTokens(for: .solana).count)")
+                Spacer()
+            }
+
+            // Token list or empty state
+            if tokenManager.tokens.isEmpty {
+                collectionEmptyState
+            } else if filteredTokens.isEmpty {
+                noSearchResults
+            } else {
+                VStack(spacing: 2) {
+                    ForEach(filteredTokens) { token in
+                        tkTokenRow(token)
+                    }
+                }
+                .background(tkCardBg)
+            }
         }
     }
 
-    private var searchBar: some View {
-        HStack(spacing: 8) {
+    private var collectionEmptyState: some View {
+        VStack(spacing: 14) {
+            Spacer().frame(height: 30)
+            Image(systemName: "circle.hexagongrid")
+                .font(.system(size: 28))
+                .foregroundColor(.white.opacity(0.10))
+            Text("NO CUSTOM TOKENS")
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .tracking(1)
+                .foregroundColor(.white.opacity(0.25))
+            Text("Add ERC-20, BEP-20, or SPL tokens\nvia the ADD TOKEN tab")
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.white.opacity(0.18))
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { activeSection = .add }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 10))
+                    Text("ADD YOUR FIRST TOKEN")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .tracking(0.5)
+                }
+                .foregroundColor(.white.opacity(0.45))
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(.white.opacity(0.05))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.08)))
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var noSearchResults: some View {
+        VStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 11))
+                .font(.system(size: 16))
+                .foregroundColor(.white.opacity(0.10))
+            Text("No tokens matching \"\(searchText)\"")
+                .font(.system(size: 9, design: .monospaced))
                 .foregroundColor(.white.opacity(0.20))
-            TextField("Search by name, symbol, or address...", text: $searchText)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.white.opacity(0.60))
-                .textFieldStyle(.plain)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(.white.opacity(0.03))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.06)))
-        )
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 30)
     }
 
-    private var collectionStats: some View {
-        HStack(spacing: 16) {
-            tkStatPill(label: "TOTAL", value: "\(tokens.count)")
-            tkStatPill(label: "VISIBLE", value: "\(visibleTokens.count)")
-            tkStatPill(label: "HIDDEN", value: "\(hiddenTokens.count)")
-            tkStatPill(label: "SPAM", value: "\(spamTokens.count)")
-            Spacer()
+    private func tkTokenRow(_ token: CustomToken) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                selectedToken = token
+            }
+        } label: {
+            HStack(spacing: 10) {
+                // Icon
+                ZStack {
+                    Circle()
+                        .fill(.white.opacity(0.06))
+                        .frame(width: compactView ? 28 : 34, height: compactView ? 28 : 34)
+                    Text(String(token.symbol.prefix(2)).uppercased())
+                        .font(.system(size: compactView ? 9 : 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.40))
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(token.symbol.uppercased())
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.55))
+                        if showChainBadges {
+                            Text(chainBadge(token.chain))
+                                .font(.system(size: 7, weight: .bold, design: .monospaced))
+                                .tracking(0.3)
+                                .foregroundColor(.white.opacity(0.22))
+                                .padding(.horizontal, 5).padding(.vertical, 2)
+                                .background(RoundedRectangle(cornerRadius: 3).fill(.white.opacity(0.04)))
+                        }
+                    }
+                    if !compactView {
+                        Text(token.name)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.25))
+                    }
+                    if showContracts {
+                        Text(truncateAddress(token.contractAddress))
+                            .font(.system(size: 8, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.15))
+                    }
+                }
+
+                Spacer()
+
+                // Decimals badge
+                Text("\(token.decimals)d")
+                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.18))
+
+                // Chevron
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.white.opacity(0.12))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, compactView ? 6 : 10)
         }
+        .buttonStyle(.plain)
     }
 
     private func tkStatPill(label: String, value: String) -> some View {
         VStack(spacing: 2) {
             Text(value)
-                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundColor(.white.opacity(0.50))
             Text(label)
-                .font(.system(size: 6, weight: .bold, design: .monospaced))
+                .font(.system(size: 7, weight: .bold, design: .monospaced))
                 .tracking(0.5)
-                .foregroundColor(.white.opacity(0.18))
+                .foregroundColor(.white.opacity(0.20))
         }
-    }
-
-    // ── Visible tokens ──
-    private var visibleTokensList: some View {
-        VStack(spacing: 4) {
-            if filteredVisibleTokens.isEmpty {
-                emptyState(text: searchText.isEmpty ? "No visible tokens" : "No matching tokens")
-            } else {
-                ForEach(filteredVisibleTokens) { token in
-                    tokenTile(token: token)
-                }
-            }
-        }
-    }
-
-    // ── Hidden tokens ──
-    private var hiddenTokensSection: some View {
-        VStack(spacing: 8) {
-            Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                    showHiddenTokens.toggle()
-                }
-            } label: {
-                HStack {
-                    Text("HIDDEN TOKENS")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .tracking(1)
-                        .foregroundColor(.white.opacity(0.25))
-                    Text("(\(hiddenTokens.count))")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.15))
-                    Spacer()
-                    Image(systemName: showHiddenTokens ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.white.opacity(0.20))
-                }
-            }
-            .buttonStyle(.plain)
-
-            if showHiddenTokens {
-                VStack(spacing: 4) {
-                    ForEach(filteredHiddenTokens) { token in
-                        tokenTile(token: token)
-                    }
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
+        .frame(width: 50)
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Token Tile
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    private func tokenTile(token: TkDisplayToken) -> some View {
-        TokenTileView(
-            token: token,
-            onToggleVisibility: { toggleVisibility(token) },
-            onTap: { selectedToken = token }
-        )
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Add Token
+    // MARK: – ADD TOKEN
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     private var addTokenContent: some View {
         VStack(spacing: 16) {
-            if addFound, let preview = addPreviewToken {
-                addTokenPreview(preview)
-            } else if addScanning {
+            tkSectionLabel("NETWORK")
+            chainPicker
+
+            tkSectionLabel("CONTRACT ADDRESS")
+            addressInputField
+
+            if let error = addError {
+                addErrorView(error)
+            }
+
+            if addScanning {
                 addScanningView
-            } else if addError {
-                addErrorView
-            } else {
-                addTokenForm
+            } else if let preview = addPreview {
+                addPreviewView(preview)
+            } else if addManual {
+                manualEntryForm
             }
         }
     }
 
-    private var addTokenForm: some View {
-        VStack(spacing: 20) {
-            // Chain picker
-            tkSectionLabel("SELECT CHAIN")
-            chainPicker
+    private var chainPicker: some View {
+        HStack(spacing: 6) {
+            ForEach(TokenChain.allCases) { chain in
+                let selected = addChain == chain
+                Button {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                        addChain = chain
+                        addPreview = nil
+                        addError = nil
+                        addManual = false
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: chain.icon)
+                            .font(.system(size: 10))
+                        Text(chain == .ethereum ? "ETH" : chain == .bsc ? "BSC" : "SOL")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .tracking(0.5)
+                    }
+                    .foregroundColor(.white.opacity(selected ? 0.70 : 0.25))
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(.white.opacity(selected ? 0.08 : 0.02))
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(selected ? 0.12 : 0.04)))
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+    }
 
-            // Contract address
-            tkSectionLabel("CONTRACT ADDRESS")
+    private var addressInputField: some View {
+        VStack(spacing: 8) {
             HStack(spacing: 8) {
-                TextField("Paste contract address...", text: $addAddress)
+                TextField(addChain.addressPlaceholder, text: $addAddress)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(.white.opacity(0.60))
                     .textFieldStyle(.plain)
-                    .onSubmit { beginScan() }
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04))
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.06)))
+                    )
+                    .onChange(of: addAddress) { _ in
+                        addPreview = nil
+                        addError = nil
+                        addManual = false
+                    }
 
-                // Paste from clipboard
+                // Paste button
                 Button {
-                    pasteAddress()
+                    #if os(macOS)
+                    if let str = NSPasteboard.general.string(forType: .string) {
+                        addAddress = str.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                    #endif
                 } label: {
                     Image(systemName: "doc.on.clipboard")
                         .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.25))
-                        .frame(width: 28, height: 28)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.04)))
+                        .foregroundColor(.white.opacity(0.30))
+                        .frame(width: 32, height: 32)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04)))
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(.white.opacity(0.03))
-                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.06)))
-            )
 
-            // Fetch button
-            Button {
-                beginScan()
-            } label: {
-                Text("FETCH TOKEN")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .tracking(1)
-                    .foregroundColor(.white.opacity(addAddress.count > 8 ? 0.50 : 0.15))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(.white.opacity(addAddress.count > 8 ? 0.06 : 0.02))
-                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(addAddress.count > 8 ? 0.12 : 0.04)))
-                    )
-            }
-            .buttonStyle(.plain)
-            .disabled(addAddress.count <= 8)
-
-            // Supported formats
-            VStack(alignment: .leading, spacing: 6) {
-                tkSectionLabel("SUPPORTED FORMATS")
-                addFormatRow(chain: "Ethereum / BNB Chain", example: "0x1234...abcd")
-                addFormatRow(chain: "Solana", example: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
-            }
-        }
-    }
-
-    // Chain selector
-    private var chainPicker: some View {
-        HStack(spacing: 4) {
-            ForEach(["Ethereum", "BNB Chain", "Solana"], id: \.self) { chain in
+            // Fetch / validate
+            HStack(spacing: 8) {
                 Button {
-                    withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) { addChain = chain }
+                    fetchTokenMetadata()
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: chainIcon(chain))
-                            .font(.system(size: 9))
-                        Text(chain.uppercased())
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        if addScanning {
+                            ProgressView()
+                                .scaleEffect(0.5)
+                                .tint(.white.opacity(0.3))
+                        } else {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 9))
+                        }
+                        Text(addScanning ? "SCANNING..." : "FETCH METADATA")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .tracking(0.5)
                     }
-                    .foregroundColor(.white.opacity(addChain == chain ? 0.6 : 0.2))
-                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .foregroundColor(.white.opacity(canFetch ? 0.55 : 0.18))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
                     .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(.white.opacity(addChain == chain ? 0.06 : 0.02))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .strokeBorder(.white.opacity(addChain == chain ? 0.10 : 0.03))
-                            )
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(.white.opacity(canFetch ? 0.06 : 0.02))
                     )
                 }
                 .buttonStyle(.plain)
+                .disabled(!canFetch || addScanning)
+
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        addManual = true
+                        addError = nil
+                    }
+                } label: {
+                    Text("MANUAL")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .tracking(0.5)
+                        .foregroundColor(.white.opacity(0.30))
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03)))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if !addAddress.isEmpty && !tokenManager.validateContractAddress(addAddress, chain: addChain) {
+                Text("Invalid \(addChain == .solana ? "Solana" : "EVM") address format")
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.30))
             }
         }
     }
 
-    private func addFormatRow(chain: String, example: String) -> some View {
-        HStack {
-            Text(chain)
-                .font(.system(size: 8, weight: .medium, design: .monospaced))
-                .foregroundColor(.white.opacity(0.20))
-            Spacer()
-            Text(example)
-                .font(.system(size: 7, design: .monospaced))
-                .foregroundColor(.white.opacity(0.12))
-        }
+    private var canFetch: Bool {
+        !addAddress.isEmpty && tokenManager.validateContractAddress(addAddress, chain: addChain) && !addScanning
     }
 
-    // ── Scanning animation ──
-    private var addScanningView: some View {
-        VStack(spacing: 24) {
-            // Contract address scanning visualization
-            ZStack {
-                // Outer rings
-                ForEach(0..<3, id: \.self) { i in
-                    Circle()
-                        .strokeBorder(
-                            .white.opacity(0.03 + Double(2 - i) * 0.02),
-                            lineWidth: 1
-                        )
-                        .frame(
-                            width: CGFloat(80 + i * 24),
-                            height: CGFloat(80 + i * 24)
-                        )
-                }
-                // Scanning sweep
-                Circle()
-                    .trim(from: 0, to: 0.25)
-                    .stroke(.white.opacity(0.20), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .frame(width: 80, height: 80)
-                    .rotationEffect(.degrees(addScanProgress * 720))
-
-                // Center
-                VStack(spacing: 3) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 16, weight: .light))
-                        .foregroundColor(.white.opacity(0.35))
-                    Text("SCANNING")
-                        .font(.system(size: 6, weight: .bold, design: .monospaced))
-                        .tracking(2)
-                        .foregroundColor(.white.opacity(0.20))
-                }
-            }
-            .frame(height: 140)
-
-            // Address being scanned
-            Text(truncateAddress(addAddress))
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundColor(.white.opacity(0.25))
-
-            // Progress
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2).fill(.white.opacity(0.04))
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(.white.opacity(0.18))
-                        .frame(width: geo.size.width * addScanProgress)
-                }
-            }
-            .frame(height: 3)
-
-            Text("Fetching metadata from \(addChain)")
+    private func addErrorView(_ message: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 9))
-                .foregroundColor(.white.opacity(0.18))
+            Text(message)
+                .font(.system(size: 9, design: .monospaced))
         }
-        .padding(.top, 30)
+        .foregroundColor(.white.opacity(0.35))
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03)))
     }
 
-    // ── Preview card ──
-    private func addTokenPreview(_ token: TkDisplayToken) -> some View {
-        VStack(spacing: 20) {
-            // Success badge
-            ZStack {
-                Circle()
-                    .fill(.white.opacity(0.06))
-                    .frame(width: 60, height: 60)
-                Image(systemName: "checkmark")
-                    .font(.system(size: 20, weight: .light))
-                    .foregroundColor(.white.opacity(0.45))
-            }
+    private var addScanningView: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .scaleEffect(0.7)
+                .tint(.white.opacity(0.25))
+            Text("Fetching token metadata from blockchain...")
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.white.opacity(0.25))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
+    }
 
-            Text("TOKEN FOUND")
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .tracking(2)
-                .foregroundColor(.white.opacity(0.40))
+    private func addPreviewView(_ token: CustomToken) -> some View {
+        VStack(spacing: 12) {
+            tkSectionLabel("TOKEN FOUND")
 
-            // Token preview card
-            VStack(spacing: 12) {
-                // Icon + name
+            VStack(spacing: 8) {
                 HStack(spacing: 12) {
-                    tokenIconView(token, size: 36)
+                    ZStack {
+                        Circle()
+                            .fill(.white.opacity(0.06))
+                            .frame(width: 44, height: 44)
+                        Text(String(token.symbol.prefix(2)).uppercased())
+                            .font(.system(size: 14, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.45))
+                    }
+
                     VStack(alignment: .leading, spacing: 3) {
                         Text(token.name)
-                            .font(.clashGroteskBold(size: 18))
-                            .foregroundColor(.white.opacity(0.75))
-                        Text(token.symbol)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.30))
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.55))
+                        HStack(spacing: 8) {
+                            Text(token.symbol.uppercased())
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.35))
+                            Text("\(token.decimals) decimals")
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.22))
+                        }
                     }
                     Spacer()
                 }
 
-                Divider().background(.white.opacity(0.05))
-
-                // Metadata rows
-                previewRow(label: "CHAIN", value: token.chain)
-                previewRow(label: "DECIMALS", value: "\(token.decimals)")
-                previewRow(label: "CONTRACT", value: truncateAddress(token.contractAddress))
+                previewMetaRow(label: "CONTRACT", value: truncateAddress(token.contractAddress))
+                previewMetaRow(label: "CHAIN", value: chainBadge(token.chain))
             }
-            .padding(16)
-            .background(tkTileBg)
+            .padding(14)
+            .background(tkCardBg)
 
-            // Add button
-            Button {
-                addTokenToCollection(token)
-            } label: {
+            Button { addTokenFromPreview(token) } label: {
                 Text("ADD TO COLLECTION")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .tracking(1)
+                    .tracking(0.5)
                     .foregroundColor(.white.opacity(0.55))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                    .padding(.vertical, 12)
                     .background(
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 8)
                             .fill(.white.opacity(0.06))
-                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.14)))
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.10)))
                     )
             }
             .buttonStyle(.plain)
-
-            // Cancel
-            Button {
-                resetAddState()
-            } label: {
-                Text("CANCEL")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .tracking(0.5)
-                    .foregroundColor(.white.opacity(0.25))
-            }
-            .buttonStyle(.plain)
         }
-        .padding(.top, 10)
     }
 
-    private func previewRow(label: String, value: String) -> some View {
+    private func previewMetaRow(label: String, value: String) -> some View {
         HStack {
             Text(label)
-                .font(.system(size: 7, weight: .bold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.18))
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .tracking(0.5)
+                .foregroundColor(.white.opacity(0.22))
             Spacer()
             Text(value)
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundColor(.white.opacity(0.35))
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.40))
         }
     }
 
-    // ── Error view ──
-    private var addErrorView: some View {
-        VStack(spacing: 20) {
-            ZStack {
-                Circle()
-                    .strokeBorder(.white.opacity(0.06), lineWidth: 1)
-                    .frame(width: 60, height: 60)
-                Image(systemName: "xmark")
-                    .font(.system(size: 20, weight: .light))
-                    .foregroundColor(.white.opacity(0.25))
-            }
+    private var manualEntryForm: some View {
+        VStack(spacing: 10) {
+            tkSectionLabel("MANUAL ENTRY")
 
-            Text("TOKEN NOT FOUND")
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .tracking(2)
-                .foregroundColor(.white.opacity(0.30))
+            manualField(label: "SYMBOL", placeholder: "e.g. USDT", text: $addManualSymbol)
+            manualField(label: "NAME", placeholder: "e.g. Tether USD", text: $addManualName)
+            manualField(label: "DECIMALS", placeholder: "18", text: $addManualDecimals)
 
-            Text("Could not fetch metadata for this address on \(addChain). Verify the contract address and selected chain.")
-                .font(.system(size: 10))
-                .foregroundColor(.white.opacity(0.20))
-                .multilineTextAlignment(.center)
-                .lineSpacing(2)
-
-            Button {
-                resetAddState()
-            } label: {
-                Text("TRY AGAIN")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .tracking(1)
-                    .foregroundColor(.white.opacity(0.40))
+            Button { addManualToken() } label: {
+                Text("ADD TOKEN")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(.white.opacity(canAddManual ? 0.55 : 0.18))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04)))
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(.white.opacity(canAddManual ? 0.06 : 0.02))
+                    )
             }
             .buttonStyle(.plain)
+            .disabled(!canAddManual)
         }
-        .padding(.top, 40)
+    }
+
+    private func manualField(label: String, placeholder: String, text: Binding<String>) -> some View {
+        HStack(spacing: 10) {
+            Text(label)
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .tracking(0.5)
+                .foregroundColor(.white.opacity(0.25))
+                .frame(width: 65, alignment: .trailing)
+
+            TextField(placeholder, text: text)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.white.opacity(0.55))
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 10).padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.04))
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.white.opacity(0.06)))
+                )
+        }
+    }
+
+    private var canAddManual: Bool {
+        !addManualSymbol.isEmpty && !addManualName.isEmpty && !addAddress.isEmpty &&
+        tokenManager.validateContractAddress(addAddress, chain: addChain)
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Token Lists
+    // MARK: – LISTS
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    private struct TkTokenListInfo: Identifiable {
+        let id = UUID()
+        let name: String
+        let description: String
+        let url: String
+        let icon: String
+    }
+
+    private var curatedLists: [TkTokenListInfo] {
+        [
+            TkTokenListInfo(name: "Uniswap Default", description: "Curated list of ERC-20 tokens", url: "https://tokens.uniswap.org/", icon: "arrow.triangle.swap"),
+            TkTokenListInfo(name: "CoinGecko", description: "Comprehensive token catalog", url: "https://tokens.coingecko.com/uniswap/all.json", icon: "chart.line.uptrend.xyaxis"),
+            TkTokenListInfo(name: "1inch", description: "DEX aggregator token list", url: "https://tokens.1inch.io/", icon: "arrow.triangle.branch"),
+            TkTokenListInfo(name: "Solana Token List", description: "Official Solana SPL token registry", url: "https://cdn.jsdelivr.net/gh/solana-labs/token-list@main/src/tokens/solana.tokenlist.json", icon: "sun.max"),
+        ]
+    }
 
     private var listsContent: some View {
         VStack(spacing: 16) {
             tkSectionLabel("COMMUNITY TOKEN LISTS")
 
-            ForEach(tokenLists) { list in
-                tokenListRow(list)
-            }
+            Text("Browse external token lists for reference.\nTo add a specific token, use the ADD TOKEN tab.")
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.white.opacity(0.22))
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+                .frame(maxWidth: .infinity)
 
-            tkSectionLabel("IMPORT CUSTOM LIST")
-            customListImport
-        }
-    }
-
-    private func tokenListRow(_ list: TkTokenList) -> some View {
-        HStack(spacing: 12) {
-            // List icon
-            ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(.white.opacity(0.04))
-                    .frame(width: 34, height: 34)
-                Image(systemName: list.icon)
-                    .font(.system(size: 13))
-                    .foregroundColor(.white.opacity(0.25))
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(list.name)
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(.white.opacity(0.55))
-                HStack(spacing: 6) {
-                    Text(list.source)
-                        .font(.system(size: 8, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.18))
-                    Text("\(list.tokenCount) tokens")
-                        .font(.system(size: 8, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.15))
+            VStack(spacing: 2) {
+                ForEach(curatedLists) { list in
+                    tokenListRow(list)
                 }
             }
+            .background(tkCardBg)
 
-            Spacer()
-
-            Button {
-                toggleListImport(list)
-            } label: {
-                Text(list.isImported ? "IMPORTED" : "IMPORT")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .tracking(0.5)
-                    .foregroundColor(.white.opacity(list.isImported ? 0.35 : 0.50))
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(.white.opacity(list.isImported ? 0.03 : 0.06))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .strokeBorder(.white.opacity(list.isImported ? 0.05 : 0.12))
-                            )
-                    )
-            }
-            .buttonStyle(.plain)
+            tkSectionLabel("ABOUT TOKEN LISTS")
+            infoCard(
+                icon: "info.circle",
+                text: "Token lists are community-maintained catalogs of verified token contract addresses. They help identify legitimate tokens and avoid scams. You can look up contract addresses from these lists, then add tokens via the ADD TOKEN tab."
+            )
         }
-        .padding(12)
-        .background(tkTileBg)
     }
 
-    // Custom URL import
-    private var customListImport: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "link")
-                    .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.18))
-                TextField("Token list URL...", text: $importURL)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.50))
-                    .textFieldStyle(.plain)
+    private func tokenListRow(_ list: TkTokenListInfo) -> some View {
+        Button {
+            #if os(macOS)
+            if let url = URL(string: list.url) {
+                NSWorkspace.shared.open(url)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(.white.opacity(0.03))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.05)))
-            )
+            #endif
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: list.icon)
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.25))
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(.white.opacity(0.04)))
 
-            Button {
-                // Mock import
-                importURL = ""
-            } label: {
-                Text("IMPORT FROM URL")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .tracking(0.5)
-                    .foregroundColor(.white.opacity(importURL.isEmpty ? 0.15 : 0.40))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03)))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(list.name.uppercased())
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .tracking(0.3)
+                        .foregroundColor(.white.opacity(0.45))
+                    Text(list.description)
+                        .font(.system(size: 8, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.22))
+                }
+
+                Spacer()
+
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.white.opacity(0.15))
             }
-            .buttonStyle(.plain)
-            .disabled(importURL.isEmpty)
+            .padding(.horizontal, 14).padding(.vertical, 10)
         }
-        .padding(14)
-        .background(tkTileBg)
+        .buttonStyle(.plain)
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Spam Filter
+    // MARK: – SPAM
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     private var spamContent: some View {
         VStack(spacing: 16) {
             tkSectionLabel("SPAM PROTECTION")
-            spamSettingsCard
 
-            if !spamTokens.isEmpty {
-                tkSectionLabel("SUSPECTED SPAM (\(spamTokens.count))")
-                spamTokensList
-            }
+            tkToggleRow(
+                icon: "eye.slash",
+                title: "AUTO-HIDE FLAGGED TOKENS",
+                detail: "Flagged tokens won't appear in your collection",
+                isOn: $autoHideSpam
+            )
 
-            tkSectionLabel("HOW IT WORKS")
-            spamInfoCard
-        }
-    }
+            tkSectionLabel("FLAGGED TOKENS")
 
-    private var spamSettingsCard: some View {
-        VStack(spacing: 12) {
-            tkToggleRow(label: "AUTO-HIDE SPAM TOKENS", isOn: $autoHideSpam)
-            Divider().background(.white.opacity(0.04))
-            tkToggleRow(label: "SHOW SPAM WARNINGS", isOn: $showSpamWarning)
-        }
-        .padding(14)
-        .background(tkTileBg)
-    }
+            let flaggedTokens = tokenManager.tokens.filter { flaggedSpamIds.contains($0.contractAddress.lowercased()) }
 
-    private var spamTokensList: some View {
-        VStack(spacing: 4) {
-            ForEach(spamTokens) { token in
-                spamTokenRow(token)
-            }
-        }
-    }
-
-    private func spamTokenRow(_ token: TkDisplayToken) -> some View {
-        HStack(spacing: 10) {
-            // Struck icon
-            ZStack {
-                tokenIconView(token, size: 28)
-                // Strike diagonal
-                Rectangle()
-                    .fill(.white.opacity(0.20))
-                    .frame(width: 34, height: 1)
-                    .rotationEffect(.degrees(-45))
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(token.name)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white.opacity(0.25))
-                    .strikethrough(true, color: .white.opacity(0.15))
-                Text(token.symbol + " · " + token.chain)
-                    .font(.system(size: 8, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.12))
-            }
-
-            Spacer()
-
-            // Dismiss / Restore
-            HStack(spacing: 4) {
-                Button {
-                    removeToken(token)
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 9))
+            if flaggedTokens.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "checkmark.shield")
+                        .font(.system(size: 18))
+                        .foregroundColor(.white.opacity(0.12))
+                    Text("No tokens flagged as spam")
+                        .font(.system(size: 9, design: .monospaced))
                         .foregroundColor(.white.opacity(0.20))
-                        .frame(width: 24, height: 24)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(.white.opacity(0.03)))
+                    Text("Long-press a token in your collection\nto flag it as suspicious")
+                        .font(.system(size: 8, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.15))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(2)
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
+            } else {
+                VStack(spacing: 2) {
+                    ForEach(flaggedTokens) { token in
+                        HStack(spacing: 10) {
+                            Text(token.symbol.uppercased())
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.30))
+                                .strikethrough(true, color: .white.opacity(0.15))
 
-                Button {
-                    unmarkSpam(token)
-                } label: {
-                    Text("KEEP")
-                        .font(.system(size: 7, weight: .bold, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.30))
-                        .padding(.horizontal, 8).padding(.vertical, 5)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(.white.opacity(0.03)))
+                            Text(token.name)
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.18))
+
+                            Spacer()
+
+                            Button {
+                                unflagSpam(token)
+                            } label: {
+                                Text("UNFLAG")
+                                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                    .tracking(0.3)
+                                    .foregroundColor(.white.opacity(0.30))
+                                    .padding(.horizontal, 8).padding(.vertical, 4)
+                                    .background(RoundedRectangle(cornerRadius: 4).fill(.white.opacity(0.04)))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                    }
                 }
-                .buttonStyle(.plain)
+                .background(tkCardBg)
             }
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(.white.opacity(0.015))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(
-                            style: StrokeStyle(lineWidth: 0.8, dash: [4, 3])
-                        )
-                        .foregroundColor(.white.opacity(0.06))
-                )
-        )
-    }
 
-    private var spamInfoCard: some View {
-        VStack(spacing: 10) {
-            spamInfoRow(icon: "exclamationmark.triangle", title: "SUSPICIOUS NAMES", detail: "Tokens impersonating well-known projects")
-            Divider().background(.white.opacity(0.04))
-            spamInfoRow(icon: "drop.degreesign", title: "ZERO LIQUIDITY", detail: "Tokens with no trading volume or liquidity")
-            Divider().background(.white.opacity(0.04))
-            spamInfoRow(icon: "clock.badge.exclamationmark", title: "RECENT CONTRACTS", detail: "Newly deployed with no history or audits")
-            Divider().background(.white.opacity(0.04))
-            spamInfoRow(icon: "flag", title: "COMMUNITY FLAGGED", detail: "Reported by community as potential scam")
+            tkSectionLabel("COMMON SCAM TYPES")
+            VStack(spacing: 2) {
+                spamInfoRow(icon: "dollarsign.circle", title: "AIRDROP SPAM", detail: "Tokens sent to your wallet to lure you to phishing sites")
+                spamInfoRow(icon: "doc.on.doc", title: "FAKE CLONES", detail: "Tokens mimicking popular coins with different contracts")
+                spamInfoRow(icon: "link", title: "PHISHING TOKENS", detail: "Tokens with malicious approval requests in their contracts")
+                spamInfoRow(icon: "exclamationmark.triangle", title: "HONEYPOTS", detail: "Tokens you can buy but never sell due to contract restrictions")
+            }
+            .background(tkCardBg)
         }
-        .padding(14)
-        .background(tkTileBg)
     }
 
     private func spamInfoRow(icon: String, title: String, detail: String) -> some View {
@@ -912,120 +907,122 @@ struct TokensOverlay: View {
             Image(systemName: icon)
                 .font(.system(size: 10))
                 .foregroundColor(.white.opacity(0.20))
-                .frame(width: 18, alignment: .center)
-                .padding(.top, 1)
+                .frame(width: 20)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .tracking(0.5)
-                    .foregroundColor(.white.opacity(0.30))
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .tracking(0.3)
+                    .foregroundColor(.white.opacity(0.35))
                 Text(detail)
-                    .font(.system(size: 9))
-                    .foregroundColor(.white.opacity(0.18))
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.20))
+                    .lineSpacing(2)
             }
         }
+        .padding(.horizontal, 14).padding(.vertical, 8)
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Settings
+    // MARK: – SETTINGS
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     private var settingsContent: some View {
         VStack(spacing: 16) {
-            tkSectionLabel("DISPLAY")
-            displaySettingsCard
+            tkSectionLabel("DISPLAY PREFERENCES")
 
-            tkSectionLabel("DEFAULTS")
-            restoreDefaultsCard
+            VStack(spacing: 2) {
+                tkToggleRow(icon: "tag", title: "SHOW CHAIN BADGES", detail: "Display ERC-20/BEP-20/SPL labels", isOn: $showChainBadges)
+                tkToggleRow(icon: "doc.text", title: "SHOW CONTRACT ADDRESSES", detail: "Display truncated addresses in list", isOn: $showContracts)
+                tkToggleRow(icon: "rectangle.compress.vertical", title: "COMPACT VIEW", detail: "Reduce token row height", isOn: $compactView)
+            }
+            .background(tkCardBg)
 
             tkSectionLabel("DATA")
-            dataCard
-        }
-    }
 
-    private var displaySettingsCard: some View {
-        VStack(spacing: 12) {
-            tkToggleRow(label: "SHOW BALANCES", isOn: .constant(true))
-            Divider().background(.white.opacity(0.04))
-            tkToggleRow(label: "SHOW USD VALUES", isOn: .constant(true))
-            Divider().background(.white.opacity(0.04))
-            tkToggleRow(label: "SHOW CHAIN BADGE", isOn: .constant(true))
-            Divider().background(.white.opacity(0.04))
-            tkToggleRow(label: "GRAYSCALE ICONS", isOn: .constant(true))
-        }
-        .padding(14)
-        .background(tkTileBg)
-    }
-
-    private var restoreDefaultsCard: some View {
-        VStack(spacing: 12) {
-            Text("Reset token visibility to HAWALA defaults. Custom tokens remain but may be hidden.")
-                .font(.system(size: 9))
-                .foregroundColor(.white.opacity(0.20))
-                .lineSpacing(2)
-
-            Button {
-                restoreDefaults()
-            } label: {
-                Text("RESTORE DEFAULT TOKENS")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .tracking(1)
-                    .foregroundColor(.white.opacity(0.40))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(.white.opacity(0.03))
-                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.06)))
-                    )
+            VStack(spacing: 6) {
+                settingsDataRow(label: "CUSTOM TOKENS", value: "\(tokenManager.tokens.count)")
+                settingsDataRow(label: "FLAGGED SPAM", value: "\(flaggedSpamIds.count)")
+                settingsDataRow(label: "STORAGE", value: tokenStorageSize())
             }
-            .buttonStyle(.plain)
+            .padding(14)
+            .background(tkCardBg)
+
+            // Clear all
+            if !tokenManager.tokens.isEmpty {
+                if showClearConfirm {
+                    VStack(spacing: 8) {
+                        Text("Remove all custom tokens? This cannot be undone.")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.35))
+                            .multilineTextAlignment(.center)
+
+                        HStack(spacing: 8) {
+                            Button {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                    showClearConfirm = false
+                                }
+                            } label: {
+                                Text("CANCEL")
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    .tracking(0.5)
+                                    .foregroundColor(.white.opacity(0.30))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03)))
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                clearAllTokens()
+                            } label: {
+                                Text("CLEAR ALL")
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    .tracking(0.5)
+                                    .foregroundColor(.white.opacity(0.50))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.06)))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(14)
+                    .background(tkCardBg)
+                } else {
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showClearConfirm = true
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 9))
+                            Text("CLEAR ALL CUSTOM TOKENS")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .tracking(0.5)
+                        }
+                        .foregroundColor(.white.opacity(0.30))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03)))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
-        .padding(14)
-        .background(tkTileBg)
     }
 
-    private var dataCard: some View {
-        VStack(spacing: 8) {
-            dataRow(label: "TOTAL TOKENS", value: "\(tokens.count)")
-            dataRow(label: "CUSTOM TOKENS", value: "\(tokens.filter { $0.isCustom }.count)")
-            dataRow(label: "SPAM FILTERED", value: "\(spamTokens.count)")
-            dataRow(label: "TOKEN LISTS", value: "\(tokenLists.filter { $0.isImported }.count) imported")
-        }
-        .padding(14)
-        .background(tkTileBg)
-    }
-
-    private func dataRow(label: String, value: String) -> some View {
+    private func settingsDataRow(label: String, value: String) -> some View {
         HStack {
             Text(label)
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.18))
                 .tracking(0.5)
+                .foregroundColor(.white.opacity(0.25))
             Spacer()
             Text(value)
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundColor(.white.opacity(0.35))
-        }
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Token Detail Sheet
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    private var tokenDetailSheet: some View {
-        Group {
-            if let token = selectedToken {
-                TokenDetailCardView(
-                    token: token,
-                    onDismiss: { selectedToken = nil },
-                    onToggleVisibility: { toggleVisibility(token) },
-                    onRemove: {
-                        removeToken(token)
-                        selectedToken = nil
-                    }
-                )
-            }
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.45))
         }
     }
 
@@ -1036,102 +1033,58 @@ struct TokensOverlay: View {
     private func tkSectionLabel(_ text: String) -> some View {
         HStack {
             Text(text)
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.25))
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .tracking(1)
+                .foregroundColor(.white.opacity(0.35))
             Spacer()
         }
     }
 
-    private var tkTileBg: some View {
-        RoundedRectangle(cornerRadius: 14)
-            .fill(.white.opacity(0.025))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.05), lineWidth: 1))
+    private var tkCardBg: some View {
+        RoundedRectangle(cornerRadius: 10)
+            .fill(.white.opacity(0.03))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.04)))
     }
 
-    private func tkToggleRow(label: String, isOn: Binding<Bool>) -> some View {
-        HStack {
-            Text(label)
-                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.30))
-                .tracking(0.5)
-            Spacer()
-            Button {
-                withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
-                    isOn.wrappedValue.toggle()
-                }
-            } label: {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(.white.opacity(isOn.wrappedValue ? 0.12 : 0.04))
-                    .frame(width: 28, height: 16)
-                    .overlay(
-                        Circle()
-                            .fill(.white.opacity(isOn.wrappedValue ? 0.6 : 0.2))
-                            .frame(width: 10, height: 10)
-                            .offset(x: isOn.wrappedValue ? 7 : -7),
-                        alignment: .center
-                    )
+    private func tkToggleRow(icon: String, title: String, detail: String, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.22))
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .tracking(0.3)
+                    .foregroundColor(.white.opacity(0.40))
+                Text(detail)
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.18))
             }
-            .buttonStyle(.plain)
+
+            Spacer()
+
+            Toggle("", isOn: isOn)
+                .toggleStyle(.switch)
+                .scaleEffect(0.6)
+                .frame(width: 40)
         }
+        .padding(.horizontal, 14).padding(.vertical, 8)
     }
 
-    private func tokenIconView(_ token: TkDisplayToken, size: CGFloat) -> some View {
-        ZStack {
-            // Grayscale circle with initial
-            Circle()
-                .fill(.white.opacity(0.06))
-                .frame(width: size, height: size)
-            Text(String(token.symbol.prefix(1)))
-                .font(.system(size: size * 0.4, weight: .bold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.30))
+    private func infoCard(icon: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.18))
+            Text(text)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.white.opacity(0.22))
+                .lineSpacing(3)
         }
-    }
-
-    private func emptyState(text: String) -> some View {
-        Text(text)
-            .font(.system(size: 9, design: .monospaced))
-            .foregroundColor(.white.opacity(0.15))
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 20)
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Computed Properties
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    private var visibleTokens: [TkDisplayToken] {
-        tokens.filter { $0.isVisible && !$0.isSpam }.sorted { $0.sortOrder < $1.sortOrder }
-    }
-
-    private var hiddenTokens: [TkDisplayToken] {
-        tokens.filter { !$0.isVisible && !$0.isSpam }
-    }
-
-    private var spamTokens: [TkDisplayToken] {
-        tokens.filter { $0.isSpam }
-    }
-
-    private var filteredVisibleTokens: [TkDisplayToken] {
-        let base = visibleTokens
-        if searchText.isEmpty { return base }
-        let q = searchText.lowercased()
-        return base.filter {
-            $0.name.lowercased().contains(q) ||
-            $0.symbol.lowercased().contains(q) ||
-            $0.contractAddress.lowercased().contains(q)
-        }
-    }
-
-    private var filteredHiddenTokens: [TkDisplayToken] {
-        let base = hiddenTokens
-        if searchText.isEmpty { return base }
-        let q = searchText.lowercased()
-        return base.filter {
-            $0.name.lowercased().contains(q) ||
-            $0.symbol.lowercased().contains(q) ||
-            $0.contractAddress.lowercased().contains(q)
-        }
+        .padding(14)
+        .background(tkCardBg)
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1147,357 +1100,186 @@ struct TokensOverlay: View {
         }
     }
 
-    private func toggleVisibility(_ token: TkDisplayToken) {
-        guard let idx = tokens.firstIndex(where: { $0.id == token.id }) else { return }
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            tokens[idx].isVisible.toggle()
+    private func startAnimations() {
+        withAnimation(.linear(duration: 6).repeatForever(autoreverses: true)) {
+            silkPhase = 1
         }
     }
 
-    private func removeToken(_ token: TkDisplayToken) {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            tokens.removeAll { $0.id == token.id }
-        }
-    }
+    // ── Add Token Actions ──
 
-    private func unmarkSpam(_ token: TkDisplayToken) {
-        guard let idx = tokens.firstIndex(where: { $0.id == token.id }) else { return }
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            tokens[idx].isSpam = false
-            tokens[idx].isVisible = true
-        }
-    }
-
-    private func toggleListImport(_ list: TkTokenList) {
-        guard let idx = tokenLists.firstIndex(where: { $0.id == list.id }) else { return }
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            tokenLists[idx].isImported.toggle()
-        }
-    }
-
-    private func restoreDefaults() {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            for i in tokens.indices {
-                tokens[i].isVisible = !tokens[i].isSpam && !tokens[i].isCustom
-            }
-            // Show default ones
-            let defaults = ["BTC", "ETH", "SOL", "USDC", "USDT"]
-            for i in tokens.indices where defaults.contains(tokens[i].symbol) {
-                tokens[i].isVisible = true
-            }
-        }
-    }
-
-    // ── Add token flow ──
-    private func beginScan() {
-        guard addAddress.count > 8 else { return }
+    private func fetchTokenMetadata() {
+        guard canFetch else { return }
         addScanning = true
-        addScanProgress = 0
-        addError = false
-        addFound = false
+        addError = nil
+        addPreview = nil
 
-        withAnimation(.easeInOut(duration: 2.5)) {
-            addScanProgress = 1.0
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            // Simulate: 80% chance found, 20% error
-            let found = Int.random(in: 0..<5) < 4
-            if found {
-                self.addPreviewToken = TkDisplayToken(
-                    id: UUID(),
-                    name: "Custom Token",
-                    symbol: "CSTM",
-                    contractAddress: self.addAddress,
-                    chain: self.addChain,
-                    chainIcon: self.chainIcon(self.addChain),
-                    decimals: 18,
-                    balance: 0,
-                    usdValue: 0,
-                    isVisible: true,
-                    isSpam: false,
-                    isCustom: true,
-                    sortOrder: self.tokens.count
-                )
-                self.addFound = true
-            } else {
-                self.addError = true
+        Task { @MainActor in
+            do {
+                let token = try await tokenManager.fetchTokenInfo(contractAddress: addAddress, chain: addChain)
+                addPreview = token
+            } catch {
+                addError = error.localizedDescription
             }
-            self.addScanning = false
+            addScanning = false
         }
     }
 
-    private func addTokenToCollection(_ token: TkDisplayToken) {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            tokens.append(token)
+    private func addTokenFromPreview(_ token: CustomToken) {
+        do {
+            try tokenManager.addToken(token)
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                addPreview = nil
+                addAddress = ""
+                addError = nil
+                activeSection = .collection
+            }
+        } catch {
+            addError = error.localizedDescription
         }
-        resetAddState()
+    }
+
+    private func addManualToken() {
+        guard canAddManual else { return }
+        let token = CustomToken(
+            contractAddress: addAddress,
+            symbol: addManualSymbol.uppercased(),
+            name: addManualName,
+            decimals: Int(addManualDecimals) ?? 18,
+            chain: addChain
+        )
+        do {
+            try tokenManager.addToken(token)
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                addAddress = ""
+                addManualSymbol = ""
+                addManualName = ""
+                addManualDecimals = "18"
+                addManual = false
+                addError = nil
+                activeSection = .collection
+            }
+        } catch {
+            addError = error.localizedDescription
+        }
+    }
+
+    // ── Spam Actions ──
+
+    private func loadFlaggedSpam() {
+        if let decoded = try? JSONDecoder().decode(Set<String>.self, from: flaggedSpamData) {
+            flaggedSpamIds = decoded
+        }
+    }
+
+    private func saveFlaggedSpam() {
+        if let data = try? JSONEncoder().encode(flaggedSpamIds) {
+            flaggedSpamData = data
+        }
+    }
+
+    private func flagSpam(_ token: CustomToken) {
+        flaggedSpamIds.insert(token.contractAddress.lowercased())
+        saveFlaggedSpam()
+    }
+
+    private func unflagSpam(_ token: CustomToken) {
+        flaggedSpamIds.remove(token.contractAddress.lowercased())
+        saveFlaggedSpam()
+    }
+
+    // ── Settings Actions ──
+
+    private func clearAllTokens() {
+        for token in tokenManager.tokens {
+            tokenManager.removeToken(token)
+        }
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            activeSection = .collection
+            showClearConfirm = false
+            flaggedSpamIds.removeAll()
+            saveFlaggedSpam()
         }
-    }
-
-    private func resetAddState() {
-        addAddress = ""
-        addScanning = false
-        addScanProgress = 0
-        addFound = false
-        addError = false
-        addPreviewToken = nil
-    }
-
-    private func pasteAddress() {
-        #if os(macOS)
-        if let str = NSPasteboard.general.string(forType: .string) {
-            addAddress = str.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        #endif
     }
 
     // ── Helpers ──
-    private func truncateAddress(_ addr: String) -> String {
-        guard addr.count > 14 else { return addr }
-        return String(addr.prefix(8)) + "..." + String(addr.suffix(6))
+
+    private func truncateAddress(_ address: String) -> String {
+        guard address.count > 12 else { return address }
+        return "\(address.prefix(6))...\(address.suffix(4))"
     }
 
-    private func chainIcon(_ chain: String) -> String {
+    private func chainBadge(_ chain: TokenChain) -> String {
         switch chain {
-        case "Ethereum": return "diamond.fill"
-        case "BNB Chain": return "bitcoinsign.circle.fill"
-        case "Solana":   return "sun.max.fill"
-        default:         return "circle.hexagongrid.fill"
+        case .ethereum: return "ERC-20"
+        case .bsc: return "BEP-20"
+        case .solana: return "SPL"
         }
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Mock Data
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    private func loadMockData() {
-        tokens = [
-            TkDisplayToken(id: UUID(), name: "Bitcoin", symbol: "BTC", contractAddress: "native", chain: "Bitcoin", chainIcon: "bitcoinsign.circle", decimals: 8, balance: 0.2847, usdValue: 18284.30, isVisible: true, isSpam: false, isCustom: false, sortOrder: 0),
-            TkDisplayToken(id: UUID(), name: "Ethereum", symbol: "ETH", contractAddress: "native", chain: "Ethereum", chainIcon: "diamond.fill", decimals: 18, balance: 4.5120, usdValue: 7891.44, isVisible: true, isSpam: false, isCustom: false, sortOrder: 1),
-            TkDisplayToken(id: UUID(), name: "Solana", symbol: "SOL", contractAddress: "native", chain: "Solana", chainIcon: "sun.max.fill", decimals: 9, balance: 82.40, usdValue: 4944.00, isVisible: true, isSpam: false, isCustom: false, sortOrder: 2),
-            TkDisplayToken(id: UUID(), name: "USD Coin", symbol: "USDC", contractAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", chain: "Ethereum", chainIcon: "diamond.fill", decimals: 6, balance: 2500.00, usdValue: 2500.00, isVisible: true, isSpam: false, isCustom: false, sortOrder: 3),
-            TkDisplayToken(id: UUID(), name: "Tether", symbol: "USDT", contractAddress: "0xdAC17F958D2ee523a2206206994597C13D831ec7", chain: "Ethereum", chainIcon: "diamond.fill", decimals: 6, balance: 1200.00, usdValue: 1200.00, isVisible: true, isSpam: false, isCustom: false, sortOrder: 4),
-            TkDisplayToken(id: UUID(), name: "Chainlink", symbol: "LINK", contractAddress: "0x514910771AF9Ca656af840dff83E8264EcF986CA", chain: "Ethereum", chainIcon: "diamond.fill", decimals: 18, balance: 150.75, usdValue: 1055.25, isVisible: true, isSpam: false, isCustom: false, sortOrder: 5),
-            TkDisplayToken(id: UUID(), name: "Uniswap", symbol: "UNI", contractAddress: "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984", chain: "Ethereum", chainIcon: "diamond.fill", decimals: 18, balance: 200.00, usdValue: 760.00, isVisible: true, isSpam: false, isCustom: false, sortOrder: 6),
-            TkDisplayToken(id: UUID(), name: "Bonk", symbol: "BONK", contractAddress: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", chain: "Solana", chainIcon: "sun.max.fill", decimals: 5, balance: 42_000_000, usdValue: 840.00, isVisible: true, isSpam: false, isCustom: false, sortOrder: 7),
-            TkDisplayToken(id: UUID(), name: "Wrapped BTC", symbol: "WBTC", contractAddress: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", chain: "Ethereum", chainIcon: "diamond.fill", decimals: 8, balance: 0.05, usdValue: 3210.50, isVisible: false, isSpam: false, isCustom: false, sortOrder: 8),
-            TkDisplayToken(id: UUID(), name: "Aave", symbol: "AAVE", contractAddress: "0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9", chain: "Ethereum", chainIcon: "diamond.fill", decimals: 18, balance: 12.30, usdValue: 1107.00, isVisible: false, isSpam: false, isCustom: false, sortOrder: 9),
-            // Spam tokens
-            TkDisplayToken(id: UUID(), name: "Free ETH Airdrop", symbol: "FETH", contractAddress: "0xdead000000000000000000000000000000000001", chain: "Ethereum", chainIcon: "diamond.fill", decimals: 18, balance: 999999.0, usdValue: 0.0, isVisible: false, isSpam: true, isCustom: false, sortOrder: 99),
-            TkDisplayToken(id: UUID(), name: "USDCoin.io", symbol: "USDC2", contractAddress: "0xdead000000000000000000000000000000000002", chain: "BNB Chain", chainIcon: "bitcoinsign.circle.fill", decimals: 18, balance: 50000.0, usdValue: 0.0, isVisible: false, isSpam: true, isCustom: false, sortOrder: 100),
-        ]
-
-        tokenLists = [
-            TkTokenList(name: "Uniswap Default", source: "uniswap.org", tokenCount: 372, isImported: true, icon: "hexagon.fill"),
-            TkTokenList(name: "CoinGecko", source: "coingecko.com", tokenCount: 5842, isImported: false, icon: "chart.bar.fill"),
-            TkTokenList(name: "1inch", source: "1inch.io", tokenCount: 1203, isImported: false, icon: "bolt.fill"),
-            TkTokenList(name: "Solana Token List", source: "solana.com", tokenCount: 891, isImported: true, icon: "sun.max.fill"),
-        ]
+    private func tokenStorageSize() -> String {
+        guard let data = UserDefaults.standard.data(forKey: "hawala.customTokens") else {
+            return "0 B"
+        }
+        let bytes = data.count
+        if bytes < 1024 { return "\(bytes) B" }
+        return String(format: "%.1f KB", Double(bytes) / 1024.0)
     }
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// MARK: – Token Tile View (extracted sub-view)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MARK: – Token Detail Card
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-struct TokenTileView: View {
-    let token: TkDisplayToken
-    let onToggleVisibility: () -> Void
-    let onTap: () -> Void
-
-    @State private var isHovered: Bool = false
-    @State private var dragOffset: CGSize = .zero
-
-    var body: some View {
-        HStack(spacing: 0) {
-            // Drag handle
-            dragHandle
-
-            // Token info — tap to detail
-            Button(action: onTap) {
-                tokenInfoRow
-            }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            // Value column
-            valueColumn
-
-            // Visibility toggle
-            visibilityButton
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(.white.opacity(isHovered ? 0.035 : 0.025))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .strokeBorder(.white.opacity(isHovered ? 0.07 : 0.05), lineWidth: 1)
-                )
-        )
-        .opacity(token.isVisible ? 1 : 0.50)
-        .offset(dragOffset)
-        .onHover { isHovered = $0 }
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    dragOffset = CGSize(width: 0, height: value.translation.height)
-                }
-                .onEnded { _ in
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                        dragOffset = .zero
-                    }
-                }
-        )
-    }
-
-    private var dragHandle: some View {
-        VStack(spacing: 2) {
-            ForEach(0..<3, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: 0.5)
-                    .fill(.white.opacity(0.10))
-                    .frame(width: 10, height: 1.5)
-            }
-        }
-        .frame(width: 20)
-        .padding(.trailing, 8)
-    }
-
-    private var tokenInfoRow: some View {
-        HStack(spacing: 10) {
-            // Grayscale icon
-            ZStack {
-                Circle()
-                    .fill(.white.opacity(0.06))
-                    .frame(width: 32, height: 32)
-                Text(String(token.symbol.prefix(1)))
-                    .font(.system(size: 13, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.30))
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(token.name)
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(.white.opacity(0.65))
-                    .lineLimit(1)
-                HStack(spacing: 6) {
-                    Text(token.symbol)
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.25))
-                    // Chain badge
-                    HStack(spacing: 3) {
-                        Image(systemName: token.chainIcon)
-                            .font(.system(size: 7))
-                        Text(token.chain)
-                            .font(.system(size: 7, design: .monospaced))
-                    }
-                    .foregroundColor(.white.opacity(0.15))
-                    .padding(.horizontal, 5).padding(.vertical, 2)
-                    .background(RoundedRectangle(cornerRadius: 3).fill(.white.opacity(0.03)))
-                }
-            }
-        }
-    }
-
-    private var valueColumn: some View {
-        VStack(alignment: .trailing, spacing: 3) {
-            Text(formatBalance(token.balance, symbol: token.symbol))
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundColor(.white.opacity(0.40))
-                .lineLimit(1)
-            if token.usdValue > 0 {
-                Text("$\(formatUSD(token.usdValue))")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.20))
-            }
-        }
-        .padding(.trailing, 10)
-    }
-
-    private var visibilityButton: some View {
-        Button(action: onToggleVisibility) {
-            Image(systemName: token.isVisible ? "eye" : "eye.slash")
-                .font(.system(size: 10))
-                .foregroundColor(.white.opacity(token.isVisible ? 0.30 : 0.12))
-                .frame(width: 26, height: 26)
-                .background(RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.03)))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func formatBalance(_ b: Double, symbol: String) -> String {
-        if b >= 1_000_000 {
-            return String(format: "%.0f %@", b, symbol)
-        } else if b >= 100 {
-            return String(format: "%.2f %@", b, symbol)
-        } else if b >= 1 {
-            return String(format: "%.4f %@", b, symbol)
-        } else {
-            return String(format: "%.6f %@", b, symbol)
-        }
-    }
-
-    private func formatUSD(_ val: Double) -> String {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.minimumFractionDigits = 2
-        f.maximumFractionDigits = 2
-        return f.string(from: NSNumber(value: val)) ?? "0.00"
-    }
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// MARK: – Token Detail Card (extracted sub-view)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-struct TokenDetailCardView: View {
-    let token: TkDisplayToken
+struct TkTokenDetailCard: View {
+    let token: CustomToken
     let onDismiss: () -> Void
-    let onToggleVisibility: () -> Void
     let onRemove: () -> Void
 
-    @State private var detailScale: CGFloat = 0.92
-    @State private var detailOpacity: Double = 0
-    @State private var closeHovered: Bool = false
-    @State private var addressCopied: Bool = false
     @State private var silkPhase: CGFloat = 0
+    @State private var cardScale: CGFloat = 0.95
+    @State private var opacity: Double = 0
+    @State private var contractCopied: Bool = false
+    @State private var closeHovered: Bool = false
+    @State private var showRemoveConfirm: Bool = false
+    @State private var isFlaggedSpam: Bool = false
+    @AppStorage("hawala.tokens.flaggedSpam") private var flaggedSpamData: Data = Data()
 
     var body: some View {
-        VStack(spacing: 0) {
-            detailHeader
-            ScrollView(.vertical, showsIndicators: false) {
+        ZStack {
+            Color.black.opacity(0.5)
+                .ignoresSafeArea()
+                .onTapGesture { onDismiss() }
+
+            VStack(spacing: 0) {
+                detailHeader
                 detailBody
             }
+            .frame(width: 380, height: 460)
+            .background(detailBg)
+            .overlay(detailStroke)
+            .shadow(color: .black.opacity(0.4), radius: 40, y: 20)
+            .scaleEffect(cardScale)
+            .opacity(opacity)
         }
-        .frame(width: 400, height: 520)
-        .background(detailCardBg)
-        .overlay(detailCardStroke)
-        .shadow(color: .black.opacity(0.5), radius: 50, y: 25)
-        .scaleEffect(detailScale)
-        .opacity(detailOpacity)
         .onAppear {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                detailScale = 1; detailOpacity = 1
+            loadSpamState()
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                cardScale = 1; opacity = 1
             }
-            withAnimation(.linear(duration: 6.0).repeatForever(autoreverses: false)) {
-                silkPhase = 1.5
+            withAnimation(.linear(duration: 6).repeatForever(autoreverses: true)) {
+                silkPhase = 1
             }
         }
     }
 
-    private var detailCardBg: some View {
+    private var detailBg: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 20)
+            RoundedRectangle(cornerRadius: 18)
                 .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
-            RoundedRectangle(cornerRadius: 20)
+            RoundedRectangle(cornerRadius: 18)
                 .fill(
                     LinearGradient(
-                        colors: [.white.opacity(0.0), .white.opacity(0.018), .white.opacity(0.0)],
+                        colors: [.white.opacity(0.0), .white.opacity(0.015), .white.opacity(0.0)],
                         startPoint: UnitPoint(x: silkPhase - 0.3, y: 0),
                         endPoint: UnitPoint(x: silkPhase + 0.3, y: 1)
                     )
@@ -1505,11 +1287,11 @@ struct TokenDetailCardView: View {
         }
     }
 
-    private var detailCardStroke: some View {
-        RoundedRectangle(cornerRadius: 20)
+    private var detailStroke: some View {
+        RoundedRectangle(cornerRadius: 18)
             .strokeBorder(
                 LinearGradient(
-                    colors: [.white.opacity(0.10), .white.opacity(0.03)],
+                    colors: [.white.opacity(0.08), .white.opacity(0.02)],
                     startPoint: .top, endPoint: .bottom
                 ), lineWidth: 1
             )
@@ -1519,237 +1301,239 @@ struct TokenDetailCardView: View {
         ZStack {
             Text("TOKEN DETAIL")
                 .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .tracking(2)
-                .foregroundColor(.white.opacity(0.30))
+                .tracking(1.5)
+                .foregroundColor(.white.opacity(0.35))
+
             HStack {
-                Button(action: dismissDetail) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.35))
-                        .frame(width: 28, height: 28)
-                        .background(Circle().fill(.white.opacity(0.06)))
+                Button { onDismiss() } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 9, weight: .semibold))
+                        Text("BACK")
+                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .tracking(0.5)
+                    }
+                    .foregroundColor(.white.opacity(0.30))
                 }
                 .buttonStyle(.plain)
+
                 Spacer()
-                Button(action: dismissDetail) {
+
+                Button(action: onDismiss) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.white.opacity(closeHovered ? 0.9 : 0.4))
-                        .frame(width: 28, height: 28)
-                        .background(Circle().fill(.white.opacity(closeHovered ? 0.12 : 0.06)))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white.opacity(closeHovered ? 0.8 : 0.35))
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(.white.opacity(closeHovered ? 0.10 : 0.05)))
                 }
                 .buttonStyle(.plain)
                 .onHover { closeHovered = $0 }
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 18)
         .padding(.top, 16)
-        .padding(.bottom, 6)
+        .padding(.bottom, 8)
     }
 
     private var detailBody: some View {
-        VStack(spacing: 18) {
-            // Hero icon + name
-            heroSection
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 16) {
+                // Hero
+                VStack(spacing: 10) {
+                    ZStack {
+                        Circle()
+                            .fill(.white.opacity(0.06))
+                            .frame(width: 64, height: 64)
+                        Text(String(token.symbol.prefix(2)).uppercased())
+                            .font(.clashGroteskMedium(size: 22))
+                            .foregroundColor(.white.opacity(0.45))
+                    }
 
-            // Balance
-            balanceSection
+                    Text(token.name)
+                        .font(.clashGroteskMedium(size: 20))
+                        .foregroundColor(.white.opacity(0.60))
 
-            // Metadata
-            metadataSection
+                    Text(token.symbol.uppercased())
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .tracking(1)
+                        .foregroundColor(.white.opacity(0.30))
+                }
 
-            // Actions
-            actionsSection
-        }
-        .padding(.horizontal, 28)
-        .padding(.top, 8)
-        .padding(.bottom, 28)
-    }
-
-    private var heroSection: some View {
-        VStack(spacing: 10) {
-            // Large icon
-            ZStack {
-                Circle()
-                    .fill(.white.opacity(0.05))
-                    .frame(width: 64, height: 64)
-                Circle()
-                    .strokeBorder(.white.opacity(0.08), lineWidth: 1)
-                    .frame(width: 64, height: 64)
-                Text(String(token.symbol.prefix(1)))
-                    .font(.system(size: 26, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.35))
-            }
-
-            Text(token.name)
-                .font(.clashGroteskBold(size: 28))
-                .foregroundColor(.white.opacity(0.80))
-
-            Text(token.symbol)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .tracking(2)
-                .foregroundColor(.white.opacity(0.30))
-        }
-    }
-
-    private var balanceSection: some View {
-        VStack(spacing: 6) {
-            if token.usdValue > 0 {
-                Text("$\(formatDetailUSD(token.usdValue))")
-                    .font(.clashGroteskBold(size: 32))
-                    .foregroundColor(.white.opacity(0.70))
-            }
-            Text("\(formatDetailBalance(token.balance)) \(token.symbol)")
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundColor(.white.opacity(0.30))
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(.white.opacity(0.025))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.05)))
-        )
-    }
-
-    private var metadataSection: some View {
-        VStack(spacing: 8) {
-            // Contract address (copyable)
-            HStack {
-                Text("CONTRACT")
-                    .font(.system(size: 7, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.18))
-                    .tracking(0.5)
-                Spacer()
-                Button {
-                    copyAddress()
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(truncateAddr(token.contractAddress))
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.35))
-                        Image(systemName: addressCopied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 7))
-                            .foregroundColor(.white.opacity(addressCopied ? 0.40 : 0.20))
+                // Metadata
+                VStack(spacing: 6) {
+                    detailRow(label: "CONTRACT", value: truncAddr(token.contractAddress), copyable: true)
+                    detailRow(label: "CHAIN", value: badgeFor(token.chain))
+                    detailRow(label: "DECIMALS", value: "\(token.decimals)")
+                    detailRow(label: "ADDED", value: relDate(token.addedAt))
+                    if let logo = token.logoURL, !logo.isEmpty {
+                        detailRow(label: "LOGO", value: "Available")
                     }
                 }
-                .buttonStyle(.plain)
-            }
-
-            detailMetaRow(label: "CHAIN", value: token.chain)
-            detailMetaRow(label: "DECIMALS", value: "\(token.decimals)")
-            detailMetaRow(label: "TYPE", value: token.isCustom ? "Custom" : "Default")
-            detailMetaRow(label: "VISIBILITY", value: token.isVisible ? "Visible" : "Hidden")
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(.white.opacity(0.025))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.05)))
-        )
-    }
-
-    private func detailMetaRow(label: String, value: String) -> some View {
-        HStack {
-            Text(label)
-                .font(.system(size: 7, weight: .bold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.18))
-                .tracking(0.5)
-            Spacer()
-            Text(value)
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundColor(.white.opacity(0.35))
-        }
-    }
-
-    private var actionsSection: some View {
-        VStack(spacing: 8) {
-            // Toggle visibility
-            Button(action: onToggleVisibility) {
-                HStack(spacing: 6) {
-                    Image(systemName: token.isVisible ? "eye.slash" : "eye")
-                        .font(.system(size: 10))
-                    Text(token.isVisible ? "HIDE TOKEN" : "SHOW TOKEN")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .tracking(0.5)
-                }
-                .foregroundColor(.white.opacity(0.40))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                .padding(14)
                 .background(
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(.white.opacity(0.04))
-                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.08)))
+                        .fill(.white.opacity(0.03))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.04)))
                 )
-            }
-            .buttonStyle(.plain)
 
-            // Remove (custom only)
-            if token.isCustom {
-                Button(action: onRemove) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 10))
-                        Text("REMOVE TOKEN")
+                // Explorer link
+                Button {
+                    let url = token.chain.explorerBaseURL + token.contractAddress
+                    #if os(macOS)
+                    if let u = URL(string: url) { NSWorkspace.shared.open(u) }
+                    #endif
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.system(size: 9))
+                        Text("VIEW ON EXPLORER")
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .tracking(0.5)
                     }
-                    .foregroundColor(.white.opacity(0.25))
+                    .foregroundColor(.white.opacity(0.35))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(.white.opacity(0.02))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .strokeBorder(
-                                        style: StrokeStyle(lineWidth: 0.8, dash: [5, 3])
-                                    )
-                                    .foregroundColor(.white.opacity(0.06))
-                            )
-                    )
+                    .padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03)))
                 }
                 .buttonStyle(.plain)
+
+                // Actions
+                HStack(spacing: 8) {
+                    Button {
+                        toggleSpamFlag()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: isFlaggedSpam ? "flag.slash" : "flag")
+                                .font(.system(size: 9))
+                            Text(isFlaggedSpam ? "UNFLAG" : "FLAG SPAM")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .tracking(0.3)
+                        }
+                        .foregroundColor(.white.opacity(0.30))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03)))
+                    }
+                    .buttonStyle(.plain)
+
+                    if showRemoveConfirm {
+                        Button { onRemove() } label: {
+                            Text("CONFIRM REMOVE")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .tracking(0.3)
+                                .foregroundColor(.white.opacity(0.55))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.06)))
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                showRemoveConfirm = true
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 9))
+                                Text("REMOVE")
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    .tracking(0.3)
+                            }
+                            .foregroundColor(.white.opacity(0.30))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03)))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+        }
+    }
+
+    private func detailRow(label: String, value: String, copyable: Bool = false) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .tracking(0.5)
+                .foregroundColor(.white.opacity(0.22))
+            Spacer()
+            if copyable {
+                Button {
+                    #if os(macOS)
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(token.contractAddress, forType: .string)
+                    #endif
+                    contractCopied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { contractCopied = false }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(contractCopied ? "COPIED" : value)
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(contractCopied ? 0.50 : 0.40))
+                        Image(systemName: contractCopied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 8))
+                            .foregroundColor(.white.opacity(0.20))
+                    }
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text(value)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.40))
             }
         }
     }
 
-    // ── Helpers ──
-    private func dismissDetail() {
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-            detailScale = 0.95; detailOpacity = 0
+    private func truncAddr(_ addr: String) -> String {
+        guard addr.count > 12 else { return addr }
+        return "\(addr.prefix(6))...\(addr.suffix(4))"
+    }
+
+    private func badgeFor(_ chain: TokenChain) -> String {
+        switch chain {
+        case .ethereum: return "Ethereum (ERC-20)"
+        case .bsc: return "BNB Chain (BEP-20)"
+        case .solana: return "Solana (SPL)"
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            onDismiss()
+    }
+
+    private func relDate(_ date: Date) -> String {
+        let seconds = Int(Date().timeIntervalSince(date))
+        if seconds < 60 { return "just now" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes)m ago" }
+        let hours = minutes / 60
+        if hours < 24 { return "\(hours)h ago" }
+        let days = hours / 24
+        if days < 30 { return "\(days)d ago" }
+        let months = days / 30
+        return "\(months)mo ago"
+    }
+
+    // ── Spam ──
+
+    private func loadSpamState() {
+        if let decoded = try? JSONDecoder().decode(Set<String>.self, from: flaggedSpamData) {
+            isFlaggedSpam = decoded.contains(token.contractAddress.lowercased())
         }
     }
 
-    private func copyAddress() {
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(token.contractAddress, forType: .string)
-        #endif
-        addressCopied = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { addressCopied = false }
-    }
-
-    private func truncateAddr(_ a: String) -> String {
-        guard a.count > 14 else { return a }
-        return String(a.prefix(8)) + "..." + String(a.suffix(6))
-    }
-
-    private func formatDetailBalance(_ b: Double) -> String {
-        if b >= 1_000_000 { return String(format: "%.0f", b) }
-        if b >= 100 { return String(format: "%.2f", b) }
-        if b >= 1 { return String(format: "%.4f", b) }
-        return String(format: "%.6f", b)
-    }
-
-    private func formatDetailUSD(_ val: Double) -> String {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.minimumFractionDigits = 2
-        f.maximumFractionDigits = 2
-        return f.string(from: NSNumber(value: val)) ?? "0.00"
+    private func toggleSpamFlag() {
+        var set: Set<String> = (try? JSONDecoder().decode(Set<String>.self, from: flaggedSpamData)) ?? []
+        let addr = token.contractAddress.lowercased()
+        if set.contains(addr) {
+            set.remove(addr)
+            isFlaggedSpam = false
+        } else {
+            set.insert(addr)
+            isFlaggedSpam = true
+        }
+        if let data = try? JSONEncoder().encode(set) {
+            flaggedSpamData = data
+        }
     }
 }

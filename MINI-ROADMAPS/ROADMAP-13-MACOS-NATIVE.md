@@ -84,7 +84,7 @@
 | E9: Minimum window | 900×600 minimum | Enforced | `.frame(minWidth:minHeight:)` |
 | E10: Maximum window | Optional max or flexible | No layout breakage | Tested |
 | E11: Native toolbar | `.toolbar` modifier | macOS styling | Context-aware items |
-| E12: Context menus | Token row, NFT, address | Right-click actions | `.contextMenu()` |
+| E12: Context menus | Token row, address, activity row | Right-click actions | `.contextMenu()` |
 | E13: Drag and drop | Drag tokens to send | Natural interaction | `.draggable()` |
 | E14: Menu bar | File, Edit, View, etc. | Standard menus | SwiftUI commands |
 | E15: Window title | Dynamic based on content | "Portfolio - Hawala" | `.navigationTitle()` |

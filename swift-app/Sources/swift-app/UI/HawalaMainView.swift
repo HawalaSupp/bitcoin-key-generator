@@ -78,7 +78,6 @@ struct HawalaMainView: View {
     // Phase 4 Feature Sheets (ERC-4337 Account Abstraction)
     @Binding var showSmartAccountSheet: Bool
     @Binding var showGasAccountSheet: Bool
-    @Binding var showPasskeyAuthSheet: Bool
     @Binding var showGaslessTxSheet: Bool
     
     // Hardware wallet
@@ -109,9 +108,6 @@ struct HawalaMainView: View {
     @State private var selectedAssetForDetail: AssetDetailInfo? = nil
     @State private var showAssetDetailPopup: Bool = false
     
-    // Node Management overlay
-    @State private var showNodeManagement: Bool = false
-    
     // Network overlay
     @State private var showNetworkOverlay: Bool = false
     
@@ -121,8 +117,7 @@ struct HawalaMainView: View {
     // Tokens overlay
     @State private var showTokensOverlay: Bool = false
     
-    // Security Policies overlay
-    @State private var showSecurityPoliciesOverlay: Bool = false
+
     
     // L2 Aggregator overlay
     @State private var showL2AggregatorOverlay: Bool = false
@@ -145,8 +140,7 @@ struct HawalaMainView: View {
     // Gas Account overlay
     @State private var showGasAccountOverlay: Bool = false
     
-    // Passkey Auth overlay
-    @State private var showPasskeyAuthOverlay: Bool = false
+
     
     // Gasless Tx overlay
     @State private var showGaslessTxOverlay: Bool = false
@@ -159,20 +153,36 @@ struct HawalaMainView: View {
     
     // Hardware Wallet overlay
     @State private var showHardwareWalletOverlay: Bool = false
+    @State private var hwInitialTab: HardwareWalletOverlay.HWTab? = nil
+    
+    // Address Book overlay
+    @State private var showAddressBookOverlay: Bool = false
+    @State private var abInitialTab: AddressBookOverlay.ABTab? = nil
+    
+    // Scheduled Transactions overlay
+    @State private var showScheduledTxOverlay: Bool = false
+    
+    // Export History overlay
+    @State private var showExportOverlay: Bool = false
+    
+    // Debug Console overlay
+    @State private var showDebugConsoleOverlay: Bool = false
+    
+    // About overlay
+    @State private var showAboutOverlay: Bool = false
+    
+    // Help & Support overlay
+    @State private var showHelpSupportOverlay: Bool = false
     
     // WalletConnect overlay
     @State private var showWalletConnectOverlay: Bool = false
     
     // Security overlay
     @State private var showSecurityOverlay: Bool = false
+    @State private var securityInitialTab: SecurityOverlay.SecSection? = nil
     
     // Privacy overlay
     @State private var showPrivacyOverlay: Bool = false
-    
-    // Chains that support sending
-    private let sendEnabledChainIDs: Set<String> = [
-        "bitcoin", "bitcoin-testnet", "litecoin", "ethereum", "ethereum-sepolia", "bnb", "solana"
-    ]
     
     // Computed property for background type
     private var backgroundType: AnimatedBackgroundType {
@@ -361,6 +371,7 @@ struct HawalaMainView: View {
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                             showSettingsPanel = false
                         }
+                        securityInitialTab = nil
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                             showSecurityOverlay = true
                         }
@@ -396,8 +407,60 @@ struct HawalaMainView: View {
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                             showSettingsPanel = false
                         }
+                        securityInitialTab = .policies
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                            showSecurityPoliciesOverlay = true
+                            showSecurityOverlay = true
+                        }
+                    }, onOpenHardwareWallet: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showSettingsPanel = false
+                        }
+                        hwInitialTab = nil
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showHardwareWalletOverlay = true
+                        }
+                    }, onOpenAddressBook: { tab in
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showSettingsPanel = false
+                        }
+                        abInitialTab = tab
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showAddressBookOverlay = true
+                        }
+                    }, onOpenScheduledTx: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showSettingsPanel = false
+                        }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showScheduledTxOverlay = true
+                        }
+                    }, onOpenExport: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showSettingsPanel = false
+                        }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showExportOverlay = true
+                        }
+                    }, onOpenDebugConsole: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showSettingsPanel = false
+                        }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showDebugConsoleOverlay = true
+                        }
+                    }, onOpenAbout: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showSettingsPanel = false
+                        }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showAboutOverlay = true
+                        }
+                    }, onOpenHelpSupport: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showSettingsPanel = false
+                        }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showHelpSupportOverlay = true
                         }
                     })
                 }
@@ -408,34 +471,15 @@ struct HawalaMainView: View {
                 .zIndex(98)
             }
             
-            // Node Management Overlay (legacy)
-            if showNodeManagement {
-                ZStack {
-                    Color.black.opacity(0.75)
-                        .ignoresSafeArea()
-                        .onTapGesture {
-                            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                                showNodeManagement = false
-                            }
-                        }
-                    
-                    NodeManagementView(onDismiss: {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                            showNodeManagement = false
-                        }
-                    })
-                }
-                .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
-                    removal: .opacity.combined(with: .scale(scale: 0.98))
-                ))
-                .zIndex(96)
-            }
-            
             // Network Overlay
             if showNetworkOverlay {
                 NetworkOverlay(
-                    isPresented: $showNetworkOverlay
+                    isPresented: $showNetworkOverlay,
+                    onBackToSettings: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showSettingsPanel = true
+                        }
+                    }
                 )
                 .transition(.asymmetric(
                     insertion: .opacity.combined(with: .scale(scale: 0.95)),
@@ -447,7 +491,12 @@ struct HawalaMainView: View {
             // Backup Overlay
             if showBackupOverlay {
                 BackupOverlay(
-                    isPresented: $showBackupOverlay
+                    isPresented: $showBackupOverlay,
+                    onBackToSettings: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showSettingsPanel = true
+                        }
+                    }
                 )
                 .transition(.asymmetric(
                     insertion: .opacity.combined(with: .scale(scale: 0.95)),
@@ -459,7 +508,12 @@ struct HawalaMainView: View {
             // Tokens Overlay
             if showTokensOverlay {
                 TokensOverlay(
-                    isPresented: $showTokensOverlay
+                    isPresented: $showTokensOverlay,
+                    onBackToSettings: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showSettingsPanel = true
+                        }
+                    }
                 )
                 .transition(.asymmetric(
                     insertion: .opacity.combined(with: .scale(scale: 0.95)),
@@ -468,17 +522,7 @@ struct HawalaMainView: View {
                 .zIndex(78)
             }
             
-            // Security Policies Overlay
-            if showSecurityPoliciesOverlay {
-                SecurityPoliciesOverlay(
-                    isPresented: $showSecurityPoliciesOverlay
-                )
-                .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
-                    removal: .opacity.combined(with: .scale(scale: 0.98))
-                ))
-                .zIndex(77)
-            }
+
             
             // L2 Aggregator Overlay
             if showL2AggregatorOverlay {
@@ -568,17 +612,7 @@ struct HawalaMainView: View {
                 .zIndex(89)
             }
             
-            // Passkey Auth Overlay
-            if showPasskeyAuthOverlay {
-                PasskeyAuthOverlay(
-                    isPresented: $showPasskeyAuthOverlay
-                )
-                .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
-                    removal: .opacity.combined(with: .scale(scale: 0.98))
-                ))
-                .zIndex(88)
-            }
+
             
             // Gasless Tx Overlay
             if showGaslessTxOverlay {
@@ -619,13 +653,122 @@ struct HawalaMainView: View {
             // Hardware Wallet Overlay
             if showHardwareWalletOverlay {
                 HardwareWalletOverlay(
-                    isPresented: $showHardwareWalletOverlay
+                    isPresented: $showHardwareWalletOverlay,
+                    onBackToSettings: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showSettingsPanel = true
+                        }
+                    },
+                    initialTab: hwInitialTab
                 )
                 .transition(.asymmetric(
                     insertion: .opacity.combined(with: .scale(scale: 0.95)),
                     removal: .opacity.combined(with: .scale(scale: 0.98))
                 ))
                 .zIndex(84)
+            }
+            
+            // Address Book Overlay
+            if showAddressBookOverlay {
+                AddressBookOverlay(
+                    isPresented: $showAddressBookOverlay,
+                    onBackToSettings: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showSettingsPanel = true
+                        }
+                    },
+                    initialTab: abInitialTab
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(78)
+            }
+            
+            // Scheduled Transactions Overlay
+            if showScheduledTxOverlay {
+                ScheduledTransactionsOverlay(
+                    isPresented: $showScheduledTxOverlay,
+                    onBackToSettings: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showSettingsPanel = true
+                        }
+                    }
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(77)
+            }
+            
+            // Export History Overlay
+            if showExportOverlay {
+                ExportOverlay(
+                    isPresented: $showExportOverlay,
+                    onBackToSettings: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showSettingsPanel = true
+                        }
+                    }
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(76)
+            }
+            
+            // Debug Console Overlay
+            if showDebugConsoleOverlay {
+                DebugConsoleOverlay(
+                    isPresented: $showDebugConsoleOverlay,
+                    onBackToSettings: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showSettingsPanel = true
+                        }
+                    }
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(75)
+            }
+            
+            // About Overlay
+            if showAboutOverlay {
+                AboutOverlay(
+                    isPresented: $showAboutOverlay,
+                    onBackToSettings: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showSettingsPanel = true
+                        }
+                    }
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(74)
+            }
+            
+            // Help & Support Overlay
+            if showHelpSupportOverlay {
+                HelpSupportOverlay(
+                    isPresented: $showHelpSupportOverlay,
+                    onBackToSettings: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showSettingsPanel = true
+                        }
+                    }
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                ))
+                .zIndex(73)
             }
             
             // WalletConnect Overlay
@@ -643,7 +786,13 @@ struct HawalaMainView: View {
             // Security Overlay
             if showSecurityOverlay {
                 SecurityOverlay(
-                    isPresented: $showSecurityOverlay
+                    isPresented: $showSecurityOverlay,
+                    onBackToSettings: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showSettingsPanel = true
+                        }
+                    },
+                    initialTab: securityInitialTab
                 )
                 .transition(.asymmetric(
                     insertion: .opacity.combined(with: .scale(scale: 0.95)),
@@ -699,16 +848,6 @@ struct HawalaMainView: View {
         .coachmarkOverlay()
         .ignoresSafeArea() // Ignore safe area to push content to very top
         .preferredColorScheme(.dark)
-        .onReceive(NotificationCenter.default.publisher(for: .openNodeManagement)) { _ in
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                showSettingsPanel = false
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                    showNodeManagement = true
-                }
-            }
-        }
         .onAppear {
             // Show first-launch coachmarks after a short delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -1327,7 +1466,7 @@ struct HawalaMainView: View {
                                     fiatValue: formatFiatValue(for: chain.id),
                                     currentPrice: currentPrice,
                                     sparklineData: sparklineCache.sparklines[chain.id] ?? [],
-                                    canSend: sendEnabledChainIDs.contains(chain.id)
+                                    canSend: ChainCapabilityRegistry.supportsSend(chain.id)
                                 )
                                 
                                 withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
@@ -1964,17 +2103,7 @@ struct HawalaMainView: View {
                             }
                         }
                         
-                        DiscoverBentoCard(
-                            icon: "faceid",
-                            title: "Passkey Auth",
-                            description: "Sign transactions with Face ID",
-                            color: HawalaTheme.Colors.accent,
-                            size: .standard
-                        ) {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                                showPasskeyAuthOverlay = true
-                            }
-                        }
+
                         
                         DiscoverBentoCard(
                             icon: "checkmark.seal.fill",
@@ -3386,6 +3515,7 @@ struct AssetDetailPopup: View {
     @State private var contentOpacity: Double = 0
     @State private var cardScale: CGFloat = 0.92
     @State private var chartProgress: CGFloat = 0
+    @State private var cardExpanded: Bool = false
     
     // Data states
     @State private var selectedTimeframe: ChartTimeframe = .day
@@ -3505,6 +3635,10 @@ struct AssetDetailPopup: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 24)
                 .padding(.bottom, 16)
+                
+                // Scrollable content area
+                ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
                 
                 // Price section
                 VStack(alignment: .center, spacing: 8) {
@@ -3631,9 +3765,10 @@ struct AssetDetailPopup: View {
                 .padding(.top, 16)
                 .opacity(contentOpacity)
                 
-                Spacer()
+                } // end scrollable VStack
+                } // end ScrollView
                 
-                // Action buttons
+                // Action buttons (pinned at bottom)
                 HStack(spacing: 12) {
                     // Send button
                     Button(action: {
@@ -3693,7 +3828,8 @@ struct AssetDetailPopup: View {
                 .padding(.bottom, 24)
                 .opacity(contentOpacity)
             }
-            .frame(width: 400, height: 480)
+            .frame(maxWidth: cardExpanded ? 680 : 460)
+            .frame(maxHeight: 500)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
@@ -3716,10 +3852,15 @@ struct AssetDetailPopup: View {
             EscapeKeyHandler(isPresented: $isPresented, onEscape: dismissPopup)
         )
         .onAppear {
-            // Smooth entrance
+            // Smooth entrance — pop in at compact size
             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                 cardScale = 1
                 contentOpacity = 1
+            }
+            
+            // Stretch wider after initial pop-in
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.82).delay(0.25)) {
+                cardExpanded = true
             }
             
             // Chart animation

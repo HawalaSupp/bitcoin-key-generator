@@ -6,7 +6,7 @@ import SwiftUI
 /// Shows a small visual cue so the user knows if they're in real or decoy mode
 /// Intentionally designed to be non-obvious to onlookers
 struct DuressModeBadge: View {
-    @ObservedObject var duressManager: DuressManager
+    @ObservedObject var duressManager: DuressWalletManager
     var onTap: (() -> Void)?
     
     var body: some View {
@@ -59,7 +59,7 @@ struct DuressModeBadge: View {
 /// Hidden gesture area for panic wipe — ROADMAP-23 E9
 /// Activated by triple-tapping a specific area (configurable)
 struct PanicWipeGesture: ViewModifier {
-    @ObservedObject var duressManager: DuressManager
+    @ObservedObject var duressManager: DuressWalletManager
     @State private var showPanicConfirmation = false
     
     func body(content: Content) -> some View {
@@ -90,7 +90,7 @@ struct PanicWipeGesture: ViewModifier {
 
 extension View {
     /// Attach the hidden panic wipe gesture — ROADMAP-23 E9
-    func panicWipeGesture(duressManager: DuressManager) -> some View {
+    func panicWipeGesture(duressManager: DuressWalletManager) -> some View {
         modifier(PanicWipeGesture(duressManager: duressManager))
     }
 }

@@ -1,0 +1,146 @@
+import Foundation
+
+/// Secure API key storage - loads from environment or secure storage
+/// 
+/// SETUP INSTRUCTIONS:
+/// 1. Copy this file to APIKeys.swift (remove .template extension)
+/// 2. The app will automatically store your API key securely in the macOS Keychain
+/// 3. Alternatively, set the ALCHEMY_API_KEY environment variable
+///
+/// Get your free Alchemy API key at: https://www.alchemy.com/
+/// 
+/// NEVER commit APIKeys.swift to version control!
+
+final class APIKeys: @unchecked Sendable {
+    
+    // MARK: - Singleton
+    static let shared = APIKeys()
+    
+    private init() {}
+    
+    // MARK: - Static Accessors (for backward compatibility)
+    
+    /// Static accessor for Alchemy API key
+    static var alchemyAPIKey: String {
+        shared.alchemyAPIKey
+    }
+    
+    // MARK: - API Keys (loaded securely)
+    
+    /// Alchemy API key for blockchain data
+    var alchemyAPIKey: String {
+        // Priority 1: Environment variable (for CI/CD)
+        if let envKey = ProcessInfo.processInfo.environment["ALCHEMY_API_KEY"], !envKey.isEmpty {
+            return envKey
+        }
+        
+        // Priority 2: Keychain storage
+        if let keychainKey = KeychainHelper.load(key: "alchemy_api_key"), !keychainKey.isEmpty {
+            return keychainKey
+        }
+        
+        // Priority 3: User Defaults (encrypted on macOS)
+        if let defaultsKey = UserDefaults.standard.string(forKey: "alchemy_api_key"), !defaultsKey.isEmpty {
+            return defaultsKey
+        }
+        
+        // No key found - return empty string
+        // The app will still work using public fallback endpoints
+        return ""
+    }
+    
+    /// Check if Alchemy is configured
+    var hasAlchemyKey: Bool {
+        !alchemyAPIKey.isEmpty
+    }
+    
+    // MARK: - Key Management
+    
+    /// Store Alchemy API key securely in Keychain
+    static func setAlchemyKey(_ key: String) {
+        KeychainHelper.save(key: "alchemy_api_key", value: key)
+        print("✅ Alchemy API key stored securely in Keychain")
+    }
+    
+    /// Remove stored Alchemy API key
+    static func removeAlchemyKey() {
+        KeychainHelper.delete(key: "alchemy_api_key")
+        print("🗑️ Alchemy API key removed from Keychain")
+    }
+    
+    // MARK: - Alchemy Endpoints
+    
+    /// Get Alchemy base URL for a specific chain
+    func alchemyBaseURL(for chain: AlchemyChain) -> String? {
+        guard hasAlchemyKey else { return nil }
+        return "https://\(chain.subdomain).g.alchemy.com/v2/\(alchemyAPIKey)"
+    }
+    
+    enum AlchemyChain: String {
+        case ethereumMainnet = "eth-mainnet"
+        case ethereumSepolia = "eth-sepolia"
+        case ethereumGoerli = "eth-goerli"
+        case polygonMainnet = "polygon-mainnet"
+        case polygonAmoy = "polygon-amoy"
+        case arbitrumMainnet = "arb-mainnet"
+        case optimismMainnet = "opt-mainnet"
+        case baseMainnet = "base-mainnet"
+        case solanaMainnet = "solana-mainnet"
+        case solanaDevnet = "solana-devnet"
+        
+        var subdomain: String { rawValue }
+    }
+}
+
+// MARK: - Simple Keychain Helper
+
+private struct KeychainHelper {
+    
+    static func save(key: String, value: String) {
+        guard let data = value.data(using: .utf8) else { return }
+        
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecAttrService as String: "com.hawala.wallet.apikeys",
+            kSecValueData as String: data
+        ]
+        
+        // Delete any existing item
+        SecItemDelete(query as CFDictionary)
+        
+        // Add new item
+        SecItemAdd(query as CFDictionary, nil)
+    }
+    
+    static func load(key: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecAttrService as String: "com.hawala.wallet.apikeys",
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let string = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        
+        return string
+    }
+    
+    static func delete(key: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecAttrService as String: "com.hawala.wallet.apikeys"
+        ]
+        
+        SecItemDelete(query as CFDictionary)
+    }
+}

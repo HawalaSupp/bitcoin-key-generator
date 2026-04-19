@@ -181,6 +181,12 @@ final class PriceService: ObservableObject {
     
     func priceUpdateLoop() async {
         while !Task.isCancelled {
+            // Respect privacy mode — skip fetching when prices are paused
+            if await MainActor.run(body: { PrivacyManager.shared.shouldPausePrices }) {
+                try? await Task.sleep(nanoseconds: UInt64(pricePollingInterval * 1_000_000_000))
+                continue
+            }
+
             let result = await fetchAndStorePrices()
             
             if result.rateLimited {

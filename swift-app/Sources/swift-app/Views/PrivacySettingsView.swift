@@ -3,7 +3,7 @@ import SwiftUI
 /// Settings view for configuring privacy options
 struct PrivacySettingsView: View {
     @ObservedObject private var privacyManager = PrivacyManager.shared
-    @ObservedObject private var duressManager = DuressManager.shared
+    @ObservedObject private var duressManager = DuressWalletManager.shared
     @State private var showingResetConfirmation = false
     
     var body: some View {

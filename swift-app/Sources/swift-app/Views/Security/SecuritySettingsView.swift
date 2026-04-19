@@ -18,134 +18,126 @@ struct SecuritySettingsView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section(header: Text("Session Lock")) {
-                    if hasPasscode {
-                        Text("A passcode is currently required to unlock key material. You can remove it below or set a new one.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        Button(role: .destructive) {
-                            onRemovePasscode()
-                            dismiss()
-                        } label: {
-                            Label("Remove Passcode", systemImage: "lock.open")
-                        }
-                    } else {
-                        Text("Add a passcode to require unlocking before any key data is shown. This clears keys when the app goes to the background.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+        HawalaSheetShell(title: "Security Settings", width: 440, height: 700) {
+
+            // ── Session Lock ──
+            VStack(spacing: 12) {
+                HawalaOverlaySectionHeader(icon: "lock.fill", title: "Session Lock")
+
+                if hasPasscode {
+                    HawalaInfoRow(icon: "checkmark.circle", text: "Passcode is active", color: Color(red: 0.20, green: 0.84, blue: 0.29).opacity(0.7))
+                    HawalaActionButton(icon: "lock.open", label: "Remove Passcode", style: .destructive) {
+                        onRemovePasscode()
+                        dismiss()
                     }
+                } else {
+                    HawalaInfoRow(icon: "info.circle", text: "No passcode set. Add one to lock key data.", color: .white.opacity(0.35))
                 }
+            }
+            .hawalaSectionCard()
 
-                Section(header: Text("Set New Passcode")) {
-                    SecureField("New passcode", text: $passcode)
-                        .textContentType(.password)
-                    SecureField("Confirm passcode", text: $confirmPasscode)
-                        .textContentType(.password)
+            // ── Set New Passcode ──
+            VStack(spacing: 12) {
+                HawalaOverlaySectionHeader(icon: "key", title: "Set New Passcode")
+                HawalaSecureField(placeholder: "New passcode", text: $passcode)
+                HawalaSecureField(placeholder: "Confirm passcode", text: $confirmPasscode)
 
-                    if let errorMessage {
+                if let errorMessage {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.circle")
+                            .font(.system(size: 11))
                         Text(errorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
+                            .font(.system(size: 12))
                     }
-
-                    Button {
-                        validateAndSave()
-                    } label: {
-                        Label("Save Passcode", systemImage: "lock")
-                    }
-                    .disabled(passcode.isEmpty || confirmPasscode.isEmpty)
+                    .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
+                    .padding(10)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.red.opacity(0.1))
+                    .cornerRadius(8)
                 }
 
-                Section(header: Text("Biometric Unlock")) {
-                    Text(biometricState.statusMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                    if biometricState.supportsUnlock {
-                        Toggle(isOn: $biometricEnabled) {
-                            Label("Enable \(biometricLabel)", systemImage: biometricIcon)
-                        }
-                        .disabled(!hasPasscode)
-
-                        if !hasPasscode {
-                            Text("Set a passcode to turn on biometrics.")
-                                .font(.footnote)
-                                .foregroundStyle(.orange)
-                        } else if biometricEnabled {
-                            Button {
-                                onBiometricRequest()
-                            } label: {
-                                Label("Test \(biometricLabel)", systemImage: "hand.raised.fill")
-                            }
-                        }
-                    }
+                HawalaActionButton(icon: "lock", label: "Save Passcode", style: .primary) {
+                    validateAndSave()
                 }
-                
-                if BiometricAuthHelper.isBiometricAvailable {
-                    Section(header: Text("Biometric Protection")) {
-                        Toggle(isOn: $biometricForSends) {
-                            Label("Require for Sends", systemImage: "paperplane.fill")
-                        }
-                        
-                        Toggle(isOn: $biometricForKeyReveal) {
-                            Label("Require for Key Reveal", systemImage: "key.fill")
-                        }
-                        
-                        Text("When enabled, \(biometricLabel) will be required before sending funds or viewing private keys.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            }
+            .hawalaSectionCard()
 
-                Section(header: Text("Auto-Lock Timer")) {
-                    Picker("Auto-lock after", selection: $autoLockSelection) {
-                        ForEach(AutoLockIntervalOption.allCases, id: \.self) { option in
-                            Text(option.label).tag(option)
-                        }
-                    }
-                    .disabled(!hasPasscode)
+            // ── Biometric Unlock ──
+            VStack(spacing: 12) {
+                HawalaOverlaySectionHeader(icon: biometricIcon, title: "Biometric Unlock")
 
-                    Text(autoLockSelection.description)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                HawalaInfoRow(icon: "info.circle", text: biometricState.statusMessage, color: .white.opacity(0.35))
+
+                if biometricState.supportsUnlock {
+                    HawalaToggleRow(icon: biometricIcon, label: "Enable \(biometricLabel)", isOn: $biometricEnabled)
 
                     if !hasPasscode {
-                        Text("Auto-lock requires a passcode so there's something to lock to.")
-                            .font(.footnote)
-                            .foregroundStyle(.orange)
+                        HawalaInfoRow(icon: "exclamationmark.triangle", text: "Set a passcode to turn on biometrics.", color: Color(red: 1, green: 0.84, blue: 0.04).opacity(0.7))
+                    } else if biometricEnabled {
+                        HawalaActionButton(icon: "hand.raised.fill", label: "Test \(biometricLabel)", style: .secondary) {
+                            onBiometricRequest()
+                        }
                     }
                 }
-                
-                // Duress Protection Section
-                Section(header: Text("Duress Protection")) {
-                    DuressProtectionRow(hasPasscode: hasPasscode)
+            }
+            .hawalaSectionCard()
+
+            // ── Biometric Protection ──
+            if BiometricAuthHelper.isBiometricAvailable {
+                VStack(spacing: 12) {
+                    HawalaOverlaySectionHeader(icon: "shield.fill", title: "Biometric Protection")
+                    HawalaToggleRow(icon: "paperplane.fill", label: "Require for Sends", isOn: $biometricForSends)
+                    HawalaToggleRow(icon: "key.fill", label: "Require for Key Reveal", isOn: $biometricForKeyReveal)
+                    HawalaInfoRow(icon: "info.circle", text: "\(biometricLabel) required before sending or viewing keys.", color: .white.opacity(0.3))
                 }
-                
-                // Inheritance Protocol Section
-                Section(header: Text("Inheritance Protocol")) {
-                    InheritanceProtocolRow()
+                .hawalaSectionCard()
+            }
+
+            // ── Auto-Lock Timer ──
+            VStack(spacing: 12) {
+                HawalaOverlaySectionHeader(icon: "timer", title: "Auto-Lock Timer")
+
+                HStack(spacing: 8) {
+                    ForEach(AutoLockIntervalOption.allCases, id: \.self) { option in
+                        Button(action: { autoLockSelection = option }) {
+                            Text(option.label)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(autoLockSelection == option
+                                    ? Color.white.opacity(0.5)
+                                    : .white.opacity(0.4))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(autoLockSelection == option
+                                    ? Color.white.opacity(0.15)
+                                    : Color.white.opacity(0.04))
+                                .cornerRadius(8)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .strokeBorder(autoLockSelection == option
+                                            ? Color.white.opacity(0.3)
+                                            : Color.white.opacity(0.06), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!hasPasscode)
+                    }
                 }
-                
-                // Geographic Security Section
-                Section(header: Text("Location Security")) {
-                    GeographicSecurityRow()
-                }
-                
-                // Social Recovery Section
-                Section(header: Text("Social Recovery")) {
-                    SocialRecoveryRow()
+
+                HawalaInfoRow(icon: "info.circle", text: autoLockSelection.description, color: .white.opacity(0.3))
+
+                if !hasPasscode {
+                    HawalaInfoRow(icon: "exclamationmark.triangle", text: "Auto-lock requires a passcode.", color: Color(red: 1, green: 0.84, blue: 0.04).opacity(0.7))
                 }
             }
-            .navigationTitle("Security Settings")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                }
+            .hawalaSectionCard()
+
+            // ── Duress Protection ──
+            VStack(spacing: 12) {
+                HawalaOverlaySectionHeader(icon: "shield.checkered", title: "Duress Protection")
+                DuressProtectionRow(hasPasscode: hasPasscode)
             }
+            .hawalaSectionCard()
         }
-        .frame(width: 420, height: 750)
     }
 
     private func validateAndSave() {
@@ -184,202 +176,55 @@ struct DuressProtectionRow: View {
     let hasPasscode: Bool
     @StateObject private var duressManager = DuressWalletManager.shared
     @State private var showDuressSetup = false
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
                 Image(systemName: duressManager.isConfigured ? "shield.checkered" : "exclamationmark.shield")
-                    .foregroundColor(duressManager.isConfigured ? .green : .orange)
-                
+                    .font(.system(size: 14))
+                    .foregroundColor(duressManager.isConfigured
+                        ? Color(red: 0.20, green: 0.84, blue: 0.29)
+                        : Color(red: 1, green: 0.84, blue: 0.04))
+                    .frame(width: 20)
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Duress PIN")
-                        .font(.body)
-                    
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.85))
                     Text(duressManager.isConfigured ? "Protected with decoy wallet" : "Not configured")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.35))
                 }
-                
+
                 Spacer()
-                
-                Button(duressManager.isConfigured ? "Manage" : "Set Up") {
+
+                HawalaActionButton(
+                    icon: duressManager.isConfigured ? "gearshape" : "plus.circle",
+                    label: duressManager.isConfigured ? "Manage" : "Set Up",
+                    style: .primary
+                ) {
                     showDuressSetup = true
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(!hasPasscode)
+                .frame(width: 120)
             }
-            
+
             if !hasPasscode {
-                Text("Set a passcode first to enable duress protection.")
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-            } else {
-                Text("Create a secondary PIN that opens a decoy wallet with minimal funds. Use in coercion scenarios for plausible deniability.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                HawalaInfoRow(icon: "exclamationmark.triangle", text: "Set a passcode first to enable duress protection.", color: Color(red: 1, green: 0.84, blue: 0.04).opacity(0.7))
             }
-            
-            // Show duress mode indicator (only visible in real mode)
+
             if duressManager.isInDuressMode {
-                HStack {
+                HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.red)
+                        .font(.system(size: 11))
                     Text("Currently in duress mode")
-                        .font(.caption)
-                        .foregroundColor(.red)
+                        .font(.system(size: 11))
                 }
-                .padding(.top, 4)
+                .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
             }
         }
         .sheet(isPresented: $showDuressSetup) {
-            DuressSetupView()
+            DuressSettingsView()
         }
     }
 }
 
-// MARK: - Inheritance Protocol Row
-
-struct InheritanceProtocolRow: View {
-    @StateObject private var manager = DeadMansSwitchManager.shared
-    @State private var showInheritanceSetup = false
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: manager.isConfigured ? "person.2.badge.gearshape.fill" : "person.2.badge.gearshape")
-                    .foregroundColor(manager.isConfigured ? .green : .blue)
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Dead Man's Switch")
-                        .font(.body)
-                    
-                    if manager.isConfigured {
-                        Text("\(manager.daysUntilTrigger ?? 0) days until trigger")
-                            .font(.caption)
-                            .foregroundColor(manager.warningLevel == .critical ? .red : 
-                                           manager.warningLevel == .warning ? .orange : .secondary)
-                    } else {
-                        Text("Not configured")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                
-                Spacer()
-                
-                if manager.isConfigured && manager.warningLevel != .none {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(manager.warningLevel == .critical ? .red : .orange)
-                }
-                
-                Button(manager.isConfigured ? "Manage" : "Set Up") {
-                    showInheritanceSetup = true
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            
-            Text("Automatically transfer funds to designated heirs after a period of inactivity. Trustless inheritance using blockchain timelocks.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-        .sheet(isPresented: $showInheritanceSetup) {
-            DeadMansSwitchView()
-        }
-    }
-}
-
-// MARK: - Geographic Security Row
-
-struct GeographicSecurityRow: View {
-    @StateObject private var manager = GeographicSecurityManager.shared
-    @State private var showGeoSecurity = false
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: manager.isEnabled ? "location.shield.fill" : "location.slash")
-                    .font(.title2)
-                    .foregroundStyle(manager.isEnabled ? .blue : .secondary)
-                
-                VStack(alignment: .leading) {
-                    Text("Geographic Security")
-                        .font(.headline)
-                    
-                    if manager.travelModeActive {
-                        Text("Travel Mode Active")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    } else if manager.isEnabled {
-                        Text("\(manager.trustedZones.count) trusted zone(s)")
-                            .font(.caption)
-                            .foregroundStyle(.green)
-                    } else {
-                        Text("Location protection disabled")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                
-                Spacer()
-                
-                Button(manager.isEnabled ? "Manage" : "Enable") {
-                    showGeoSecurity = true
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            
-            Text("Restrict wallet access based on geographic location. Set trusted zones, enable travel mode, and add location-based transaction limits.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-        .sheet(isPresented: $showGeoSecurity) {
-            GeographicSecurityView()
-        }
-    }
-}
-
-// MARK: - Social Recovery Row
-
-struct SocialRecoveryRow: View {
-    @StateObject private var multisigManager = MultisigManager.shared
-    @State private var showSocialRecovery = false
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "person.3.fill")
-                    .font(.title2)
-                    .foregroundStyle(.purple)
-                
-                VStack(alignment: .leading) {
-                    Text("Social Recovery")
-                        .font(.headline)
-                    
-                    if !multisigManager.wallets.isEmpty {
-                        Text("\(multisigManager.wallets.count) multisig wallet(s)")
-                            .font(.caption)
-                            .foregroundStyle(.green)
-                    } else {
-                        Text("No multisig wallets configured")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                
-                Spacer()
-                
-                Button("Configure") {
-                    showSocialRecovery = true
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            
-            Text("Use trusted guardians to help recover your wallet if you lose access. Add friends, family, or hardware keys as recovery partners.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-        .sheet(isPresented: $showSocialRecovery) {
-            SocialRecoveryView()
-        }
-    }
-}

@@ -447,7 +447,7 @@ struct TransactionIntentView: View {
         case .contractCall: return .purple
         case .swap: return .green
         case .stake, .unstake: return .indigo
-        case .wrap, .unwrap: return .teal
+        case .wrap, .unwrap: return .white.opacity(0.5)
         case .bridge: return .cyan
         case .unknown: return .gray
         }

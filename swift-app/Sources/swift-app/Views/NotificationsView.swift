@@ -8,12 +8,43 @@ struct NotificationsView: View {
     @State private var showAddAlert = false
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            headerView
-            
-            Divider()
-            
+        HawalaSheetShell(title: "Notifications", width: 520, height: 520) {
+            // Auth banner
+            if !notificationManager.isAuthorized {
+                HStack(spacing: 8) {
+                    Image(systemName: "bell.slash")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04))
+                    Text("Notifications disabled")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04).opacity(0.8))
+                    Spacer()
+                    Button("Enable") {
+                        Task { _ = await notificationManager.requestAuthorization() }
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.12))
+                    .clipShape(Capsule())
+                    .buttonStyle(.plain)
+                }
+                .padding(10)
+                .background(Color(red: 1, green: 0.84, blue: 0.04).opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+
+            // Unread badge
+            if notificationManager.unreadCount > 0 {
+                HStack(spacing: 4) {
+                    Text("\(notificationManager.unreadCount) unread")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
+                    Spacer()
+                }
+            }
+
             // Tab selector
             Picker("Tab", selection: $selectedTab) {
                 Text("History").tag(0)
@@ -21,17 +52,15 @@ struct NotificationsView: View {
                 Text("Settings").tag(2)
             }
             .pickerStyle(.segmented)
-            .padding()
             
             // Content
-            TabView(selection: $selectedTab) {
-                historyTab.tag(0)
-                priceAlertsTab.tag(1)
-                settingsTab.tag(2)
+            switch selectedTab {
+            case 0: historyTab
+            case 1: priceAlertsTab
+            case 2: settingsTab
+            default: EmptyView()
             }
-            .tabViewStyle(.automatic)
         }
-        .frame(minWidth: 500, idealWidth: 550, minHeight: 450, idealHeight: 500)
         .sheet(isPresented: $showAddAlert) {
             AddPriceAlertSheet(onAdd: { asset, symbol, price, isAbove in
                 notificationManager.addPriceAlert(
@@ -52,50 +81,10 @@ struct NotificationsView: View {
         }
     }
     
-    private var headerView: some View {
-        HStack {
-            Button("Done") { dismiss() }
-                .buttonStyle(.plain)
-                .foregroundStyle(.blue)
-            
-            Spacer()
-            
-            HStack(spacing: 4) {
-                Text("Notifications")
-                    .font(.headline)
-                
-                if notificationManager.unreadCount > 0 {
-                    Text("\(notificationManager.unreadCount)")
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.red)
-                        .foregroundStyle(.white)
-                        .clipShape(Capsule())
-                }
-            }
-            
-            Spacer()
-            
-            if !notificationManager.isAuthorized {
-                Button {
-                    Task { _ = await notificationManager.requestAuthorization() }
-                } label: {
-                    Label("Enable", systemImage: "bell.badge")
-                        .font(.caption)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            }
-        }
-        .padding()
-    }
-    
     // MARK: - History Tab
     
     private var historyTab: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 8) {
             if notificationManager.notificationHistory.isEmpty {
                 emptyHistoryView
             } else {
@@ -103,8 +92,9 @@ struct NotificationsView: View {
                     Button("Mark All Read") {
                         notificationManager.markAllAsRead()
                     }
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.5))
                     .buttonStyle(.plain)
-                    .foregroundStyle(.blue)
                     .disabled(notificationManager.unreadCount == 0)
                     
                     Spacer()
@@ -112,17 +102,18 @@ struct NotificationsView: View {
                     Button("Clear All") {
                         notificationManager.clearHistory()
                     }
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
                     .buttonStyle(.plain)
-                    .foregroundStyle(.red)
                 }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                
-                Divider()
-                
-                List(notificationManager.notificationHistory) { notification in
-                    NotificationRow(notification: notification) {
-                        notificationManager.markAsRead(notification)
+
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(notificationManager.notificationHistory) { notification in
+                            NotificationRow(notification: notification) {
+                                notificationManager.markAsRead(notification)
+                            }
+                        }
                     }
                 }
             }
@@ -130,55 +121,54 @@ struct NotificationsView: View {
     }
     
     private var emptyHistoryView: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             Image(systemName: "bell.slash")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            
+                .font(.system(size: 32))
+                .foregroundColor(.white.opacity(0.15))
             Text("No Notifications")
-                .font(.headline)
-            
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white.opacity(0.5))
             Text("You'll see transaction confirmations, price alerts, and security reminders here")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.3))
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
     }
     
     // MARK: - Price Alerts Tab
     
     private var priceAlertsTab: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 8) {
             HStack {
                 Text("\(notificationManager.priceAlerts.count) alerts")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.35))
                 Spacer()
-                
-                Button {
-                    showAddAlert = true
-                } label: {
-                    Label("Add Alert", systemImage: "plus")
+                Button { showAddAlert = true } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 9))
+                        Text("Add Alert")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundColor(Color.white.opacity(0.5))
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                .buttonStyle(.plain)
             }
-            .padding()
-            
-            Divider()
-            
+
             if notificationManager.priceAlerts.isEmpty {
                 emptyAlertsView
             } else {
-                List {
-                    ForEach(notificationManager.priceAlerts) { alert in
-                        PriceAlertRow(alert: alert) {
-                            notificationManager.togglePriceAlert(alert)
-                        } onDelete: {
-                            notificationManager.removePriceAlert(alert)
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(notificationManager.priceAlerts) { alert in
+                            PriceAlertRow(alert: alert) {
+                                notificationManager.togglePriceAlert(alert)
+                            } onDelete: {
+                                notificationManager.removePriceAlert(alert)
+                            }
                         }
                     }
                 }
@@ -187,66 +177,69 @@ struct NotificationsView: View {
     }
     
     private var emptyAlertsView: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             Image(systemName: "chart.line.uptrend.xyaxis")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            
+                .font(.system(size: 32))
+                .foregroundColor(.white.opacity(0.15))
             Text("No Price Alerts")
-                .font(.headline)
-            
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white.opacity(0.5))
             Text("Get notified when your favorite assets hit your target price")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.3))
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-            
-            Button {
+            HawalaActionButton(icon: "plus.circle", label: "Add Your First Alert", style: .primary) {
                 showAddAlert = true
-            } label: {
-                Label("Add Your First Alert", systemImage: "plus")
             }
-            .buttonStyle(.borderedProminent)
-            .padding(.top, 8)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
     }
     
     // MARK: - Settings Tab
     
     private var settingsTab: some View {
-        Form {
-            Section("Notification Types") {
-                Toggle("Transaction Alerts", isOn: $notificationManager.settings.transactionAlerts)
-                Toggle("Price Alerts", isOn: $notificationManager.settings.priceAlerts)
-                Toggle("Security Reminders", isOn: $notificationManager.settings.securityReminders)
-                Toggle("Staking Alerts", isOn: $notificationManager.settings.stakingAlerts)
+        VStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
+                HawalaOverlaySectionHeader(icon: "bell.fill", title: "Notification Types")
+                HawalaToggleRow(icon: "arrow.left.arrow.right", label: "Transaction Alerts", isOn: $notificationManager.settings.transactionAlerts)
+                HawalaToggleRow(icon: "chart.line.uptrend.xyaxis", label: "Price Alerts", isOn: $notificationManager.settings.priceAlerts)
+                HawalaToggleRow(icon: "shield.fill", label: "Security Reminders", isOn: $notificationManager.settings.securityReminders)
+                HawalaToggleRow(icon: "gift.fill", label: "Staking Alerts", isOn: $notificationManager.settings.stakingAlerts)
             }
-            
-            Section("Delivery") {
-                Toggle("Sound", isOn: $notificationManager.settings.soundEnabled)
-                Toggle("Badge Count", isOn: $notificationManager.settings.badgeEnabled)
+            .hawalaSectionCard()
+
+            VStack(alignment: .leading, spacing: 8) {
+                HawalaOverlaySectionHeader(icon: "speaker.wave.2.fill", title: "Delivery")
+                HawalaToggleRow(icon: "speaker.fill", label: "Sound", isOn: $notificationManager.settings.soundEnabled)
+                HawalaToggleRow(icon: "app.badge", label: "Badge Count", isOn: $notificationManager.settings.badgeEnabled)
             }
-            
-            Section("Price Monitoring") {
+            .hawalaSectionCard()
+
+            VStack(alignment: .leading, spacing: 8) {
+                HawalaOverlaySectionHeader(icon: "chart.bar.fill", title: "Price Monitoring")
                 HStack {
                     Text("Status")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.5))
                     Spacer()
-                    Text("Active")
-                        .foregroundStyle(.green)
+                    HStack(spacing: 4) {
+                        Circle().fill(Color(red: 0.20, green: 0.84, blue: 0.29)).frame(width: 6, height: 6)
+                        Text("Active")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(Color(red: 0.20, green: 0.84, blue: 0.29))
+                    }
                 }
-                
-                Button("Start Monitoring") {
-                    notificationManager.startPriceMonitoring()
+                HStack(spacing: 8) {
+                    Button("Start") { notificationManager.startPriceMonitoring() }
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.5))
+                        .buttonStyle(.plain)
+                    Button("Stop") { notificationManager.stopPriceMonitoring() }
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
+                        .buttonStyle(.plain)
                 }
-                
-                Button("Stop Monitoring") {
-                    notificationManager.stopPriceMonitoring()
-                }
-                .foregroundStyle(.red)
-            }
-            
-            Section("Test") {
                 Button("Send Test Notification") {
                     Task {
                         await notificationManager.sendNotification(
@@ -256,9 +249,12 @@ struct NotificationsView: View {
                         )
                     }
                 }
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.white.opacity(0.5))
+                .buttonStyle(.plain)
             }
+            .hawalaSectionCard()
         }
-        .formStyle(.grouped)
         .onChange(of: notificationManager.settings.transactionAlerts) { _ in
             notificationManager.saveSettings()
         }
@@ -288,40 +284,44 @@ struct NotificationRow: View {
     
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 12) {
-                // Icon
+            HStack(spacing: 10) {
                 Image(systemName: notification.type.icon)
-                    .font(.title2)
-                    .foregroundStyle(iconColor)
-                    .frame(width: 36)
+                    .font(.system(size: 14))
+                    .foregroundColor(iconColor)
+                    .frame(width: 28, height: 28)
+                    .background(iconColor.opacity(0.1))
+                    .clipShape(Circle())
                 
-                // Content
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
                         Text(notification.title)
-                            .font(.headline)
-                            .fontWeight(notification.isRead ? .regular : .semibold)
+                            .font(.system(size: 12, weight: notification.isRead ? .regular : .semibold))
+                            .foregroundColor(.white.opacity(notification.isRead ? 0.5 : 0.85))
                         
                         if !notification.isRead {
                             Circle()
-                                .fill(.blue)
-                                .frame(width: 8, height: 8)
+                                .fill(Color.white.opacity(0.12))
+                                .frame(width: 6, height: 6)
                         }
                     }
                     
                     Text(notification.body)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.35))
                         .lineLimit(2)
                     
                     Text(notification.timestamp.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 9))
+                        .foregroundColor(.white.opacity(0.2))
                 }
                 
                 Spacer()
             }
-            .padding(.vertical, 4)
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(notification.isRead ? Color.clear : Color.white.opacity(0.02))
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -329,10 +329,10 @@ struct NotificationRow: View {
     
     private var iconColor: Color {
         switch notification.type {
-        case .transactionConfirmed: return .green
-        case .transactionFailed: return .red
-        case .priceAlert: return .orange
-        case .securityReminder: return .blue
+        case .transactionConfirmed: return Color(red: 0.20, green: 0.84, blue: 0.29)
+        case .transactionFailed: return Color(red: 1, green: 0.27, blue: 0.23)
+        case .priceAlert: return Color(red: 1, green: 0.84, blue: 0.04)
+        case .securityReminder: return Color.white.opacity(0.5)
         case .stakingReward: return .purple
         }
     }
@@ -344,24 +344,23 @@ struct PriceAlertRow: View {
     let onDelete: () -> Void
     
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
                     Text(alert.symbol)
-                        .font(.headline)
-                    
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.85))
                     Image(systemName: alert.isAbove ? "arrow.up" : "arrow.down")
-                        .foregroundStyle(alert.isAbove ? .green : .red)
+                        .font(.system(size: 10))
+                        .foregroundColor(alert.isAbove ? Color(red: 0.20, green: 0.84, blue: 0.29) : Color(red: 1, green: 0.27, blue: 0.23))
                 }
-                
                 Text(alert.description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.35))
                 if let triggered = alert.triggeredAt {
                     Text("Triggered \(triggered.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 9))
+                        .foregroundColor(.white.opacity(0.2))
                 }
             }
             
@@ -372,16 +371,25 @@ struct PriceAlertRow: View {
                 set: { _ in onToggle() }
             ))
             .labelsHidden()
+            .toggleStyle(.switch)
+            .tint(Color.white)
             
-            Button(role: .destructive) {
-                onDelete()
-            } label: {
+            Button(role: .destructive) { onDelete() } label: {
                 Image(systemName: "trash")
-                    .foregroundStyle(.red)
+                    .font(.system(size: 10))
+                    .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23).opacity(0.6))
             }
             .buttonStyle(.plain)
         }
-        .padding(.vertical, 4)
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.white.opacity(0.03))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(.white.opacity(0.04), lineWidth: 1)
+                )
+        )
     }
 }
 
@@ -404,38 +412,9 @@ struct AddPriceAlertSheet: View {
     ]
     
     var body: some View {
-        VStack(spacing: 20) {
-            // Header
-            HStack {
-                Button("Cancel") { onCancel() }
-                    .buttonStyle(.plain)
-                
-                Spacer()
-                
-                Text("Add Price Alert")
-                    .font(.headline)
-                
-                Spacer()
-                
-                Button("Add") {
-                    if let price = Double(priceInput) {
-                        let symbol = assets.first { $0.0 == selectedAsset }?.1 ?? "BTC"
-                        onAdd(selectedAsset, symbol, price, isAbove)
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(Double(priceInput) == nil)
-            }
-            .padding()
-            
-            Divider()
-            
-            // Asset picker
+        HawalaSheetShell(title: "Add Price Alert", width: 380, height: 360) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Asset")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                
+                HawalaOverlaySectionHeader(icon: "bitcoinsign.circle", title: "Asset")
                 Picker("Asset", selection: $selectedAsset) {
                     ForEach(assets, id: \.0) { asset in
                         Text("\(asset.1) - \(asset.0.capitalized)").tag(asset.0)
@@ -443,40 +422,47 @@ struct AddPriceAlertSheet: View {
                 }
                 .pickerStyle(.menu)
             }
-            .padding(.horizontal)
-            
-            // Direction
+            .hawalaSectionCard()
+
             VStack(alignment: .leading, spacing: 8) {
-                Text("Alert when price goes")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                
+                HawalaOverlaySectionHeader(icon: "arrow.up.arrow.down", title: "Direction")
                 Picker("Direction", selection: $isAbove) {
                     Label("Above", systemImage: "arrow.up").tag(true)
                     Label("Below", systemImage: "arrow.down").tag(false)
                 }
                 .pickerStyle(.segmented)
             }
-            .padding(.horizontal)
-            
-            // Price input
+            .hawalaSectionCard()
+
             VStack(alignment: .leading, spacing: 8) {
-                Text("Target Price (USD)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                
-                HStack {
+                HawalaOverlaySectionHeader(icon: "dollarsign.circle", title: "Target Price (USD)")
+                HStack(spacing: 4) {
                     Text("$")
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.35))
                     TextField("0.00", text: $priceInput)
-                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.85))
+                        .textFieldStyle(.plain)
+                }
+                .padding(8)
+                .background(Color.white.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .hawalaSectionCard()
+
+            HStack(spacing: 10) {
+                HawalaActionButton(icon: "xmark", label: "Cancel", style: .secondary) {
+                    onCancel()
+                }
+                HawalaActionButton(icon: "plus.circle", label: "Add Alert", style: .primary) {
+                    if let price = Double(priceInput) {
+                        let symbol = assets.first { $0.0 == selectedAsset }?.1 ?? "BTC"
+                        onAdd(selectedAsset, symbol, price, isAbove)
+                    }
                 }
             }
-            .padding(.horizontal)
-            
-            Spacer()
         }
-        .frame(width: 350, height: 350)
     }
 }
 

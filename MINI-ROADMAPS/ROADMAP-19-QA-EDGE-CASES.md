@@ -128,9 +128,9 @@
 54. ☐ Token list with 500+ assets
 55. ☐ Memory pressure causes eviction
 
-### NFT & Other (56-60)
-56. ☐ User receives spam NFT
-57. ☐ NFT metadata fails to load
+### Assets & Other (56-60)
+56. ☐ User receives unverified spam token
+57. ☐ Token metadata fails to load
 58. ☐ VoiceOver navigation
 59. ☐ Wallet locked during receive
 60. ☐ Hardcoded path doesn't exist
@@ -176,7 +176,7 @@
 | E43-E48: Security | Handle all 6 cases | Graceful behavior | See list above |
 | E49-E52: Wallet State | Handle all 4 cases | Graceful behavior | See list above |
 | E53-E55: Performance | Handle all 3 cases | Graceful behavior | See list above |
-| E56-E60: NFT/Other | Handle all 5 cases | Graceful behavior | See list above |
+| E56-E60: Assets/Other | Handle all 5 cases | Graceful behavior | See list above |
 
 ---
 

@@ -34,7 +34,7 @@
 | 07 | Swap & Bridge | P1 | M | 3.5, Blueprint 5.4, Edge Cases 20-24/37 |
 | 08 | Transaction Safety | P0 | L | 3.6/3.7, Top 10 #1/#3, Edge Cases 25-28/33-36/45 |
 | 09 | WalletConnect | P1 | M | 3.8, Edge Cases 40-42/45 |
-| 10 | NFT Support | P2 | M | 3.9, Edge Cases 56/57 |
+| 10 | Token Curation | P2 | M | 3.9, Edge Cases 56/57 |
 | 11 | Settings & Security | P1 | M | 3.10, Blueprint 5.6, Edge Cases 43/44/48 |
 | 12 | Performance | P1 | M | 3.11, Top 10 #4, Edge Cases 54/55 |
 | 13 | macOS Native | P1 | M | 3.12, Edge Cases 51/52 |
@@ -132,14 +132,14 @@
 | [Medium] Connection Requests Lack Context | ROADMAP-09 |
 | [Low] No "What is this dApp?" Link | ROADMAP-09 |
 
-### Section 3.9 — NFTs
+### Section 3.9 — Token Curation
 | Issue | Roadmap |
 |:---|:---|
-| [Medium] No NFT Gallery | ROADMAP-10 |
-| [Medium] No NFT Metadata | ROADMAP-10 |
-| [Medium] Cannot Send NFTs | ROADMAP-10 |
-| [Low] No Hidden/Spam Tab | ROADMAP-10 |
-| [Low] No Floor Price | ROADMAP-10 |
+| [Medium] Token management UI not fully wired | ROADMAP-04 |
+| [Medium] Hidden/spam token handling inconsistent | ROADMAP-04 |
+| [Medium] Metadata fallback needs hardening | ROADMAP-19 |
+| [Low] Asset ordering and curation incomplete | ROADMAP-04 |
+| [Low] Portfolio copy needs token-specific empty states | ROADMAP-15 |
 
 ### Section 3.10 — Settings/Security Center
 | Issue | Roadmap |
@@ -272,8 +272,8 @@
 | P2-2 | Honeypot detection | ROADMAP-08 |
 | P2-3 | Dark mode audit | ROADMAP-14 |
 | P2-4 | Duress mode | ROADMAP-23 |
-| P2-5 | NFT gallery | ROADMAP-10 |
-| P2-6 | NFT send flow | ROADMAP-10 |
+| P2-5 | Token curation polish | ROADMAP-04 |
+| P2-6 | Metadata fallback hardening | ROADMAP-19 |
 | P2-7 | Test coverage | ROADMAP-19 |
 | P2-8 | Analytics infrastructure | ROADMAP-20 |
 | P2-9 | Multi-wallet | ROADMAP-21 |
@@ -297,7 +297,7 @@ All 60 edge cases from MASTER REVIEW Section 6 are covered:
 | 43-48 | Security | ROADMAP-11, ROADMAP-23 |
 | 49-52 | Wallet State | ROADMAP-02, ROADMAP-03, ROADMAP-21 |
 | 53-55 | Performance | ROADMAP-12, ROADMAP-14 |
-| 56-60 | NFT/Other | ROADMAP-10, ROADMAP-01, ROADMAP-14 |
+| 56-60 | Assets/Other | ROADMAP-04, ROADMAP-19, ROADMAP-14 |
 
 **All 60 handled in ROADMAP-19 (QA & Edge Cases) as comprehensive test coverage.**
 
@@ -419,7 +419,7 @@ The following items appear in multiple roadmaps (intentionally for complete cove
 
 ### Sprint 5 (Week 9-10): Advanced
 17. ROADMAP-14 — Visual Design
-18. ROADMAP-10 — NFT Support
+18. ROADMAP-04 — Token Curation
 19. ROADMAP-19 — QA & Edge Cases
 20. ROADMAP-20 — Analytics
 

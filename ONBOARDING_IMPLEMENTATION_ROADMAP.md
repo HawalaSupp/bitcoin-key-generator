@@ -1316,9 +1316,9 @@ struct WelcomeScreen: View {
 │                                                                 │
 │   ┌─────────────────────────┐   ┌─────────────────────────┐     │
 │   │           👤            │   │           💎            │     │
-│   │        Beginner         │   │        Collector        │     │
+│   │        Beginner         │   │       Long-Term         │     │
 │   │                         │   │                         │     │
-│   │    "Just here to HODL"  │   │   "NFTs and art lover"  │     │
+│   │    "Just here to HODL"  │   │   "Simple portfolio"    │     │
 │   └─────────────────────────┘   └─────────────────────────┘     │
 │                                                                 │
 │   ┌─────────────────────────┐   ┌─────────────────────────┐     │
@@ -1339,7 +1339,7 @@ struct WelcomeScreen: View {
 | Persona | Default Settings |
 |---------|-----------------|
 | **Beginner** | Simplified UI, extra warnings ON, educational tooltips ON, basic chains only |
-| **Collector** | NFT gallery prominent, OpenSea/Blur integration, IPFS preview |
+| **Long-Term** | Clean portfolio view, price alerts ON, reduced advanced controls |
 | **Trader** | Charts visible, DEX quick-access, price alerts ON, advanced gas controls |
 | **Builder** | Testnet toggle visible, contract tools, gas estimates, raw TX view |
 

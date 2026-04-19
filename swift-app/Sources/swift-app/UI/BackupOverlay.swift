@@ -1,81 +1,82 @@
 import SwiftUI
 #if os(macOS)
 import AppKit
+import UniformTypeIdentifiers
 #endif
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // MARK: – Backup Overlay
-// Vault-grade backup command center.
-// Concentric vault rings, hold-to-reveal phrase,
-// word-by-word materialization, geometric verification,
-// encrypted export sealing animation.
-// Monumental. Monochrome. Protective.
+// Vault-grade backup command center — fully wired to real services.
+// No mock data. Every feature functional.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 struct BackupOverlay: View {
     @Binding var isPresented: Bool
+    var onBackToSettings: (() -> Void)? = nil
 
     // ── Section nav ──
     @State private var activeSection: BkSection = .status
 
     enum BkSection: String, CaseIterable {
-        case status       = "STATUS"
-        case phrase       = "PHRASE"
-        case verify       = "VERIFY"
-        case export       = "EXPORT"
-        case guide        = "GUIDE"
+        case status  = "STATUS"
+        case phrase  = "PHRASE"
+        case verify  = "VERIFY"
+        case backup  = "BACKUP"
+        case guide   = "GUIDE"
     }
 
-    // ── Backup status ──
-    @State private var isBackedUp: Bool = true
-    @State private var lastVerifiedDate: Date = Calendar.current.date(byAdding: .day, value: -42, to: Date()) ?? Date()
-    @State private var walletCreatedDate: Date = Calendar.current.date(byAdding: .month, value: -6, to: Date()) ?? Date()
-    @State private var reminderInterval: Int = 3  // months
+    // ── History store ──
+    @StateObject private var historyStore = BackupHistoryStore.shared
 
-    // ── Recovery phrase ──
-    private let mockPhrase: [String] = [
-        "abandon", "ability", "able", "about", "above", "absent",
-        "absorb", "abstract", "absurd", "abuse", "access", "accident"
-    ]
+    // ── Phrase state ──
+    @State private var realPhrase: [String] = []
     @State private var phraseRevealed: Bool = false
-    @State private var revealProgress: CGFloat = 0     // hold-to-reveal 0→1
+    @State private var revealProgress: CGFloat = 0
     @State private var isHoldingReveal: Bool = false
-    @State private var revealedWordCount: Int = 0      // words materialized so far
-    @State private var autoHideTimer: Int = 60         // seconds until auto-hide
+    @State private var revealedWordCount: Int = 0
+    @State private var autoHideTimer: Int = 60
     @State private var autoHideActive: Bool = false
     @State private var acknowledgedWarning: Bool = false
     @State private var hasCopied: Bool = false
+    @State private var phraseError: String? = nil
+    @State private var isFetchingPhrase: Bool = false
 
     // ── Verification ──
     @State private var verifyStage: VerifyStage = .notStarted
-    @State private var verifyQuestions: [(Int, String)] = []  // (wordIndex, correctAnswer)
+    @State private var verifyQuestions: [(Int, String)] = []
     @State private var verifyCurrentQ: Int = 0
     @State private var verifyInput: String = ""
     @State private var verifyResults: [Bool] = []
-    @State private var verifyComplete: Bool = false
+    @State private var verifyPhrase: [String] = []
 
-    enum VerifyStage {
-        case notStarted, inProgress, complete
-    }
+    enum VerifyStage { case notStarted, inProgress, complete }
 
-    // ── Encrypted export ──
+    // ── Backup (Export + Import) ──
+    @State private var backupMode: BackupMode = .export
+    enum BackupMode { case export, import_ }
+
     @State private var exportPassword: String = ""
     @State private var exportConfirmPassword: String = ""
     @State private var exportInProgress: Bool = false
     @State private var exportComplete: Bool = false
-    @State private var exportSealProgress: CGFloat = 0
+    @State private var exportError: String? = nil
 
-    // ── Backup history ──
-    @State private var backupHistory: [BkHistoryEntry] = []
+    @State private var importFileData: Data? = nil
+    @State private var importFileName: String? = nil
+    @State private var importPassword: String = ""
+    @State private var importInProgress: Bool = false
+    @State private var importResult: ImportResult? = nil
+    @State private var importError: String? = nil
+    @State private var importPreview: BackupManager.BackupContents? = nil
 
     // ── Animation ──
     @State private var contentOpacity: Double = 0
     @State private var cardScale: CGFloat = 0.92
     @State private var silkPhase: CGFloat = 0
-    @State private var vaultPulse: CGFloat = 0
 
     // ── Hover ──
     @State private var closeHovered: Bool = false
+    @State private var backHovered: Bool = false
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // MARK: – Body
@@ -90,7 +91,6 @@ struct BackupOverlay: View {
             EscapeKeyHandler(isPresented: $isPresented, onEscape: dismissOverlay)
         )
         .onAppear {
-            loadMockHistory()
             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                 cardScale = 1; contentOpacity = 1
             }
@@ -114,7 +114,7 @@ struct BackupOverlay: View {
             sectionPicker
             sectionContent
         }
-        .frame(width: 460, height: 680)
+        .frame(width: 540, height: 720)
         .background(cardBg)
         .overlay(cardStroke)
         .shadow(color: .black.opacity(0.5), radius: 50, y: 25)
@@ -154,16 +154,38 @@ struct BackupOverlay: View {
     private var headerBar: some View {
         ZStack {
             Text("BACKUP")
-                .font(.clashGroteskMedium(size: 14))
+                .font(.clashGroteskMedium(size: 15))
                 .tracking(3)
-                .foregroundColor(.white.opacity(0.5))
+                .foregroundColor(.white.opacity(0.6))
+
             HStack {
+                if onBackToSettings != nil {
+                    Button {
+                        dismissOverlay()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            onBackToSettings?()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text("SETTINGS")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .tracking(0.5)
+                        }
+                        .foregroundColor(.white.opacity(backHovered ? 0.7 : 0.35))
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { backHovered = $0 }
+                }
+
                 Spacer()
+
                 Button(action: dismissOverlay) {
                     Image(systemName: "xmark")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.white.opacity(closeHovered ? 0.9 : 0.4))
-                        .frame(width: 28, height: 28)
+                        .foregroundColor(.white.opacity(closeHovered ? 0.9 : 0.45))
+                        .frame(width: 30, height: 30)
                         .background(Circle().fill(.white.opacity(closeHovered ? 0.12 : 0.06)))
                 }
                 .buttonStyle(.plain)
@@ -198,13 +220,13 @@ struct BackupOverlay: View {
         } label: {
             VStack(spacing: 5) {
                 Text(sec.rawValue)
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .tracking(1)
-                    .foregroundColor(.white.opacity(selected ? 0.8 : 0.3))
-                    .padding(.horizontal, 8)
+                    .foregroundColor(.white.opacity(selected ? 0.85 : 0.35))
+                    .padding(.horizontal, 10)
                 RoundedRectangle(cornerRadius: 1)
-                    .fill(.white.opacity(selected ? 0.4 : 0))
-                    .frame(height: 1.5)
+                    .fill(.white.opacity(selected ? 0.5 : 0))
+                    .frame(height: 2)
             }
             .padding(.vertical, 6)
         }
@@ -222,7 +244,7 @@ struct BackupOverlay: View {
                 case .status: statusContent
                 case .phrase: phraseContent
                 case .verify: verifyContent
-                case .export: exportContent
+                case .backup: backupContent
                 case .guide: guideContent
                 }
             }
@@ -233,12 +255,12 @@ struct BackupOverlay: View {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Status (Vault Visualization)
+    // MARK: – STATUS
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     private var statusContent: some View {
         VStack(spacing: 20) {
-            vaultVisualization
+            statusIndicator
             statusDetails
             bkSectionLabel("BACKUP HISTORY")
             historyList
@@ -247,170 +269,160 @@ struct BackupOverlay: View {
         }
     }
 
-    // Vault door — concentric rings that are complete when backed up, broken when not
-    private var vaultVisualization: some View {
-        VStack(spacing: 12) {
+    private var statusIndicator: some View {
+        VStack(spacing: 10) {
             ZStack {
-                // 4 concentric vault rings
-                ForEach(0..<4, id: \.self) { i in
-                    vaultRing(index: i)
+                Circle()
+                    .strokeBorder(.white.opacity(0.08), lineWidth: 3)
+                    .frame(width: 60, height: 60)
+                if historyStore.isBackedUp {
+                    Circle()
+                        .fill(.white.opacity(0.06))
+                        .frame(width: 60, height: 60)
                 }
-                // Center indicator
-                VStack(spacing: 3) {
-                    Image(systemName: isBackedUp ? "lock.fill" : "lock.open")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(.white.opacity(isBackedUp ? 0.50 : 0.20))
-                    Text(isBackedUp ? "SECURED" : "UNPROTECTED")
-                        .font(.system(size: 6, weight: .bold, design: .monospaced))
-                        .tracking(1.5)
-                        .foregroundColor(.white.opacity(isBackedUp ? 0.35 : 0.20))
-                }
+                Image(systemName: historyStore.isBackedUp ? "lock.fill" : "lock.open")
+                    .font(.system(size: 22))
+                    .foregroundColor(.white.opacity(historyStore.isBackedUp ? 0.50 : 0.18))
             }
-            .frame(height: 140)
+            Text(historyStore.isBackedUp ? "SECURED" : "NOT BACKED UP")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .tracking(1.5)
+                .foregroundColor(.white.opacity(historyStore.isBackedUp ? 0.45 : 0.25))
         }
-    }
-
-    private func vaultRing(index: Int) -> some View {
-        let size: CGFloat = CGFloat(36 + index * 20)
-        let trimEnd: CGFloat = isBackedUp ? 1.0 : vaultBrokenTrim(index)
-        let op = isBackedUp ? vaultRingOpacity(index) : 0.06
-        return Circle()
-            .trim(from: 0, to: trimEnd)
-            .stroke(
-                .white.opacity(op),
-                style: StrokeStyle(
-                    lineWidth: isBackedUp ? vaultLineWidth(index) : 1.0,
-                    lineCap: .round
-                )
-            )
-            .frame(width: size, height: size)
-            .rotationEffect(.degrees(Double(index) * 15 - 90))
-    }
-
-    private func vaultBrokenTrim(_ index: Int) -> CGFloat {
-        [0.25, 0.4, 0.15, 0.55][min(index, 3)]
-    }
-
-    private func vaultRingOpacity(_ index: Int) -> Double {
-        [0.30, 0.22, 0.16, 0.10][min(index, 3)]
-    }
-
-    private func vaultLineWidth(_ index: Int) -> CGFloat {
-        index == 0 ? 2.5 : (index < 3 ? 1.5 : 1.0)
+        .padding(.vertical, 8)
     }
 
     private var statusDetails: some View {
-        VStack(spacing: 6) {
-            statusRow(label: "STATUS", value: isBackedUp ? "BACKED UP" : "NOT BACKED UP")
-            if isBackedUp {
-                statusRow(label: "LAST VERIFIED", value: relativeDate(lastVerifiedDate))
-                statusRow(label: "DAYS SINCE VERIFICATION", value: "\(daysSince(lastVerifiedDate))")
-            } else {
-                statusRow(label: "WALLET CREATED", value: relativeDate(walletCreatedDate))
-                statusRow(label: "DAYS WITHOUT BACKUP", value: "\(daysSince(walletCreatedDate))")
+        let walletManager = WalletManager.shared
+        let walletCount = walletManager.hdWallets.count
+        let accountCount = walletManager.importedAccounts.count
+
+        return VStack(spacing: 6) {
+            statusRow(label: "STATUS", value: historyStore.isBackedUp ? "BACKED UP" : "NOT BACKED UP")
+            statusRow(label: "WALLETS", value: "\(walletCount) HD" + (accountCount > 0 ? " + \(accountCount) IMPORTED" : ""))
+            if let lastExport = historyStore.lastExportDate {
+                statusRow(label: "LAST EXPORT", value: relativeDate(lastExport))
             }
-            statusRow(label: "PHRASE LENGTH", value: "\(mockPhrase.count) WORDS")
+            if let lastVerified = historyStore.lastVerifiedDate {
+                statusRow(label: "LAST VERIFIED", value: relativeDate(lastVerified))
+            }
+            if !historyStore.isBackedUp {
+                statusRow(label: "ACTION NEEDED", value: "EXPORT A BACKUP")
+            }
         }
-        .padding(14)
+        .padding(16)
         .background(bkCardBg)
     }
 
     private func statusRow(label: String, value: String) -> some View {
         HStack {
             Text(label)
-                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.20))
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .tracking(0.5)
+                .foregroundColor(.white.opacity(0.30))
             Spacer()
             Text(value)
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundColor(.white.opacity(0.45))
+                .foregroundColor(.white.opacity(0.55))
         }
     }
 
-    // History list
     private var historyList: some View {
-        VStack(spacing: 2) {
-            if backupHistory.isEmpty {
-                Text("No backup activity recorded")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.15))
-                    .padding(.vertical, 16)
-            } else {
-                ForEach(backupHistory) { entry in
-                    historyRow(entry)
+        Group {
+            if historyStore.entries.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 16))
+                        .foregroundColor(.white.opacity(0.10))
+                    Text("No backup activity recorded")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.18))
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
+            } else {
+                VStack(spacing: 2) {
+                    ForEach(historyStore.entries.prefix(10)) { entry in
+                        historyRow(entry)
+                    }
+                }
+                .background(bkCardBg)
             }
         }
-        .background(bkCardBg)
     }
 
-    private func historyRow(_ entry: BkHistoryEntry) -> some View {
+    private func historyRow(_ entry: BackupHistoryEntry) -> some View {
         HStack(spacing: 10) {
-            // Timeline dot
-            ZStack {
-                Circle()
-                    .fill(.white.opacity(0.06))
-                    .frame(width: 18, height: 18)
-                Image(systemName: entry.icon)
-                    .font(.system(size: 8))
-                    .foregroundColor(.white.opacity(0.25))
-            }
+            Image(systemName: entry.icon)
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.30))
+                .frame(width: 20)
+
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.action.uppercased())
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .tracking(0.5)
-                    .foregroundColor(.white.opacity(0.35))
+                Text(entry.actionLabel.uppercased())
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .tracking(0.3)
+                    .foregroundColor(.white.opacity(0.45))
                 Text(entry.detail)
-                    .font(.system(size: 7, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.18))
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.22))
             }
+
             Spacer()
+
             Text(relativeDate(entry.date))
-                .font(.system(size: 7, design: .monospaced))
-                .foregroundColor(.white.opacity(0.15))
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundColor(.white.opacity(0.18))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
     }
 
-    // Reminder card
     private var reminderCard: some View {
         VStack(spacing: 10) {
-            HStack {
-                Text("REMIND TO VERIFY EVERY")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.25))
-                Spacer()
-            }
-            HStack(spacing: 4) {
+            Text("REMIND ME TO VERIFY")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .tracking(0.5)
+                .foregroundColor(.white.opacity(0.30))
+
+            HStack(spacing: 6) {
                 ForEach([1, 3, 6, 0], id: \.self) { months in
-                    Button {
-                        withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) { reminderInterval = months }
-                    } label: {
-                        Text(months == 0 ? "NEVER" : "\(months)M")
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white.opacity(reminderInterval == months ? 0.6 : 0.2))
-                            .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(
-                                RoundedRectangle(cornerRadius: 4)
-                                    .fill(.white.opacity(reminderInterval == months ? 0.06 : 0.02))
-                            )
-                    }
-                    .buttonStyle(.plain)
+                    reminderButton(months)
                 }
             }
         }
-        .padding(14)
+        .padding(16)
         .background(bkCardBg)
     }
 
+    private func reminderButton(_ months: Int) -> some View {
+        let selected = historyStore.reminderMonths == months
+        let label = months == 0 ? "NEVER" : "\(months)M"
+        return Button {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                historyStore.reminderMonths = months
+            }
+        } label: {
+            Text(label)
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .tracking(0.5)
+                .foregroundColor(.white.opacity(selected ? 0.70 : 0.25))
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(.white.opacity(selected ? 0.08 : 0.02))
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.white.opacity(selected ? 0.15 : 0.04)))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Recovery Phrase (Hold-to-Reveal)
+    // MARK: – PHRASE
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     private var phraseContent: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 20) {
             if !acknowledgedWarning {
                 warningGate
             } else if !phraseRevealed {
@@ -421,42 +433,34 @@ struct BackupOverlay: View {
         }
     }
 
-    // ── Step 1: Warning gate ──
     private var warningGate: some View {
         VStack(spacing: 20) {
-            // Warning frame — expanding geometric borders
             ZStack {
-                ForEach(0..<3, id: \.self) { i in
-                    RoundedRectangle(cornerRadius: CGFloat(12 + i * 4))
-                        .strokeBorder(
-                            .white.opacity(0.06 + Double(2 - i) * 0.03),
-                            lineWidth: 1
-                        )
-                        .frame(
-                            width: CGFloat(260 + i * 24),
-                            height: CGFloat(160 + i * 16)
-                        )
-                }
-                VStack(spacing: 14) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 28, weight: .light))
-                        .foregroundColor(.white.opacity(0.40))
-
-                    Text("CRITICAL SECURITY")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .tracking(3)
-                        .foregroundColor(.white.opacity(0.45))
-                }
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(.white.opacity(0.06), lineWidth: 1)
+                    .frame(width: 100, height: 100)
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(.white.opacity(0.04), lineWidth: 1)
+                    .frame(width: 70, height: 70)
+                Image(systemName: "exclamationmark.shield")
+                    .font(.system(size: 28))
+                    .foregroundColor(.white.opacity(0.20))
             }
-            .frame(height: 200)
+            .padding(.top, 10)
 
-            // Warning bullets
-            warningBullet(text: "Never share your recovery phrase with anyone")
-            warningBullet(text: "Anyone with these words controls your funds")
-            warningBullet(text: "Store securely offline — never in cloud, email, or photos")
-            warningBullet(text: "HAWALA support will never ask for your phrase")
+            Text("SENSITIVE INFORMATION")
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                .tracking(1.5)
+                .foregroundColor(.white.opacity(0.50))
 
-            // Acknowledge button
+            VStack(alignment: .leading, spacing: 8) {
+                warningBullet("Anyone with this phrase can steal your funds")
+                warningBullet("Never share it over email, chat, or phone")
+                warningBullet("Write it on paper and store it physically")
+                warningBullet("Hawala will never ask for your phrase")
+            }
+            .padding(.horizontal, 8)
+
             Button {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                     acknowledgedWarning = true
@@ -465,101 +469,104 @@ struct BackupOverlay: View {
                 Text("I UNDERSTAND THE RISKS")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .tracking(1)
-                    .foregroundColor(.white.opacity(0.50))
+                    .foregroundColor(.white.opacity(0.55))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(.white.opacity(0.05))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                            )
+                            .fill(.white.opacity(0.06))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.10)))
                     )
             }
             .buttonStyle(.plain)
         }
     }
 
-    private func warningBullet(text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            // Diamond marker
-            Diamond()
-                .fill(.white.opacity(0.20))
-                .frame(width: 6, height: 6)
-                .padding(.top, 4)
+    private func warningBullet(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Circle()
+                .fill(.white.opacity(0.15))
+                .frame(width: 5, height: 5)
+                .padding(.top, 5)
             Text(text)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.white.opacity(0.40))
-                .lineSpacing(2)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.white.opacity(0.35))
         }
     }
 
-    // ── Step 2: Hold to reveal ──
     private var holdToRevealSection: some View {
         VStack(spacing: 24) {
-            // Hold-to-reveal instruction
-            Text("HOLD TO REVEAL PHRASE")
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .tracking(2)
-                .foregroundColor(.white.opacity(0.35))
+            Text("Hold the button to reveal your recovery phrase.\nThis requires biometric authentication.")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.white.opacity(0.30))
+                .multilineTextAlignment(.center)
+                .lineSpacing(4)
 
-            // Hold target — fills as user presses
+            if let error = phraseError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 10))
+                    Text(error)
+                        .font(.system(size: 9, design: .monospaced))
+                }
+                .foregroundColor(.white.opacity(0.40))
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04)))
+            }
+
             holdRevealButton
 
-            Text("Press and hold for 2 seconds to reveal your recovery phrase")
-                .font(.system(size: 9))
-                .foregroundColor(.white.opacity(0.20))
-                .multilineTextAlignment(.center)
-                .lineSpacing(2)
+            Text("Press and hold for 2 seconds")
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundColor(.white.opacity(0.18))
         }
-        .padding(.top, 40)
+        .padding(.top, 30)
     }
 
     private var holdRevealButton: some View {
         ZStack {
-            // Outer ring — progress
-            Circle()
-                .strokeBorder(.white.opacity(0.06), lineWidth: 3)
-                .frame(width: 100, height: 100)
+            // Outer progress ring
             Circle()
                 .trim(from: 0, to: revealProgress)
-                .stroke(.white.opacity(0.30), style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                .frame(width: 100, height: 100)
+                .stroke(.white.opacity(0.20), lineWidth: 3)
+                .frame(width: 80, height: 80)
                 .rotationEffect(.degrees(-90))
 
-            // Center
-            VStack(spacing: 4) {
-                Image(systemName: "eye.slash")
-                    .font(.system(size: 22, weight: .light))
-                    .foregroundColor(.white.opacity(isHoldingReveal ? 0.50 : 0.25))
-                Text("HOLD")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .tracking(2)
-                    .foregroundColor(.white.opacity(0.25))
+            Circle()
+                .fill(.white.opacity(isFetchingPhrase ? 0.06 : 0.04))
+                .frame(width: 70, height: 70)
+                .overlay(
+                    Circle().strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                )
+
+            if isFetchingPhrase {
+                ProgressView()
+                    .scaleEffect(0.6)
+                    .tint(.white.opacity(0.3))
+            } else {
+                VStack(spacing: 4) {
+                    Image(systemName: "hand.tap")
+                        .font(.system(size: 16))
+                        .foregroundColor(.white.opacity(0.30))
+                    Text("HOLD")
+                        .font(.system(size: 7, weight: .bold, design: .monospaced))
+                        .tracking(1)
+                        .foregroundColor(.white.opacity(0.25))
+                }
             }
         }
-        .simultaneousGesture(
+        .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in startHoldReveal() }
                 .onEnded { _ in cancelHoldReveal() }
         )
     }
 
-    // ── Step 3: Revealed phrase ──
     private var revealedPhraseSection: some View {
         VStack(spacing: 16) {
-            // Auto-hide timer
             autoHideBar
-
-            // The phrase grid
             phraseGrid
-
-            // Actions
             phraseActions
-
-            // Post-reveal prompt
-            postRevealPrompt
         }
     }
 
@@ -567,177 +574,133 @@ struct BackupOverlay: View {
         VStack(spacing: 4) {
             HStack {
                 Text("AUTO-HIDE IN")
-                    .font(.system(size: 7, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.20))
-                Spacer()
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(.white.opacity(0.25))
                 Text("\(autoHideTimer)s")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.35))
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.45))
+                Spacer()
             }
-            // Progress bar
             GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(.white.opacity(0.04))
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(.white.opacity(0.15))
-                        .frame(width: geo.size.width * CGFloat(autoHideTimer) / 60.0)
-                }
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(.white.opacity(0.06))
+                    .overlay(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(.white.opacity(0.20))
+                            .frame(width: geo.size.width * CGFloat(autoHideTimer) / 60.0)
+                    }
             }
             .frame(height: 2)
         }
     }
 
-    // Word grid — words materialize one by one
     private var phraseGrid: some View {
         LazyVGrid(columns: [
             GridItem(.flexible(), spacing: 8),
             GridItem(.flexible(), spacing: 8),
             GridItem(.flexible(), spacing: 8)
         ], spacing: 8) {
-            ForEach(Array(mockPhrase.enumerated()), id: \.offset) { index, word in
+            ForEach(Array(realPhrase.enumerated()), id: \.offset) { index, word in
                 phraseWordTile(index: index, word: word)
             }
         }
-        .padding(16)
-        .background(bkCardBg)
     }
 
     private func phraseWordTile(index: Int, word: String) -> some View {
         let visible = index < revealedWordCount
-        return HStack(spacing: 4) {
+        return HStack(spacing: 6) {
             Text("\(index + 1)")
-                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                .foregroundColor(.white.opacity(visible ? 0.20 : 0.06))
-                .frame(width: 16, alignment: .trailing)
-            Text(visible ? word : "·····")
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundColor(.white.opacity(visible ? 0.65 : 0.08))
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(.white.opacity(0.20))
+                .frame(width: 20, alignment: .trailing)
+            Text(visible ? word : String(repeating: "\u{2022}", count: 5))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(visible ? 0.60 : 0.10))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 10).padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(.white.opacity(visible ? 0.04 : 0.015))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(.white.opacity(visible ? 0.08 : 0.03), lineWidth: 0.8)
-                )
+                .fill(.white.opacity(visible ? 0.04 : 0.02))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.white.opacity(visible ? 0.06 : 0.02)))
         )
-        .opacity(visible ? 1 : 0.5)
+        .animation(.easeOut(duration: 0.2).delay(Double(index) * 0.05), value: visible)
     }
 
     private var phraseActions: some View {
-        HStack(spacing: 8) {
-            // Copy
-            Button {
-                copyPhrase()
-            } label: {
+        HStack(spacing: 10) {
+            Button { copyPhrase() } label: {
                 HStack(spacing: 5) {
                     Image(systemName: hasCopied ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 9))
                     Text(hasCopied ? "COPIED" : "COPY")
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .tracking(0.5)
                 }
-                .foregroundColor(.white.opacity(hasCopied ? 0.40 : 0.25))
+                .foregroundColor(.white.opacity(hasCopied ? 0.50 : 0.35))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03)))
+                .padding(.vertical, 12)
+                .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04)))
             }
             .buttonStyle(.plain)
 
-            // Hide
-            Button {
-                hidePhrase()
-            } label: {
+            Button { hidePhrase() } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "eye.slash")
                         .font(.system(size: 9))
                     Text("HIDE")
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .tracking(0.5)
                 }
-                .foregroundColor(.white.opacity(0.25))
+                .foregroundColor(.white.opacity(0.35))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03)))
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private var postRevealPrompt: some View {
-        VStack(spacing: 8) {
-            Text("Have you written down your phrase securely?")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundColor(.white.opacity(0.30))
-
-            Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                    activeSection = .verify
-                    hidePhrase()
-                }
-            } label: {
-                Text("VERIFY MY BACKUP NOW")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .tracking(1)
-                    .foregroundColor(.white.opacity(0.45))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(.white.opacity(0.05))
-                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.10)))
-                    )
+                .padding(.vertical, 12)
+                .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04)))
             }
             .buttonStyle(.plain)
         }
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Verification
+    // MARK: – VERIFY
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     private var verifyContent: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 20) {
             switch verifyStage {
-            case .notStarted:
-                verifyIntro
-            case .inProgress:
-                verifyQuestionView
-            case .complete:
-                verifyResultView
+            case .notStarted: verifyIntro
+            case .inProgress: verifyQuestionView
+            case .complete: verifyResultView
             }
         }
     }
 
     private var verifyIntro: some View {
         VStack(spacing: 20) {
-            // Shield checkpoint icon
             ZStack {
-                ForEach(0..<3, id: \.self) { i in
-                    Circle()
-                        .strokeBorder(.white.opacity(0.04 + Double(2 - i) * 0.02), lineWidth: 1)
-                        .frame(width: CGFloat(50 + i * 20), height: CGFloat(50 + i * 20))
-                }
-                Image(systemName: "checkmark.shield")
-                    .font(.system(size: 24, weight: .light))
-                    .foregroundColor(.white.opacity(0.35))
+                Circle()
+                    .strokeBorder(.white.opacity(0.06), lineWidth: 2)
+                    .frame(width: 80, height: 80)
+                Circle()
+                    .strokeBorder(.white.opacity(0.04), lineWidth: 1.5)
+                    .frame(width: 56, height: 56)
+                Image(systemName: "shield.checkered")
+                    .font(.system(size: 24))
+                    .foregroundColor(.white.opacity(0.20))
             }
-            .frame(height: 100)
+            .padding(.top, 10)
 
             Text("SECURITY CHECKPOINT")
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .tracking(3)
-                .foregroundColor(.white.opacity(0.40))
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                .tracking(1.5)
+                .foregroundColor(.white.opacity(0.50))
 
-            Text("Verify you have correctly stored your recovery phrase by answering 4 questions about specific words.")
-                .font(.system(size: 10))
-                .foregroundColor(.white.opacity(0.25))
+            Text("Verify that you have correctly backed up your recovery phrase by answering 4 questions about your seed words.\n\nRequires biometric authentication.")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.white.opacity(0.28))
                 .multilineTextAlignment(.center)
-                .lineSpacing(2)
+                .lineSpacing(4)
 
             Button {
                 startVerification()
@@ -745,70 +708,63 @@ struct BackupOverlay: View {
                 Text("BEGIN VERIFICATION")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .tracking(1)
-                    .foregroundColor(.white.opacity(0.50))
+                    .foregroundColor(.white.opacity(0.55))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(.white.opacity(0.05))
-                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.12)))
+                            .fill(.white.opacity(0.06))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.10)))
                     )
             }
             .buttonStyle(.plain)
         }
-        .padding(.top, 20)
     }
 
     private var verifyQuestionView: some View {
         VStack(spacing: 20) {
-            // Progress indicator
-            verifyProgressIndicator
+            // Progress dots
+            HStack(spacing: 8) {
+                ForEach(0..<4, id: \.self) { i in
+                    verifyProgressDot(index: i)
+                }
+            }
 
             if verifyCurrentQ < verifyQuestions.count {
-                let question = verifyQuestions[verifyCurrentQ]
-                let wordNum = question.0 + 1
-
-                Text("WHAT IS WORD #\(wordNum)?")
-                    .font(.clashGroteskBold(size: 24))
-                    .foregroundColor(.white.opacity(0.70))
-
-                // Input field
-                TextField("Type word \(wordNum)...", text: $verifyInput)
-                    .font(.system(size: 14, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.6))
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, 16).padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.03))
-                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.08)))
-                    )
-                    .onSubmit { submitVerifyAnswer() }
-
-                // Submit
-                Button {
-                    submitVerifyAnswer()
-                } label: {
-                    Text("CONFIRM")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                let (wordIndex, _) = verifyQuestions[verifyCurrentQ]
+                VStack(spacing: 16) {
+                    Text("WHAT IS WORD #\(wordIndex + 1)?")
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
                         .tracking(1)
-                        .foregroundColor(.white.opacity(verifyInput.isEmpty ? 0.15 : 0.50))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(.white.opacity(verifyInput.isEmpty ? 0.02 : 0.06))
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(verifyInput.isEmpty)
-            }
-        }
-    }
+                        .foregroundColor(.white.opacity(0.50))
 
-    private var verifyProgressIndicator: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<verifyQuestions.count, id: \.self) { i in
-                verifyProgressDot(index: i)
+                    TextField("Type the word...", text: $verifyInput)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.60))
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04))
+                                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.08)))
+                        )
+
+                    Button {
+                        submitVerifyAnswer()
+                    } label: {
+                        Text("CONFIRM")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .tracking(1)
+                            .foregroundColor(.white.opacity(verifyInput.isEmpty ? 0.18 : 0.55))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(.white.opacity(verifyInput.isEmpty ? 0.02 : 0.06))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(verifyInput.isEmpty)
+                }
             }
         }
     }
@@ -816,29 +772,28 @@ struct BackupOverlay: View {
     private func verifyProgressDot(index: Int) -> some View {
         ZStack {
             if index < verifyResults.count {
-                // Answered
                 Circle()
                     .fill(.white.opacity(verifyResults[index] ? 0.35 : 0.08))
-                    .frame(width: 20, height: 20)
-                    .overlay(
-                        Circle().strokeBorder(.white.opacity(verifyResults[index] ? 0.20 : 0.06), lineWidth: 1)
-                    )
-                Image(systemName: verifyResults[index] ? "checkmark" : "xmark")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundColor(.white.opacity(verifyResults[index] ? 0.50 : 0.20))
+                    .frame(width: 10, height: 10)
+                    .overlay {
+                        if verifyResults[index] {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 6, weight: .bold))
+                                .foregroundColor(.white.opacity(0.50))
+                        } else {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 6, weight: .bold))
+                                .foregroundColor(.white.opacity(0.25))
+                        }
+                    }
             } else if index == verifyCurrentQ {
-                // Current
                 Circle()
-                    .strokeBorder(.white.opacity(0.25), lineWidth: 1.5)
-                    .frame(width: 20, height: 20)
-                Text("\(index + 1)")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.40))
+                    .fill(.white.opacity(0.15))
+                    .frame(width: 10, height: 10)
             } else {
-                // Future
                 Circle()
-                    .strokeBorder(.white.opacity(0.06), lineWidth: 1)
-                    .frame(width: 20, height: 20)
+                    .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                    .frame(width: 10, height: 10)
             }
         }
     }
@@ -849,71 +804,108 @@ struct BackupOverlay: View {
         let allCorrect = correct == total
 
         return VStack(spacing: 20) {
-            // Result visualization
             ZStack {
-                ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .strokeBorder(.white.opacity(0.08), lineWidth: 2)
+                    .frame(width: 70, height: 70)
+                if allCorrect {
                     Circle()
-                        .strokeBorder(
-                            .white.opacity(allCorrect ? (0.08 + Double(2 - i) * 0.04) : 0.03),
-                            lineWidth: 1
-                        )
-                        .frame(width: CGFloat(50 + i * 20), height: CGFloat(50 + i * 20))
+                        .fill(.white.opacity(0.06))
+                        .frame(width: 70, height: 70)
                 }
                 Image(systemName: allCorrect ? "checkmark.shield.fill" : "shield.slash")
-                    .font(.system(size: 28, weight: .light))
-                    .foregroundColor(.white.opacity(allCorrect ? 0.50 : 0.20))
+                    .font(.system(size: 26))
+                    .foregroundColor(.white.opacity(allCorrect ? 0.45 : 0.18))
             }
-            .frame(height: 100)
 
-            Text(allCorrect ? "VERIFICATION PASSED" : "VERIFICATION INCOMPLETE")
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .tracking(2)
-                .foregroundColor(.white.opacity(allCorrect ? 0.55 : 0.30))
+            Text(allCorrect ? "VERIFICATION PASSED" : "VERIFICATION FAILED")
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                .tracking(1.5)
+                .foregroundColor(.white.opacity(allCorrect ? 0.55 : 0.35))
 
-            Text("\(correct) of \(total) words correct")
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundColor(.white.opacity(0.25))
+            Text("\(correct) / \(total) CORRECT")
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.30))
 
             if allCorrect {
-                Text("Your recovery phrase is verified and backed up securely.")
-                    .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.30))
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(2)
-            } else {
-                Text("Review your recovery phrase and try again to ensure your backup is correct.")
-                    .font(.system(size: 10))
+                Text("Your recovery phrase backup is verified and secure.")
+                    .font(.system(size: 10, design: .monospaced))
                     .foregroundColor(.white.opacity(0.25))
                     .multilineTextAlignment(.center)
-                    .lineSpacing(2)
-
+            } else {
                 Button {
-                    startVerification()
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        verifyStage = .notStarted
+                        verifyResults = []
+                        verifyCurrentQ = 0
+                        verifyInput = ""
+                        verifyPhrase = []
+                    }
                 } label: {
                     Text("TRY AGAIN")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .tracking(1)
-                        .foregroundColor(.white.opacity(0.40))
+                        .foregroundColor(.white.opacity(0.45))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04)))
+                        .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.05)))
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.top, 20)
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Encrypted Export
+    // MARK: – BACKUP (Export + Import)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    private var exportContent: some View {
+    private var backupContent: some View {
+        VStack(spacing: 16) {
+            // Segmented picker
+            HStack(spacing: 0) {
+                backupModeButton("EXPORT", mode: .export)
+                backupModeButton("IMPORT", mode: .import_)
+            }
+            .background(bkCardBg)
+
+            switch backupMode {
+            case .export: exportSection
+            case .import_: importSection
+            }
+        }
+    }
+
+    private func backupModeButton(_ label: String, mode: BackupMode) -> some View {
+        let selected: Bool
+        switch (backupMode, mode) {
+        case (.export, .export), (.import_, .import_): selected = true
+        default: selected = false
+        }
+        return Button {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                backupMode = mode
+            }
+        } label: {
+            Text(label)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .tracking(1)
+                .foregroundColor(.white.opacity(selected ? 0.70 : 0.25))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(.white.opacity(selected ? 0.06 : 0.0))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // ── Export ──
+
+    private var exportSection: some View {
         VStack(spacing: 16) {
             if exportComplete {
                 exportCompleteView
-            } else if exportInProgress {
-                exportProgressView
             } else {
                 exportForm
             }
@@ -921,237 +913,430 @@ struct BackupOverlay: View {
     }
 
     private var exportForm: some View {
-        VStack(spacing: 16) {
-            bkSectionLabel("ENCRYPTED BACKUP")
+        VStack(spacing: 14) {
+            bkSectionLabel("ENCRYPTED EXPORT")
 
-            Text("Create a password-protected backup file containing your wallet data. Keep both the file and password secure.")
-                .font(.system(size: 10))
+            Text("Create a password-encrypted .hawala backup file.\nThis contains your seed phrase and wallet data.")
+                .font(.system(size: 9, design: .monospaced))
                 .foregroundColor(.white.opacity(0.25))
-                .lineSpacing(2)
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
 
-            // Password field
-            VStack(alignment: .leading, spacing: 6) {
-                Text("PASSWORD")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.20))
-                    .tracking(0.5)
-                SecureField("Enter password", text: $exportPassword)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.6))
+            VStack(spacing: 8) {
+                SecureField("Password (8+ characters)", text: $exportPassword)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.60))
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 12).padding(.vertical, 10)
                     .background(
-                        RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03))
+                        RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04))
                             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.06)))
                     )
-            }
 
-            // Password strength
-            passwordStrengthBar
+                passwordStrengthBar
 
-            // Confirm password
-            VStack(alignment: .leading, spacing: 6) {
-                Text("CONFIRM PASSWORD")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.20))
-                    .tracking(0.5)
                 SecureField("Confirm password", text: $exportConfirmPassword)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.6))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.60))
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 12).padding(.vertical, 10)
                     .background(
-                        RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03))
-                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.06)))
+                        RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04))
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(
+                                !exportConfirmPassword.isEmpty && exportPassword != exportConfirmPassword ? 0.12 : 0.06
+                            )))
                     )
+
                 if !exportConfirmPassword.isEmpty && exportPassword != exportConfirmPassword {
                     Text("Passwords do not match")
                         .font(.system(size: 8, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.25))
+                        .foregroundColor(.white.opacity(0.30))
                 }
             }
 
-            // Cloud warning
-            cloudWarning
+            if let error = exportError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 9))
+                    Text(error)
+                        .font(.system(size: 9, design: .monospaced))
+                }
+                .foregroundColor(.white.opacity(0.40))
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04)))
+            }
 
-            // Export button
             Button {
                 beginExport()
             } label: {
-                Text("CREATE ENCRYPTED BACKUP")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .tracking(1)
-                    .foregroundColor(.white.opacity(canExport ? 0.50 : 0.15))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(.white.opacity(canExport ? 0.06 : 0.02))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .strokeBorder(.white.opacity(canExport ? 0.12 : 0.04))
-                            )
-                    )
+                HStack(spacing: 6) {
+                    if exportInProgress {
+                        ProgressView()
+                            .scaleEffect(0.5)
+                            .tint(.white.opacity(0.3))
+                    } else {
+                        Image(systemName: "lock.doc")
+                            .font(.system(size: 10))
+                    }
+                    Text(exportInProgress ? "ENCRYPTING..." : "CREATE ENCRYPTED BACKUP")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .tracking(0.5)
+                }
+                .foregroundColor(.white.opacity(canExport ? 0.55 : 0.18))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(.white.opacity(canExport ? 0.06 : 0.02))
+                )
             }
             .buttonStyle(.plain)
-            .disabled(!canExport)
-        }
-    }
+            .disabled(!canExport || exportInProgress)
 
-    // Password strength geometric fill
-    private var passwordStrengthBar: some View {
-        let strength = passwordStrength(exportPassword)
-        return VStack(spacing: 4) {
-            HStack {
-                Text("STRENGTH")
-                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+            // Cloud warning
+            HStack(spacing: 8) {
+                Image(systemName: "icloud.slash")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.15))
+                Text("Do not store backups in cloud services.\nUse a USB drive or offline storage.")
+                    .font(.system(size: 8, design: .monospaced))
                     .foregroundColor(.white.opacity(0.18))
-                Spacer()
-                Text(strengthLabel(strength))
-                    .font(.system(size: 7, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(strengthOpacity(strength)))
-            }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(.white.opacity(0.04))
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(.white.opacity(strengthOpacity(strength)))
-                        .frame(width: geo.size.width * strength)
-                }
-            }
-            .frame(height: 3)
-        }
-    }
-
-    // Cloud warning
-    private var cloudWarning: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "icloud.slash")
-                .font(.system(size: 14, weight: .light))
-                .foregroundColor(.white.opacity(0.20))
-            VStack(alignment: .leading, spacing: 3) {
-                Text("NEVER STORE IN CLOUD")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .tracking(1)
-                    .foregroundColor(.white.opacity(0.30))
-                Text("Do not upload this backup to iCloud, Google Drive, Dropbox, or any cloud service. Store on encrypted local media only.")
-                    .font(.system(size: 9))
-                    .foregroundColor(.white.opacity(0.20))
                     .lineSpacing(2)
             }
+            .padding(12)
+            .background(bkCardBg)
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(.white.opacity(0.015))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.05)))
-        )
     }
 
-    // Export progress — sealing animation
-    private var exportProgressView: some View {
-        VStack(spacing: 24) {
-            // Container sealing animation
-            ZStack {
-                // Container body
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(.white.opacity(0.04))
-                    .frame(width: 80, height: 100)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(.white.opacity(0.12), lineWidth: 1.5)
-                    )
+    private var passwordStrengthBar: some View {
+        let strength = passwordStrength(exportPassword)
+        return HStack(spacing: 8) {
+            Text("STRENGTH")
+                .font(.system(size: 7, weight: .bold, design: .monospaced))
+                .tracking(0.5)
+                .foregroundColor(.white.opacity(0.20))
 
-                // Seal line moving down
-                Rectangle()
-                    .fill(.white.opacity(0.25))
-                    .frame(width: 76, height: 2)
-                    .offset(y: -48 + exportSealProgress * 96)
-
-                // Lock icon at center
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 16, weight: .light))
-                    .foregroundColor(.white.opacity(exportSealProgress > 0.5 ? 0.40 : 0.10))
-            }
-            .frame(height: 120)
-
-            Text("ENCRYPTING & SEALING")
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .tracking(2)
-                .foregroundColor(.white.opacity(0.35))
-
-            // Progress bar
             GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(.white.opacity(0.04))
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(.white.opacity(0.20))
-                        .frame(width: geo.size.width * exportSealProgress)
-                }
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(.white.opacity(0.04))
+                    .overlay(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(.white.opacity(strengthOpacity(strength)))
+                            .frame(width: geo.size.width * strength)
+                    }
             }
             .frame(height: 3)
+
+            Text(strengthLabel(strength))
+                .font(.system(size: 7, weight: .bold, design: .monospaced))
+                .tracking(0.5)
+                .foregroundColor(.white.opacity(strengthOpacity(strength)))
+                .frame(width: 60, alignment: .trailing)
         }
-        .padding(.top, 40)
     }
 
-    // Export complete
     private var exportCompleteView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             ZStack {
-                // Sealed container
-                RoundedRectangle(cornerRadius: 8)
+                Circle()
                     .fill(.white.opacity(0.06))
-                    .frame(width: 80, height: 100)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(.white.opacity(0.18), lineWidth: 1.5)
-                    )
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 20, weight: .light))
+                    .frame(width: 60, height: 60)
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 26))
                     .foregroundColor(.white.opacity(0.40))
             }
-            .frame(height: 120)
 
-            Text("BACKUP SEALED")
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .tracking(2)
+            Text("BACKUP CREATED")
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                .tracking(1.5)
                 .foregroundColor(.white.opacity(0.50))
 
-            Text("Encrypted backup file created. Store the file and its password in separate, secure locations.")
-                .font(.system(size: 10))
+            Text("Your encrypted backup has been saved.\nStore it somewhere safe and offline.")
+                .font(.system(size: 10, design: .monospaced))
                 .foregroundColor(.white.opacity(0.25))
                 .multilineTextAlignment(.center)
-                .lineSpacing(2)
+                .lineSpacing(3)
 
             Button {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                     exportComplete = false
                     exportPassword = ""
                     exportConfirmPassword = ""
-                    exportSealProgress = 0
+                    exportError = nil
                 }
             } label: {
                 Text("DONE")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .tracking(1)
-                    .foregroundColor(.white.opacity(0.40))
+                    .foregroundColor(.white.opacity(0.45))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04)))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.05)))
             }
             .buttonStyle(.plain)
         }
-        .padding(.top, 20)
+    }
+
+    // ── Import ──
+
+    private var importSection: some View {
+        VStack(spacing: 16) {
+            if let result = importResult {
+                importResultView(result)
+            } else if importPreview != nil {
+                importPreviewView
+            } else if importFileData != nil {
+                importPasswordView
+            } else {
+                importSelectView
+            }
+        }
+    }
+
+    private var importSelectView: some View {
+        VStack(spacing: 16) {
+            bkSectionLabel("RESTORE FROM BACKUP")
+
+            Text("Select a .hawala backup file to restore\nyour wallets from an encrypted backup.")
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.white.opacity(0.25))
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+
+            Button {
+                selectImportFile()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.badge.plus")
+                        .font(.system(size: 11))
+                    Text("SELECT BACKUP FILE")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .tracking(0.5)
+                }
+                .foregroundColor(.white.opacity(0.50))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(.white.opacity(0.06))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.10)))
+                )
+            }
+            .buttonStyle(.plain)
+
+            if let error = importError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 9))
+                    Text(error)
+                        .font(.system(size: 9, design: .monospaced))
+                }
+                .foregroundColor(.white.opacity(0.35))
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04)))
+            }
+        }
+    }
+
+    private var importPasswordView: some View {
+        VStack(spacing: 16) {
+            bkSectionLabel("ENTER BACKUP PASSWORD")
+
+            if let name = importFileName {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.25))
+                    Text(name)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.40))
+                }
+            }
+
+            SecureField("Backup password", text: $importPassword)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.white.opacity(0.60))
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.06)))
+                )
+
+            if let error = importError {
+                Text(error)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.35))
+            }
+
+            HStack(spacing: 8) {
+                Button { resetImport() } label: {
+                    Text("CANCEL")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .tracking(0.5)
+                        .foregroundColor(.white.opacity(0.30))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03)))
+                }
+                .buttonStyle(.plain)
+
+                Button { decryptImportFile() } label: {
+                    Text("DECRYPT")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .tracking(0.5)
+                        .foregroundColor(.white.opacity(importPassword.isEmpty ? 0.15 : 0.50))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(importPassword.isEmpty ? 0.02 : 0.06)))
+                }
+                .buttonStyle(.plain)
+                .disabled(importPassword.isEmpty)
+            }
+        }
+    }
+
+    private var importPreviewView: some View {
+        VStack(spacing: 16) {
+            guard let preview = importPreview else { return AnyView(EmptyView()) }
+
+            return AnyView(VStack(spacing: 16) {
+                bkSectionLabel("BACKUP CONTENTS")
+
+                VStack(spacing: 6) {
+                    importPreviewRow(label: "HD WALLETS", value: "\(preview.hdWallets.count)")
+                    importPreviewRow(label: "IMPORTED ACCOUNTS", value: "\(preview.importedAccounts.count)")
+                    importPreviewRow(label: "CREATED", value: relativeDate(preview.createdAt))
+                    importPreviewRow(label: "APP VERSION", value: preview.appVersion)
+                }
+                .padding(14)
+                .background(bkCardBg)
+
+                if !preview.hdWallets.isEmpty {
+                    VStack(spacing: 2) {
+                        ForEach(preview.hdWallets, id: \.id) { wallet in
+                            HStack {
+                                Text(wallet.name.uppercased())
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.40))
+                                Spacer()
+                                Text("\(wallet.accounts.count) ACCOUNTS")
+                                    .font(.system(size: 8, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.22))
+                            }
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                        }
+                    }
+                    .background(bkCardBg)
+                }
+
+                HStack(spacing: 8) {
+                    Button { resetImport() } label: {
+                        Text("CANCEL")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .tracking(0.5)
+                            .foregroundColor(.white.opacity(0.30))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 11)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03)))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button { performImport() } label: {
+                        HStack(spacing: 5) {
+                            if importInProgress {
+                                ProgressView()
+                                    .scaleEffect(0.5)
+                                    .tint(.white.opacity(0.3))
+                            }
+                            Text(importInProgress ? "RESTORING..." : "RESTORE WALLETS")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .tracking(0.5)
+                        }
+                        .foregroundColor(.white.opacity(importInProgress ? 0.20 : 0.55))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(importInProgress ? 0.02 : 0.06)))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(importInProgress)
+                }
+            })
+        }
+    }
+
+    private func importPreviewRow(label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .tracking(0.5)
+                .foregroundColor(.white.opacity(0.25))
+            Spacer()
+            Text(value)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.45))
+        }
+    }
+
+    private func importResultView(_ result: ImportResult) -> some View {
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(.white.opacity(result.hasErrors ? 0.03 : 0.06))
+                    .frame(width: 60, height: 60)
+                Image(systemName: result.hasErrors ? "exclamationmark.triangle" : "checkmark.seal.fill")
+                    .font(.system(size: 26))
+                    .foregroundColor(.white.opacity(result.hasErrors ? 0.25 : 0.40))
+            }
+
+            Text(result.hasErrors ? "IMPORT COMPLETED WITH ERRORS" : "IMPORT SUCCESSFUL")
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .tracking(1)
+                .foregroundColor(.white.opacity(0.50))
+
+            VStack(spacing: 4) {
+                if result.imported > 0 {
+                    Text("\(result.imported) wallet(s) imported")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.35))
+                }
+                if result.skipped > 0 {
+                    Text("\(result.skipped) skipped (already exist)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.25))
+                }
+                if result.hasErrors {
+                    ForEach(result.errors, id: \.self) { err in
+                        Text(err)
+                            .font(.system(size: 8, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.25))
+                    }
+                }
+            }
+
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    resetImport()
+                }
+            } label: {
+                Text("DONE")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .tracking(1)
+                    .foregroundColor(.white.opacity(0.45))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.05)))
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Guide & Education
+    // MARK: – GUIDE
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     private var guideContent: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 20) {
             bkSectionLabel("BEST PRACTICES")
             bestPracticesCard
 
@@ -1164,78 +1349,71 @@ struct BackupOverlay: View {
     }
 
     private var bestPracticesCard: some View {
-        VStack(spacing: 10) {
-            guideRow(icon: "pencil.and.outline", title: "WRITE IT DOWN", detail: "Use pen and paper. Write clearly. Verify each word number and spelling.")
-            Divider().background(.white.opacity(0.04))
-            guideRow(icon: "doc.on.doc", title: "MULTIPLE COPIES", detail: "Store at least two copies in separate secure locations. Consider a trusted family member.")
-            Divider().background(.white.opacity(0.04))
-            guideRow(icon: "clock.arrow.2.circlepath", title: "VERIFY PERIODICALLY", detail: "Test your backup every 6 months to ensure it remains intact and readable.")
-            Divider().background(.white.opacity(0.04))
-            guideRow(icon: "lock.square.stack", title: "SECURE LOCATION", detail: "Home safe, bank safety deposit box, or fireproof document container.")
+        VStack(spacing: 2) {
+            guideRow(icon: "pencil.and.outline", title: "WRITE IT DOWN", detail: "Write your 12/24 word phrase on paper. Never type it into a computer or phone.")
+            guideRow(icon: "doc.on.doc", title: "MAKE COPIES", detail: "Keep 2-3 copies in different physical locations that you control.")
+            guideRow(icon: "clock.arrow.2.circlepath", title: "VERIFY REGULARLY", detail: "Test your backup every few months. Use the verification tab to confirm.")
+            guideRow(icon: "lock.doc", title: "ENCRYPTED EXPORT", detail: "Use the backup tab to create an AES-256 encrypted file for digital storage.")
+            guideRow(icon: "lock.square.stack", title: "SEPARATE STORAGE", detail: "Never store your backup password with your seed phrase backup.")
         }
-        .padding(14)
         .background(bkCardBg)
     }
 
     private var metalBackupCard: some View {
-        VStack(spacing: 10) {
-            guideRow(icon: "hammer", title: "STEEL STAMPING", detail: "Stamp your seed words into stainless steel plates. Survives fire, flood, and corrosion. DIY with letter punches.")
-            Divider().background(.white.opacity(0.04))
-            guideRow(icon: "flame.fill", title: "FIREPROOF STORAGE", detail: "Metal plates withstand temperatures up to 1450°C. Paper burns at 230°C. Metal is the permanent solution.")
-            Divider().background(.white.opacity(0.04))
-            guideRow(icon: "drop.fill", title: "WATERPROOF", detail: "Stainless steel resists water damage indefinitely. Paper and ink degrade over time, especially in humid environments.")
+        VStack(spacing: 2) {
+            guideRow(icon: "hammer", title: "STEEL PLATES", detail: "Stamp seed words into stainless steel plates. Survives fire and flood.")
+            guideRow(icon: "flame.fill", title: "FIRE RESISTANT", detail: "Metal backups withstand temperatures that would destroy paper.")
+            guideRow(icon: "drop.fill", title: "WATER PROOF", detail: "Steel plates are unaffected by water damage unlike paper or electronics.")
         }
-        .padding(14)
         .background(bkCardBg)
     }
 
     private var avoidCard: some View {
-        VStack(spacing: 8) {
-            avoidRow(text: "Never store in cloud services (iCloud, Google Drive, Dropbox)")
-            avoidRow(text: "Never take a screenshot or photo of your seed phrase")
-            avoidRow(text: "Never type into email, messaging apps, or notes apps")
-            avoidRow(text: "Never store on a device connected to the internet")
-            avoidRow(text: "Never share with anyone claiming to be support")
+        VStack(spacing: 2) {
+            avoidRow("Screenshots or photos of your seed phrase")
+            avoidRow("Storing in cloud notes, email, or messaging apps")
+            avoidRow("Sharing with anyone, even people claiming to be support")
+            avoidRow("Typing into websites or unknown applications")
+            avoidRow("Keeping only a single copy in one location")
         }
-        .padding(14)
         .background(bkCardBg)
     }
 
     private func guideRow(icon: String, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(.white.opacity(0.04))
-                    .frame(width: 28, height: 28)
-                Image(systemName: icon)
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.25))
-            }
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.25))
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(.white.opacity(0.04)))
+
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .tracking(0.5)
-                    .foregroundColor(.white.opacity(0.35))
+                    .foregroundColor(.white.opacity(0.45))
                 Text(detail)
-                    .font(.system(size: 9))
-                    .foregroundColor(.white.opacity(0.20))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.25))
                     .lineSpacing(2)
             }
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
-    private func avoidRow(text: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            // X marker
+    private func avoidRow(_ text: String) -> some View {
+        HStack(spacing: 10) {
             Image(systemName: "xmark")
-                .font(.system(size: 7, weight: .bold))
-                .foregroundColor(.white.opacity(0.15))
-                .padding(.top, 3)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundColor(.white.opacity(0.18))
+                .frame(width: 16)
             Text(text)
-                .font(.system(size: 9))
-                .foregroundColor(.white.opacity(0.22))
-                .lineSpacing(2)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.white.opacity(0.30))
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1245,22 +1423,24 @@ struct BackupOverlay: View {
     private func bkSectionLabel(_ text: String) -> some View {
         HStack {
             Text(text)
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.25))
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .tracking(1)
+                .foregroundColor(.white.opacity(0.35))
             Spacer()
         }
     }
 
     private var bkCardBg: some View {
-        RoundedRectangle(cornerRadius: 14)
-            .fill(.white.opacity(0.025))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.05), lineWidth: 1))
+        RoundedRectangle(cornerRadius: 10)
+            .fill(.white.opacity(0.03))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.04)))
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Actions
+    // MARK: – Actions & Handlers
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    // ── Lifecycle ──
 
     private func dismissOverlay() {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
@@ -1272,42 +1452,98 @@ struct BackupOverlay: View {
     }
 
     private func startAnimations() {
-        withAnimation(.linear(duration: 6.0).repeatForever(autoreverses: false)) { silkPhase = 1.5 }
-        withAnimation(.easeInOut(duration: 3.0).repeatForever(autoreverses: true)) { vaultPulse = 1.0 }
+        withAnimation(.linear(duration: 6).repeatForever(autoreverses: true)) {
+            silkPhase = 1
+        }
     }
 
-    // ── Hold-to-reveal ──
+    // ── Phrase: hold-to-reveal with biometric ──
+
     private func startHoldReveal() {
-        guard !isHoldingReveal else { return }
+        guard !isHoldingReveal, !isFetchingPhrase else { return }
         isHoldingReveal = true
-        // Animate progress from 0→1 over 2 seconds
-        withAnimation(.linear(duration: 2.0)) {
-            revealProgress = 1.0
-        }
-        // After 2 seconds, reveal
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            if self.isHoldingReveal {
-                self.phraseRevealed = true
-                self.startWordMaterialization()
-                self.startAutoHideCountdown()
-            }
+        phraseError = nil
+        withAnimation(.linear(duration: 2)) { revealProgress = 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [self] in
+            guard isHoldingReveal else { return }
+            fetchRealPhrase()
         }
     }
 
     private func cancelHoldReveal() {
+        guard isHoldingReveal else { return }
         isHoldingReveal = false
         if !phraseRevealed {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                revealProgress = 0
+            withAnimation(.easeOut(duration: 0.2)) { revealProgress = 0 }
+        }
+    }
+
+    private func fetchRealPhrase() {
+        isFetchingPhrase = true
+        Task { @MainActor in
+            let authResult = await BiometricAuthHelper.authenticate(reason: "Authenticate to view recovery phrase")
+            switch authResult {
+            case .success:
+                do {
+                    guard let wallet = WalletManager.shared.activeHDWallet ?? WalletManager.shared.hdWallets.first else {
+                        phraseError = "No wallet found"
+                        isFetchingPhrase = false
+                        isHoldingReveal = false
+                        withAnimation(.easeOut(duration: 0.2)) { revealProgress = 0 }
+                        return
+                    }
+                    let phrase = try await WalletManager.shared.getSeedPhrase(for: wallet.id)
+                    realPhrase = phrase.components(separatedBy: " ")
+                    phraseRevealed = true
+                    isFetchingPhrase = false
+                    historyStore.recordEvent(.phraseViewed, detail: "Recovery phrase viewed")
+                    startWordMaterialization()
+                    startAutoHideCountdown()
+                } catch {
+                    phraseError = "Failed to retrieve phrase: \(error.localizedDescription)"
+                    isFetchingPhrase = false
+                    isHoldingReveal = false
+                    withAnimation(.easeOut(duration: 0.2)) { revealProgress = 0 }
+                }
+            case .cancelled:
+                isFetchingPhrase = false
+                isHoldingReveal = false
+                withAnimation(.easeOut(duration: 0.2)) { revealProgress = 0 }
+            case .failed(let msg):
+                phraseError = msg
+                isFetchingPhrase = false
+                isHoldingReveal = false
+                withAnimation(.easeOut(duration: 0.2)) { revealProgress = 0 }
+            case .notAvailable:
+                // No biometrics — proceed anyway
+                do {
+                    guard let wallet = WalletManager.shared.activeHDWallet ?? WalletManager.shared.hdWallets.first else {
+                        phraseError = "No wallet found"
+                        isFetchingPhrase = false
+                        isHoldingReveal = false
+                        return
+                    }
+                    let phrase = try await WalletManager.shared.getSeedPhrase(for: wallet.id)
+                    realPhrase = phrase.components(separatedBy: " ")
+                    phraseRevealed = true
+                    isFetchingPhrase = false
+                    historyStore.recordEvent(.phraseViewed, detail: "Recovery phrase viewed")
+                    startWordMaterialization()
+                    startAutoHideCountdown()
+                } catch {
+                    phraseError = "Failed to retrieve phrase"
+                    isFetchingPhrase = false
+                    isHoldingReveal = false
+                }
             }
         }
     }
 
     private func startWordMaterialization() {
         revealedWordCount = 0
-        for i in 0..<mockPhrase.count {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.15) {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+        for i in 0..<realPhrase.count {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.12) {
+                withAnimation(.easeOut(duration: 0.15)) {
                     revealedWordCount = i + 1
                 }
             }
@@ -1321,189 +1557,261 @@ struct BackupOverlay: View {
     }
 
     private func tickAutoHide() {
-        guard autoHideActive, autoHideTimer > 0 else {
-            if autoHideTimer <= 0 { hidePhrase() }
-            return
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            if self.autoHideActive {
-                self.autoHideTimer -= 1
-                self.tickAutoHide()
+        guard autoHideActive, autoHideTimer > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [self] in
+            guard autoHideActive else { return }
+            autoHideTimer -= 1
+            if autoHideTimer <= 0 {
+                hidePhrase()
+            } else {
+                tickAutoHide()
             }
         }
     }
 
     private func hidePhrase() {
+        autoHideActive = false
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             phraseRevealed = false
             revealProgress = 0
             revealedWordCount = 0
-            isHoldingReveal = false
-            autoHideActive = false
             hasCopied = false
+            isHoldingReveal = false
         }
+        // Clear from memory
+        realPhrase = []
     }
 
     private func copyPhrase() {
+        guard !realPhrase.isEmpty else { return }
+        let joined = realPhrase.joined(separator: " ")
         #if os(macOS)
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(mockPhrase.joined(separator: " "), forType: .string)
+        NSPasteboard.general.setString(joined, forType: .string)
         #endif
         hasCopied = true
-        // Auto-clear clipboard after 60 seconds
+        // Auto-clear pasteboard after 60 seconds
         DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
             #if os(macOS)
-            NSPasteboard.general.clearContents()
+            if NSPasteboard.general.string(forType: .string) == joined {
+                NSPasteboard.general.clearContents()
+            }
             #endif
         }
     }
 
     // ── Verification ──
+
     private func startVerification() {
-        // Pick 4 random unique indices
-        var indices = Array(0..<mockPhrase.count)
-        indices.shuffle()
-        let picked = Array(indices.prefix(4)).sorted()
-        verifyQuestions = picked.map { ($0, mockPhrase[$0]) }
-        verifyResults = []
-        verifyCurrentQ = 0
-        verifyInput = ""
-        verifyComplete = false
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            verifyStage = .inProgress
+        Task { @MainActor in
+            let authResult = await BiometricAuthHelper.authenticate(reason: "Authenticate to verify backup")
+            switch authResult {
+            case .success, .notAvailable:
+                do {
+                    guard let wallet = WalletManager.shared.activeHDWallet ?? WalletManager.shared.hdWallets.first else { return }
+                    let phrase = try await WalletManager.shared.getSeedPhrase(for: wallet.id)
+                    verifyPhrase = phrase.components(separatedBy: " ")
+                    let indices = Array(verifyPhrase.indices).shuffled().prefix(4)
+                    verifyQuestions = indices.map { ($0, verifyPhrase[$0]) }
+                    verifyResults = []
+                    verifyCurrentQ = 0
+                    verifyInput = ""
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        verifyStage = .inProgress
+                    }
+                } catch {
+                    // Could not retrieve phrase
+                }
+            case .cancelled, .failed:
+                break
+            }
         }
     }
 
     private func submitVerifyAnswer() {
         guard verifyCurrentQ < verifyQuestions.count else { return }
-        let correct = verifyInput.lowercased().trimmingCharacters(in: .whitespaces) == verifyQuestions[verifyCurrentQ].1
-        verifyResults.append(correct)
-        verifyInput = ""
+        let (_, correct) = verifyQuestions[verifyCurrentQ]
+        let isCorrect = verifyInput.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == correct.lowercased()
 
-        if verifyCurrentQ + 1 < verifyQuestions.count {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                verifyCurrentQ += 1
-            }
-        } else {
-            // Complete
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            verifyResults.append(isCorrect)
+            verifyInput = ""
+            verifyCurrentQ += 1
+        }
+
+        if verifyCurrentQ >= verifyQuestions.count {
             let allCorrect = verifyResults.allSatisfy { $0 }
             if allCorrect {
-                isBackedUp = true
-                lastVerifiedDate = Date()
-                backupHistory.insert(
-                    BkHistoryEntry(action: "Verification Passed", detail: "\(verifyResults.count)/\(verifyResults.count) correct", icon: "checkmark.shield", date: Date()),
-                    at: 0
-                )
+                historyStore.recordEvent(.verificationPassed, detail: "4/4 correct")
+            } else {
+                let correct = verifyResults.filter { $0 }.count
+                historyStore.recordEvent(.verificationFailed, detail: "\(correct)/4 correct")
             }
             withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                 verifyStage = .complete
             }
+            // Clear sensitive data
+            verifyPhrase = []
         }
     }
 
     // ── Export ──
+
     private var canExport: Bool {
-        exportPassword.count >= 8 &&
-        exportPassword == exportConfirmPassword
+        exportPassword.count >= 8 && exportPassword == exportConfirmPassword && !exportInProgress
     }
 
     private func beginExport() {
         guard canExport else { return }
         exportInProgress = true
-        exportSealProgress = 0
+        exportError = nil
 
-        withAnimation(.easeInOut(duration: 2.5)) {
-            exportSealProgress = 1.0
-        }
+        Task { @MainActor in
+            do {
+                let data = try await BackupManager.shared.exportBackup(
+                    password: exportPassword,
+                    walletManager: WalletManager.shared
+                )
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            self.exportInProgress = false
-            self.exportComplete = true
-            self.backupHistory.insert(
-                BkHistoryEntry(action: "Encrypted Export", detail: "wallet_backup.hawala", icon: "lock.doc", date: Date()),
-                at: 0
-            )
+                // Present NSSavePanel
+                #if canImport(AppKit)
+                let panel = NSSavePanel()
+                var contentTypes: [UTType] = [.json]
+                let customTypes = ["hawala"].compactMap { UTType(filenameExtension: $0) }
+                contentTypes.append(contentsOf: customTypes)
+                panel.allowedContentTypes = contentTypes
+
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd"
+                panel.nameFieldStringValue = "hawala-backup-\(formatter.string(from: Date())).hawala"
+                panel.title = "Save Encrypted Hawala Backup"
+                panel.canCreateDirectories = true
+
+                panel.begin { response in
+                    if response == .OK, let url = panel.url {
+                        do {
+                            try data.write(to: url, options: [.atomic, .completeFileProtection])
+                            self.exportInProgress = false
+                            self.exportComplete = true
+                            self.historyStore.recordEvent(.exportCreated, detail: url.lastPathComponent)
+                        } catch {
+                            self.exportInProgress = false
+                            self.exportError = "Failed to write file: \(error.localizedDescription)"
+                        }
+                    } else {
+                        self.exportInProgress = false
+                    }
+                }
+                #endif
+            } catch {
+                exportInProgress = false
+                exportError = "Export failed: \(error.localizedDescription)"
+            }
         }
     }
 
     private func passwordStrength(_ pw: String) -> CGFloat {
         guard !pw.isEmpty else { return 0 }
         var score: CGFloat = 0
-        if pw.count >= 8 { score += 0.20 }
+        if pw.count >= 8 { score += 0.2 }
         if pw.count >= 12 { score += 0.15 }
-        if pw.count >= 16 { score += 0.10 }
+        if pw.count >= 16 { score += 0.15 }
         if pw.rangeOfCharacter(from: .uppercaseLetters) != nil { score += 0.15 }
         if pw.rangeOfCharacter(from: .lowercaseLetters) != nil { score += 0.10 }
-        if pw.rangeOfCharacter(from: .decimalDigits) != nil { score += 0.15 }
-        if pw.rangeOfCharacter(from: CharacterSet.punctuationCharacters.union(.symbols)) != nil { score += 0.15 }
-        return min(1.0, score)
+        if pw.rangeOfCharacter(from: .decimalDigits) != nil { score += 0.10 }
+        if pw.rangeOfCharacter(from: CharacterSet.alphanumerics.inverted) != nil { score += 0.15 }
+        return min(1, score)
     }
 
     private func strengthLabel(_ s: CGFloat) -> String {
-        if s >= 0.85 { return "STRONG" }
-        if s >= 0.55 { return "MODERATE" }
+        if s >= 0.8 { return "STRONG" }
+        if s >= 0.5 { return "MODERATE" }
         if s > 0 { return "WEAK" }
         return ""
     }
 
     private func strengthOpacity(_ s: CGFloat) -> Double {
-        if s >= 0.85 { return 0.35 }
-        if s >= 0.55 { return 0.22 }
-        return 0.12
+        if s >= 0.8 { return 0.40 }
+        if s >= 0.5 { return 0.25 }
+        if s > 0 { return 0.15 }
+        return 0.05
+    }
+
+    // ── Import ──
+
+    private func selectImportFile() {
+        importError = nil
+        #if canImport(AppKit)
+        BackupService.shared.beginEncryptedImport { data in
+            if let data = data {
+                self.importFileData = data
+                // Try to get filename from pasteboard or just show generic
+                self.importFileName = "backup.hawala"
+            }
+        }
+        #endif
+    }
+
+    private func decryptImportFile() {
+        guard let data = importFileData, !importPassword.isEmpty else { return }
+        importError = nil
+
+        do {
+            let contents = try BackupManager.shared.parseBackup(data: data, password: importPassword)
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                importPreview = contents
+            }
+        } catch {
+            importError = "Wrong password or corrupted file"
+        }
+    }
+
+    private func performImport() {
+        guard let contents = importPreview else { return }
+        importInProgress = true
+
+        Task { @MainActor in
+            do {
+                let result = try await BackupManager.shared.importBackup(
+                    contents: contents,
+                    walletManager: WalletManager.shared
+                )
+                importInProgress = false
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    importResult = result
+                }
+                historyStore.recordEvent(.importCompleted, detail: result.summary)
+            } catch {
+                importInProgress = false
+                importError = "Import failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func resetImport() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            importFileData = nil
+            importFileName = nil
+            importPassword = ""
+            importPreview = nil
+            importResult = nil
+            importError = nil
+            importInProgress = false
+        }
     }
 
     // ── Helpers ──
+
     private func relativeDate(_ date: Date) -> String {
-        let diff = Date().timeIntervalSince(date)
-        if diff < 60 { return "just now" }
-        if diff < 3600 { return "\(Int(diff / 60))m ago" }
-        if diff < 86400 { return "\(Int(diff / 3600))h ago" }
-        return "\(Int(diff / 86400))d ago"
-    }
-
-    private func daysSince(_ date: Date) -> Int {
-        Int(Date().timeIntervalSince(date) / 86400)
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Mock Data
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    private func loadMockHistory() {
-        backupHistory = [
-            BkHistoryEntry(action: "Verification Passed", detail: "4/4 correct", icon: "checkmark.shield", date: Calendar.current.date(byAdding: .day, value: -42, to: Date()) ?? Date()),
-            BkHistoryEntry(action: "Encrypted Export", detail: "wallet_backup.hawala", icon: "lock.doc", date: Calendar.current.date(byAdding: .day, value: -42, to: Date()) ?? Date()),
-            BkHistoryEntry(action: "Phrase Viewed", detail: "Duration: 25s", icon: "eye", date: Calendar.current.date(byAdding: .day, value: -45, to: Date()) ?? Date()),
-            BkHistoryEntry(action: "Verification Passed", detail: "4/4 correct", icon: "checkmark.shield", date: Calendar.current.date(byAdding: .month, value: -4, to: Date()) ?? Date()),
-            BkHistoryEntry(action: "Wallet Created", detail: "12-word phrase generated", icon: "plus.circle", date: Calendar.current.date(byAdding: .month, value: -6, to: Date()) ?? Date()),
-        ]
-    }
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// MARK: – Models
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-struct BkHistoryEntry: Identifiable {
-    let id = UUID()
-    let action: String
-    let detail: String
-    let icon: String
-    let date: Date
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// MARK: – Diamond Shape
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-struct Diamond: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: rect.midX, y: rect.minY))
-        p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-        p.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
-        p.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
-        p.closeSubpath()
-        return p
+        let seconds = Int(Date().timeIntervalSince(date))
+        if seconds < 60 { return "just now" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes)m ago" }
+        let hours = minutes / 60
+        if hours < 24 { return "\(hours)h ago" }
+        let days = hours / 24
+        if days < 30 { return "\(days)d ago" }
+        let months = days / 30
+        return "\(months)mo ago"
     }
 }

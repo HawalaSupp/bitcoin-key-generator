@@ -10,6 +10,7 @@ import SwiftUI
 
 struct NetworkOverlay: View {
     @Binding var isPresented: Bool
+    var onBackToSettings: (() -> Void)? = nil
 
     // ── Node manager ──
     @StateObject private var nodeManager = NodeManager.shared
@@ -33,6 +34,23 @@ struct NetworkOverlay: View {
     @State private var newProviderLabel: String = ""
     @State private var newProviderURL: String = ""
     @State private var newProviderKey: String = ""
+    @State private var newProviderRequiresAuth: Bool = false
+    @State private var newProviderAuthToken: String = ""
+
+    // ── Edit node ──
+    @State private var editingNodeId: UUID? = nil
+    @State private var editLabel: String = ""
+    @State private var editURL: String = ""
+    @State private var editKey: String = ""
+    @State private var editAuthToken: String = ""
+    @State private var editRequiresAuth: Bool = false
+
+    // ── Delete confirmation ──
+    @State private var confirmDeleteNodeId: UUID? = nil
+
+    // ── API Key editing ──
+    @State private var editingAPIKeyType: String? = nil
+    @State private var apiKeyDraft: String = ""
 
     // ── Diagnostics ──
     @State private var isPulsing: Bool = false
@@ -46,8 +64,12 @@ struct NetworkOverlay: View {
         let timestamp: Date
     }
 
-    // ── Testnet ──
+    // ── Network mode ──
+    @AppStorage("hawala.selectedNetwork") private var selectedNetwork: String = "mainnet"
+    @AppStorage("hawala.customRpcUrl") private var customRpcUrl: String = ""
     @State private var testnetMode: Bool = false
+    @State private var isTestingCustomRpc: Bool = false
+    @State private var customRpcTestResult: String? = nil
 
     // ── Failover ──
     @State private var failoverThreshold: Int = 3
@@ -60,9 +82,7 @@ struct NetworkOverlay: View {
 
     // ── Hover ──
     @State private var closeHovered: Bool = false
-
-    // ── Visible chains for topology ──
-    private let topologyChains: [NodeChain] = [.bitcoin, .ethereum, .solana, .litecoin, .polygon, .arbitrum]
+    @State private var backHovered: Bool = false
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // MARK: – Body
@@ -101,7 +121,7 @@ struct NetworkOverlay: View {
             sectionPicker
             sectionContent
         }
-        .frame(width: 460, height: 680)
+        .frame(width: 540, height: 720)
         .background(cardBg)
         .overlay(cardStroke)
         .shadow(color: .black.opacity(0.5), radius: 50, y: 25)
@@ -141,16 +161,40 @@ struct NetworkOverlay: View {
     private var headerBar: some View {
         ZStack {
             Text("NETWORK")
-                .font(.clashGroteskMedium(size: 14))
+                .font(.clashGroteskMedium(size: 15))
                 .tracking(3)
-                .foregroundColor(.white.opacity(0.5))
+                .foregroundColor(.white.opacity(0.6))
             HStack {
+                if onBackToSettings != nil {
+                    Button {
+                        dismissOverlay()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            onBackToSettings?()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("SETTINGS")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .tracking(0.5)
+                        }
+                        .foregroundColor(.white.opacity(backHovered ? 0.8 : 0.35))
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7)
+                                .fill(.white.opacity(backHovered ? 0.10 : 0.04))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { backHovered = $0 }
+                }
                 Spacer()
                 Button(action: dismissOverlay) {
                     Image(systemName: "xmark")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.white.opacity(closeHovered ? 0.9 : 0.4))
-                        .frame(width: 28, height: 28)
+                        .foregroundColor(.white.opacity(closeHovered ? 0.9 : 0.45))
+                        .frame(width: 30, height: 30)
                         .background(Circle().fill(.white.opacity(closeHovered ? 0.12 : 0.06)))
                 }
                 .buttonStyle(.plain)
@@ -176,37 +220,33 @@ struct NetworkOverlay: View {
 
     private func statusPill(label: String, count: Int) -> some View {
         HStack(spacing: 5) {
-            // Geometric indicator based on label
             netStatusDot(label: label)
             Text("\(count)")
-                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                .foregroundColor(.white.opacity(count > 0 ? 0.6 : 0.15))
+                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .foregroundColor(.white.opacity(count > 0 ? 0.7 : 0.20))
             Text(label)
-                .font(.system(size: 7, weight: .bold, design: .monospaced))
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
                 .tracking(0.5)
-                .foregroundColor(.white.opacity(count > 0 ? 0.3 : 0.12))
+                .foregroundColor(.white.opacity(count > 0 ? 0.40 : 0.15))
         }
     }
 
     private func netStatusDot(label: String) -> some View {
         ZStack {
             if label == "CONNECTED" {
-                // Complete circle
                 Circle()
-                    .fill(.white.opacity(0.30))
-                    .frame(width: 6, height: 6)
+                    .fill(.white.opacity(0.40))
+                    .frame(width: 7, height: 7)
             } else if label == "SYNCING" {
-                // Incomplete arc
                 Circle()
                     .trim(from: 0, to: 0.7)
-                    .stroke(.white.opacity(0.25), lineWidth: 1.5)
-                    .frame(width: 6, height: 6)
+                    .stroke(.white.opacity(0.30), lineWidth: 1.5)
+                    .frame(width: 7, height: 7)
                     .rotationEffect(.degrees(constellationPulse * 360))
             } else {
-                // Empty ring
                 Circle()
-                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                    .frame(width: 6, height: 6)
+                    .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+                    .frame(width: 7, height: 7)
             }
         }
     }
@@ -234,13 +274,13 @@ struct NetworkOverlay: View {
         } label: {
             VStack(spacing: 5) {
                 Text(sec.rawValue)
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .tracking(1)
-                    .foregroundColor(.white.opacity(selected ? 0.8 : 0.3))
-                    .padding(.horizontal, 8)
+                    .foregroundColor(.white.opacity(selected ? 0.85 : 0.35))
+                    .padding(.horizontal, 10)
                 RoundedRectangle(cornerRadius: 1)
-                    .fill(.white.opacity(selected ? 0.4 : 0))
-                    .frame(height: 1.5)
+                    .fill(.white.opacity(selected ? 0.5 : 0))
+                    .frame(height: 2)
             }
             .padding(.vertical, 6)
         }
@@ -269,159 +309,27 @@ struct NetworkOverlay: View {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Topology (Network Graph)
+    // MARK: – Topology (Chain Status)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     private var topologyContent: some View {
         VStack(spacing: 16) {
-            constellationGraph
-            netSectionLabel("ALL CHAINS")
-            chainListCompact
+            netSectionLabel("CHAIN STATUS")
+            chainStatusList
+            testAllChainsButton
         }
     }
 
-    // ── Constellation graph — HAWALA at center, chains orbit ──
-    private var constellationGraph: some View {
-        ZStack {
-            // Connection lines from center to each chain
-            ForEach(Array(topologyChains.enumerated()), id: \.element) { idx, chain in
-                constellationLine(index: idx, total: topologyChains.count, chain: chain)
-            }
-            // Chain nodes orbiting
-            ForEach(Array(topologyChains.enumerated()), id: \.element) { idx, chain in
-                constellationNode(index: idx, total: topologyChains.count, chain: chain)
-            }
-            // Center hub
-            constellationCenter
-        }
-        .frame(height: 200)
-        .padding(.vertical, 8)
-    }
-
-    private var constellationCenter: some View {
-        ZStack {
-            // Pulse rings
-            ForEach(0..<3, id: \.self) { i in
-                Circle()
-                    .strokeBorder(.white.opacity(0.04 - Double(i) * 0.01), lineWidth: 1)
-                    .frame(width: CGFloat(30 + i * 16), height: CGFloat(30 + i * 16))
-            }
-            // Core
-            Circle()
-                .fill(.white.opacity(0.08))
-                .frame(width: 28, height: 28)
-                .overlay(Circle().strokeBorder(.white.opacity(0.20), lineWidth: 1.5))
-            Text("H")
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.50))
-        }
-    }
-
-    private func constellationLine(index: Int, total: Int, chain: NodeChain) -> some View {
-        let angle = constellationAngle(index: index, total: total)
-        let radius: CGFloat = 80
-        let status = chainConnectionStatus(chain)
-        let lineOpacity = status == .connected ? 0.15 : (status == .testing ? 0.08 : 0.04)
-        let dashPattern: [CGFloat] = status == .connected ? [] : [4, 3]
-
-        return Path { p in
-            p.move(to: CGPoint(x: 200, y: 100))
-            p.addLine(to: CGPoint(
-                x: 200 + radius * cos(angle),
-                y: 100 + radius * sin(angle)
-            ))
-        }
-        .stroke(
-            .white.opacity(lineOpacity),
-            style: StrokeStyle(
-                lineWidth: status == .connected ? 1.5 : 0.8,
-                dash: dashPattern
-            )
-        )
-        .frame(width: 400, height: 200)
-    }
-
-    private func constellationNode(index: Int, total: Int, chain: NodeChain) -> some View {
-        let angle = constellationAngle(index: index, total: total)
-        let radius: CGFloat = 80
-        let status = chainConnectionStatus(chain)
-        let isSelected = selectedChain == chain
-
-        return Button {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                selectedChain = chain
-                activeSection = .providers
-            }
-        } label: {
-            VStack(spacing: 3) {
-                // Node shape — completeness shows connection
-                constellationNodeShape(status: status, isSelected: isSelected)
-                Text(chain.symbol)
-                    .font(.system(size: 7, weight: .bold, design: .monospaced))
-                    .tracking(0.5)
-                    .foregroundColor(.white.opacity(isSelected ? 0.6 : 0.3))
-            }
-        }
-        .buttonStyle(.plain)
-        .offset(
-            x: radius * cos(angle),
-            y: radius * sin(angle)
-        )
-    }
-
-    private func constellationNodeShape(status: NodeConnectionStatus, isSelected: Bool) -> some View {
-        ZStack {
-            // Outer ring — completeness denotes status
-            if status == .connected {
-                // Complete ring
-                Circle()
-                    .strokeBorder(.white.opacity(isSelected ? 0.45 : 0.25), lineWidth: isSelected ? 2 : 1.5)
-                    .frame(width: 22, height: 22)
-                Circle()
-                    .fill(.white.opacity(isSelected ? 0.10 : 0.05))
-                    .frame(width: 22, height: 22)
-            } else if status == .testing {
-                // Animating arc
-                Circle()
-                    .trim(from: 0, to: 0.65)
-                    .stroke(.white.opacity(0.20), lineWidth: 1.5)
-                    .frame(width: 22, height: 22)
-                    .rotationEffect(.degrees(constellationPulse * 360))
-            } else {
-                // Broken ring — disconnected
-                Circle()
-                    .trim(from: 0, to: 0.3)
-                    .stroke(.white.opacity(0.10), lineWidth: 1)
-                    .frame(width: 22, height: 22)
-                Circle()
-                    .trim(from: 0.5, to: 0.8)
-                    .stroke(.white.opacity(0.10), lineWidth: 1)
-                    .frame(width: 22, height: 22)
-            }
-            // Inner dot
-            Circle()
-                .fill(.white.opacity(status == .connected ? 0.30 : 0.08))
-                .frame(width: 6, height: 6)
-        }
-    }
-
-    private func constellationAngle(index: Int, total: Int) -> CGFloat {
-        let base = -CGFloat.pi / 2  // Start from top
-        let step = 2 * CGFloat.pi / CGFloat(total)
-        return base + step * CGFloat(index)
-    }
-
-    // ── Compact chain list under topology ──
-    private var chainListCompact: some View {
+    private var chainStatusList: some View {
         VStack(spacing: 2) {
             ForEach(NodeChain.allCases) { chain in
-                chainListRow(chain)
+                chainStatusRow(chain)
             }
         }
         .background(netCardBg)
     }
 
-    private func chainListRow(_ chain: NodeChain) -> some View {
+    private func chainStatusRow(_ chain: NodeChain) -> some View {
         let status = chainConnectionStatus(chain)
         let defaultNode = nodeManager.defaultNode(for: chain)
         let isSelected = selectedChain == chain
@@ -433,37 +341,43 @@ struct NetworkOverlay: View {
             }
         } label: {
             HStack(spacing: 10) {
-                // Status geometry
-                chainStatusGeometry(status)
+                chainStatusDot(status)
                     .frame(width: 14, height: 14)
 
-                // Chain name
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(chain.displayName.uppercased())
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .tracking(0.5)
-                        .foregroundColor(.white.opacity(isSelected ? 0.65 : 0.40))
+                    HStack(spacing: 6) {
+                        Text(chain.symbol)
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .tracking(0.5)
+                            .foregroundColor(.white.opacity(isSelected ? 0.75 : 0.50))
+                        Text(chain.displayName.uppercased())
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.30))
+                    }
                     if let node = defaultNode {
                         Text(node.label)
                             .font(.system(size: 8, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.18))
+                            .foregroundColor(.white.opacity(0.22))
                     }
                 }
 
                 Spacer()
 
-                // Latency
-                if let lat = defaultNode?.health.latencyMs {
-                    Text("\(lat)ms")
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(latencyOpacity(lat)))
-                }
-
-                // Block height
-                if let height = defaultNode?.health.blockHeight {
-                    Text("#\(formatBlockHeight(height))")
-                        .font(.system(size: 8, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.18))
+                VStack(alignment: .trailing, spacing: 2) {
+                    if let lat = defaultNode?.health.latencyMs {
+                        Text("\(lat)ms")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(latencyOpacity(lat)))
+                    }
+                    if let height = defaultNode?.health.blockHeight {
+                        Text("#\(formatBlockHeight(height))")
+                            .font(.system(size: 8, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.22))
+                    } else if let lastConn = defaultNode?.health.lastConnected {
+                        Text(relativeTime(lastConn))
+                            .font(.system(size: 8, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.18))
+                    }
                 }
             }
             .padding(.horizontal, 14)
@@ -473,21 +387,21 @@ struct NetworkOverlay: View {
         .buttonStyle(.plain)
     }
 
-    private func chainStatusGeometry(_ status: NodeConnectionStatus) -> some View {
+    private func chainStatusDot(_ status: NodeConnectionStatus) -> some View {
         ZStack {
             switch status {
             case .connected:
                 Circle()
-                    .fill(.white.opacity(0.25))
-                    .overlay(Circle().strokeBorder(.white.opacity(0.15), lineWidth: 1))
+                    .fill(.white.opacity(0.35))
+                    .overlay(Circle().strokeBorder(.white.opacity(0.20), lineWidth: 1))
             case .testing:
                 Circle()
                     .trim(from: 0, to: 0.7)
-                    .stroke(.white.opacity(0.20), lineWidth: 1.5)
+                    .stroke(.white.opacity(0.25), lineWidth: 1.5)
                     .rotationEffect(.degrees(constellationPulse * 360))
             case .disconnected, .error:
                 Circle()
-                    .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
                     .overlay(
                         Path { p in
                             p.move(to: CGPoint(x: 3, y: 3))
@@ -497,6 +411,29 @@ struct NetworkOverlay: View {
                     )
             }
         }
+    }
+
+    private var testAllChainsButton: some View {
+        Button {
+            runDiagnostics()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.system(size: 10))
+                Text(isRunningDiagnostics ? "TESTING..." : "TEST ALL CHAINS")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .tracking(0.5)
+            }
+            .foregroundColor(.white.opacity(isRunningDiagnostics ? 0.25 : 0.45))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(.white.opacity(isRunningDiagnostics ? 0.02 : 0.04))
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isRunningDiagnostics)
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -513,6 +450,8 @@ struct NetworkOverlay: View {
             } else {
                 addProviderButton
             }
+            netSectionLabel("API KEYS")
+            apiKeysSection
         }
     }
 
@@ -568,15 +507,15 @@ struct NetworkOverlay: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(node.label.uppercased())
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .tracking(0.5)
-                            .foregroundColor(.white.opacity(node.isDefault ? 0.6 : 0.35))
+                            .foregroundColor(.white.opacity(node.isDefault ? 0.70 : 0.45))
 
                         if node.isDefault {
                             Text("DEFAULT")
-                                .font(.system(size: 6, weight: .bold, design: .monospaced))
+                                .font(.system(size: 7, weight: .bold, design: .monospaced))
                                 .tracking(1)
-                                .foregroundColor(.white.opacity(0.3))
+                                .foregroundColor(.white.opacity(0.35))
                                 .padding(.horizontal, 5).padding(.vertical, 2)
                                 .background(
                                     RoundedRectangle(cornerRadius: 3)
@@ -587,8 +526,8 @@ struct NetworkOverlay: View {
 
                     // URL truncated
                     Text(truncateURL(node.url))
-                        .font(.system(size: 8, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.15))
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.22))
                         .lineLimit(1)
                 }
 
@@ -612,6 +551,12 @@ struct NetworkOverlay: View {
 
             // Action buttons
             providerActions(node)
+
+            // Inline edit form
+            if editingNodeId == node.id {
+                editNodeForm(node)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
         .background(netCardBg)
     }
@@ -642,10 +587,10 @@ struct NetworkOverlay: View {
         let text: String
         let opacity: Double
         switch status {
-        case .connected: text = "CONNECTED"; opacity = 0.25
-        case .disconnected: text = "OFFLINE"; opacity = 0.15
-        case .testing: text = "TESTING"; opacity = 0.20
-        case .error: text = "ERROR"; opacity = 0.18
+        case .connected: text = "CONNECTED"; opacity = 0.35
+        case .disconnected: text = "OFFLINE"; opacity = 0.20
+        case .testing: text = "TESTING"; opacity = 0.28
+        case .error: text = "ERROR"; opacity = 0.25
         }
         return Text(text)
             .font(.system(size: 6, weight: .bold, design: .monospaced))
@@ -665,11 +610,42 @@ struct NetworkOverlay: View {
                     nodeManager.setDefault(node)
                 }
             }
-            // Delete (if allowed)
+            // Edit
+            providerActionBtn(icon: "pencil", label: editingNodeId == node.id ? "CLOSE" : "EDIT") {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    if editingNodeId == node.id {
+                        editingNodeId = nil
+                    } else {
+                        editingNodeId = node.id
+                        editLabel = node.label
+                        editURL = node.url
+                        editKey = node.apiKey ?? ""
+                        editAuthToken = node.authToken ?? ""
+                        editRequiresAuth = node.requiresAuth
+                    }
+                }
+            }
+            // Delete (if allowed) — two-tap confirm
             if nodeManager.canDeleteNode(node) && !node.isBuiltIn {
-                providerActionBtn(icon: "trash", label: "REMOVE") {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        nodeManager.deleteNode(node)
+                if confirmDeleteNodeId == node.id {
+                    providerActionBtn(icon: "exclamationmark.triangle", label: "CONFIRM?", isDestructive: true) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            nodeManager.deleteNode(node)
+                            confirmDeleteNodeId = nil
+                            if editingNodeId == node.id { editingNodeId = nil }
+                        }
+                    }
+                } else {
+                    providerActionBtn(icon: "trash", label: "REMOVE") {
+                        withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+                            confirmDeleteNodeId = node.id
+                        }
+                        // Auto-reset after 3 seconds
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                if confirmDeleteNodeId == node.id { confirmDeleteNodeId = nil }
+                            }
+                        }
                     }
                 }
             }
@@ -678,7 +654,7 @@ struct NetworkOverlay: View {
         .padding(.bottom, 10)
     }
 
-    private func providerActionBtn(icon: String, label: String, action: @escaping () -> Void) -> some View {
+    private func providerActionBtn(icon: String, label: String, isDestructive: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Image(systemName: icon)
@@ -687,11 +663,90 @@ struct NetworkOverlay: View {
                     .font(.system(size: 7, weight: .bold, design: .monospaced))
                     .tracking(0.5)
             }
-            .foregroundColor(.white.opacity(0.25))
+            .foregroundColor(isDestructive ? .red.opacity(0.65) : .white.opacity(0.35))
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 5).fill(.white.opacity(0.03)))
+            .background(RoundedRectangle(cornerRadius: 5).fill(isDestructive ? .red.opacity(0.08) : .white.opacity(0.04)))
         }
         .buttonStyle(.plain)
+    }
+
+    // ── Inline edit node form ──
+    private func editNodeForm(_ node: NodeConfiguration) -> some View {
+        VStack(spacing: 10) {
+            Rectangle().fill(.white.opacity(0.06)).frame(height: 1)
+
+            netSectionLabel("EDIT NODE")
+
+            netTextField(placeholder: "Label", text: $editLabel)
+            netTextField(placeholder: "https://rpc.example.com", text: $editURL)
+            netTextField(placeholder: "API Key (optional)", text: $editKey)
+
+            HStack(spacing: 8) {
+                Text("REQUIRES AUTH")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(.white.opacity(0.25))
+                Spacer()
+                netToggle(label: "", enabled: $editRequiresAuth)
+            }
+
+            if editRequiresAuth {
+                netTextField(placeholder: "Auth Token", text: $editAuthToken)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        editingNodeId = nil
+                    }
+                } label: {
+                    Text("CANCEL")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .tracking(1)
+                        .foregroundColor(.white.opacity(0.25))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03)))
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    saveEditedNode(node)
+                } label: {
+                    Text("SAVE")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .tracking(1)
+                        .foregroundColor(.white.opacity(canSaveEdit ? 0.6 : 0.15))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(.white.opacity(canSaveEdit ? 0.08 : 0.02))
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSaveEdit)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 14)
+    }
+
+    private var canSaveEdit: Bool {
+        !editLabel.isEmpty && editURL.contains("://")
+    }
+
+    private func saveEditedNode(_ node: NodeConfiguration) {
+        var updated = node
+        updated.label = editLabel
+        updated.url = editURL
+        updated.apiKey = editKey.isEmpty ? nil : editKey
+        updated.requiresAuth = editRequiresAuth
+        updated.authToken = editRequiresAuth ? (editAuthToken.isEmpty ? nil : editAuthToken) : nil
+        nodeManager.updateNode(updated)
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            editingNodeId = nil
+        }
     }
 
     // ── Add provider ──
@@ -702,16 +757,18 @@ struct NetworkOverlay: View {
                 newProviderLabel = ""
                 newProviderURL = ""
                 newProviderKey = ""
+                newProviderRequiresAuth = false
+                newProviderAuthToken = ""
             }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "plus")
                     .font(.system(size: 10))
                 Text("ADD PROVIDER")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .tracking(1)
             }
-            .foregroundColor(.white.opacity(0.25))
+            .foregroundColor(.white.opacity(0.35))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .background(netCardBg)
@@ -726,6 +783,19 @@ struct NetworkOverlay: View {
             netTextField(placeholder: "Provider Name", text: $newProviderLabel)
             netTextField(placeholder: "https://rpc.example.com", text: $newProviderURL)
             netTextField(placeholder: "API Key (optional)", text: $newProviderKey)
+
+            HStack(spacing: 8) {
+                Text("REQUIRES AUTH")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(.white.opacity(0.25))
+                Spacer()
+                netToggle(label: "", enabled: $newProviderRequiresAuth)
+            }
+
+            if newProviderRequiresAuth {
+                netTextField(placeholder: "Auth Token", text: $newProviderAuthToken)
+            }
 
             HStack(spacing: 8) {
                 Button {
@@ -787,7 +857,9 @@ struct NetworkOverlay: View {
             chain: selectedChain,
             label: newProviderLabel,
             url: newProviderURL,
-            apiKey: newProviderKey.isEmpty ? nil : newProviderKey
+            apiKey: newProviderKey.isEmpty ? nil : newProviderKey,
+            requiresAuth: newProviderRequiresAuth,
+            authToken: newProviderRequiresAuth ? (newProviderAuthToken.isEmpty ? nil : newProviderAuthToken) : nil
         )
         nodeManager.addNode(node)
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
@@ -797,16 +869,171 @@ struct NetworkOverlay: View {
         Task { await nodeManager.testNode(node.id) }
     }
 
+    // ── API Keys Section ──
+
+    private var apiKeysSection: some View {
+        VStack(spacing: 2) {
+            apiKeyRow(name: "ALCHEMY", configured: APIKeys.shared.hasAlchemyKey, keyType: "alchemy")
+            apiKeyRow(name: "MORALIS", configured: APIKeys.shared.hasMoralisKey, keyType: "moralis")
+            apiKeyRow(name: "TATUM", configured: APIKeys.shared.hasTatumKey, keyType: "tatum")
+            apiKeyRow(name: "COINGECKO", configured: APIKeys.shared.hasCoinGeckoKey, keyType: "coingecko")
+        }
+        .background(netCardBg)
+    }
+
+    private func apiKeyRow(name: String, configured: Bool, keyType: String) -> some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    if editingAPIKeyType == keyType {
+                        editingAPIKeyType = nil
+                        apiKeyDraft = ""
+                    } else {
+                        editingAPIKeyType = keyType
+                        apiKeyDraft = currentAPIKeyValue(keyType) ?? ""
+                    }
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Text(name)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .tracking(0.5)
+                        .foregroundColor(.white.opacity(0.50))
+
+                    Spacer()
+
+                    Text(configured ? "CONFIGURED" : "NOT SET")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .tracking(0.5)
+                        .foregroundColor(.white.opacity(configured ? 0.35 : 0.15))
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(.white.opacity(configured ? 0.04 : 0.02))
+                        )
+
+                    Image(systemName: editingAPIKeyType == keyType ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8))
+                        .foregroundColor(.white.opacity(0.20))
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+            }
+            .buttonStyle(.plain)
+
+            if editingAPIKeyType == keyType {
+                apiKeyEditor(keyType: keyType)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    private func apiKeyEditor(keyType: String) -> some View {
+        VStack(spacing: 8) {
+            netTextField(placeholder: "Paste API key...", text: $apiKeyDraft)
+
+            HStack(spacing: 8) {
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        editingAPIKeyType = nil
+                        apiKeyDraft = ""
+                    }
+                } label: {
+                    Text("CANCEL")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .tracking(0.5)
+                        .foregroundColor(.white.opacity(0.25))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.03)))
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    saveAPIKey(keyType: keyType, value: apiKeyDraft)
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        editingAPIKeyType = nil
+                        apiKeyDraft = ""
+                    }
+                } label: {
+                    Text("SAVE")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .tracking(0.5)
+                        .foregroundColor(.white.opacity(!apiKeyDraft.isEmpty ? 0.50 : 0.15))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(.white.opacity(!apiKeyDraft.isEmpty ? 0.06 : 0.02))
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(apiKeyDraft.isEmpty)
+
+                if currentAPIKeyValue(keyType) != nil {
+                    Button {
+                        removeAPIKey(keyType: keyType)
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            editingAPIKeyType = nil
+                            apiKeyDraft = ""
+                        }
+                    } label: {
+                        Text("REMOVE")
+                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .tracking(0.5)
+                            .foregroundColor(.white.opacity(0.20))
+                            .padding(.horizontal, 10).padding(.vertical, 8)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.02)))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.horizontal, 14).padding(.bottom, 12)
+    }
+
+    private func currentAPIKeyValue(_ keyType: String) -> String? {
+        switch keyType {
+        case "alchemy":
+            let k = APIKeys.shared.alchemyAPIKey
+            return k.isEmpty ? nil : k
+        case "moralis":  return APIKeys.shared.moralisKey
+        case "tatum":    return APIKeys.shared.tatumKey
+        case "coingecko": return APIKeys.shared.coinGeckoKey
+        default: return nil
+        }
+    }
+
+    private func saveAPIKey(keyType: String, value: String) {
+        switch keyType {
+        case "alchemy":  APIKeys.setAlchemyKey(value)
+        case "moralis":  APIKeys.setMoralisKey(value)
+        case "tatum":    APIKeys.setTatumKey(value)
+        case "coingecko": APIKeys.setCoinGeckoKey(value)
+        default: break
+        }
+    }
+
+    private func removeAPIKey(keyType: String) {
+        switch keyType {
+        case "alchemy":  APIKeys.removeAlchemyKey()
+        case "moralis":  APIKeys.removeMoralisKey()
+        case "tatum":    APIKeys.removeTatumKey()
+        case "coingecko": APIKeys.removeCoinGeckoKey()
+        default: break
+        }
+    }
+
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // MARK: – Sync Status
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     private var syncContent: some View {
         VStack(spacing: 16) {
-            netSectionLabel("BLOCK SYNC STATUS")
+            netSectionLabel("BLOCK HEIGHTS")
             ForEach(NodeChain.allCases) { chain in
                 syncRow(chain)
             }
+            refreshAllButton
         }
     }
 
@@ -814,51 +1041,41 @@ struct NetworkOverlay: View {
         let defaultNode = nodeManager.defaultNode(for: chain)
         let height = defaultNode?.health.blockHeight
         let status = defaultNode?.health.status ?? .disconnected
-        let mockNetworkHeight = mockNetworkBlockHeight(chain)
-        let syncProgress = computeSyncProgress(current: height, network: mockNetworkHeight)
 
-        return VStack(spacing: 8) {
-            HStack(spacing: 10) {
-                // Sync arc — circular fill showing progress
-                syncArc(progress: syncProgress, status: status)
-                    .frame(width: 36, height: 36)
+        return HStack(spacing: 10) {
+            syncStatusIndicator(status)
+                .frame(width: 30, height: 30)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(chain.displayName.uppercased())
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .tracking(0.5)
-                        .foregroundColor(.white.opacity(0.45))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(chain.displayName.uppercased())
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(.white.opacity(0.55))
 
-                    if let h = height {
-                        HStack(spacing: 4) {
-                            Text("BLOCK")
-                                .font(.system(size: 7, weight: .bold, design: .monospaced))
-                                .foregroundColor(.white.opacity(0.18))
-                            Text(formatBlockHeight(h))
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                .foregroundColor(.white.opacity(0.5))
-                        }
-                    } else {
-                        Text("NO DATA")
+                if let h = height {
+                    HStack(spacing: 4) {
+                        Text("BLOCK")
                             .font(.system(size: 8, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.12))
+                            .foregroundColor(.white.opacity(0.25))
+                        Text(formatBlockHeight(h))
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.60))
                     }
+                } else {
+                    Text("—")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.18))
                 }
+            }
 
-                Spacer()
+            Spacer()
 
-                // Sync percentage / status
-                VStack(alignment: .trailing, spacing: 2) {
-                    if status == .connected {
-                        Text(String(format: "%.1f%%", syncProgress * 100))
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.4))
-                    }
-                    if let lastConn = defaultNode?.health.lastConnected {
-                        Text(relativeTime(lastConn))
-                            .font(.system(size: 7, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.15))
-                    }
+            VStack(alignment: .trailing, spacing: 2) {
+                statusLabel(status)
+                if let lastConn = defaultNode?.health.lastConnected {
+                    Text(relativeTime(lastConn))
+                        .font(.system(size: 7, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.12))
                 }
             }
         }
@@ -866,36 +1083,49 @@ struct NetworkOverlay: View {
         .background(netCardBg)
     }
 
-    // ── Sync arc — circular progress ──
-    private func syncArc(progress: Double, status: NodeConnectionStatus) -> some View {
+    private func syncStatusIndicator(_ status: NodeConnectionStatus) -> some View {
         ZStack {
-            // Background arc
             Circle()
-                .strokeBorder(.white.opacity(0.04), lineWidth: 3)
+                .strokeBorder(.white.opacity(0.04), lineWidth: 2.5)
 
-            // Progress arc
-            Circle()
-                .trim(from: 0, to: CGFloat(progress))
-                .stroke(.white.opacity(status == .connected ? 0.25 : 0.08), lineWidth: 3)
-                .rotationEffect(.degrees(-90))
-
-            // Center text
-            if status == .connected {
-                Text(String(format: "%.0f", progress * 100))
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.35))
-            } else if status == .testing {
+            switch status {
+            case .connected:
+                Circle()
+                    .trim(from: 0, to: 1)
+                    .stroke(.white.opacity(0.25), lineWidth: 2.5)
+                    .rotationEffect(.degrees(-90))
+            case .testing:
                 Circle()
                     .trim(from: 0, to: 0.3)
                     .stroke(.white.opacity(0.15), lineWidth: 2)
                     .rotationEffect(.degrees(constellationPulse * 360))
-                    .frame(width: 12, height: 12)
-            } else {
-                Text("—")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.12))
+            case .disconnected, .error:
+                EmptyView()
             }
         }
+    }
+
+    private var refreshAllButton: some View {
+        Button {
+            Task {
+                for chain in NodeChain.allCases {
+                    await nodeManager.testAllNodes(for: chain)
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 10))
+                Text("REFRESH ALL")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .tracking(0.5)
+            }
+            .foregroundColor(.white.opacity(0.30))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03)))
+        }
+        .buttonStyle(.plain)
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -908,32 +1138,43 @@ struct NetworkOverlay: View {
             diagnosticsCard
             netSectionLabel("LATENCY MAP")
             latencyMap
-            netSectionLabel("BANDWIDTH")
-            bandwidthCard
+            netSectionLabel("PROVIDER HEALTH")
+            providerHealthCard
         }
     }
 
     // ── Diagnostics — pulse test ──
     private var diagnosticsCard: some View {
         VStack(spacing: 14) {
-            // Pulse visualization
-            pulseVisualization
+            if !pulseResults.isEmpty {
+                diagnosticsResultList
+            } else {
+                diagnosticsEmptyState
+            }
 
             Button {
                 runDiagnostics()
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "waveform.path.ecg")
-                        .font(.system(size: 11))
+                    if isRunningDiagnostics {
+                        Circle()
+                            .trim(from: 0, to: 0.7)
+                            .stroke(.white.opacity(0.30), lineWidth: 1.5)
+                            .frame(width: 12, height: 12)
+                            .rotationEffect(.degrees(constellationPulse * 360))
+                    } else {
+                        Image(systemName: "waveform.path.ecg")
+                            .font(.system(size: 12))
+                    }
                     Text(isRunningDiagnostics ? "TESTING..." : "RUN DIAGNOSTICS")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .tracking(1)
                 }
-                .foregroundColor(.white.opacity(isRunningDiagnostics ? 0.20 : 0.40))
+                .foregroundColor(.white.opacity(isRunningDiagnostics ? 0.25 : 0.50))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                .padding(.vertical, 13)
                 .background(
-                    RoundedRectangle(cornerRadius: 8).fill(.white.opacity(isRunningDiagnostics ? 0.02 : 0.05))
+                    RoundedRectangle(cornerRadius: 8).fill(.white.opacity(isRunningDiagnostics ? 0.02 : 0.06))
                 )
             }
             .buttonStyle(.plain)
@@ -943,61 +1184,66 @@ struct NetworkOverlay: View {
         .background(netCardBg)
     }
 
-    // ── Pulse visualization — expanding rings from center ──
-    private var pulseVisualization: some View {
-        ZStack {
-            // Concentric pulse rings
-            if isPulsing {
-                ForEach(0..<3, id: \.self) { i in
-                    Circle()
-                        .strokeBorder(
-                            .white.opacity(max(0, 0.15 - Double(i) * 0.04) * Double(1 - pulsePhase)),
-                            lineWidth: 1.5
-                        )
-                        .frame(
-                            width: 20 + pulsePhase * 120 + CGFloat(i) * 20,
-                            height: 20 + pulsePhase * 120 + CGFloat(i) * 20
-                        )
-                }
-            }
-            // Center dot
-            Circle()
-                .fill(.white.opacity(isPulsing ? 0.30 : 0.10))
-                .frame(width: 10, height: 10)
-                .overlay(Circle().strokeBorder(.white.opacity(0.20), lineWidth: 1))
-
-            // Result dots — positioned radially
-            ForEach(Array(pulseResults.keys.sorted(by: { $0.rawValue < $1.rawValue }).enumerated()), id: \.element) { idx, chain in
-                if let result = pulseResults[chain] {
-                    pulseResultDot(chain: chain, result: result, index: idx, total: pulseResults.count)
-                }
-            }
-        }
-        .frame(height: 130)
-    }
-
-    private func pulseResultDot(chain: NodeChain, result: PulseResult, index: Int, total: Int) -> some View {
-        let angle = constellationAngle(index: index, total: max(total, 1))
-        // Distance based on latency — closer = faster
-        let dist: CGFloat
-        if let lat = result.latencyMs {
-            dist = min(55, max(20, CGFloat(lat) / 10))
-        } else {
-            dist = 55
-        }
-        return VStack(spacing: 2) {
-            Circle()
-                .fill(.white.opacity(result.connected ? 0.25 : 0.06))
-                .frame(width: 8, height: 8)
-                .overlay(Circle().strokeBorder(.white.opacity(result.connected ? 0.15 : 0.05), lineWidth: 0.8))
-            Text(chain.symbol)
-                .font(.system(size: 5, weight: .bold, design: .monospaced))
+    private var diagnosticsEmptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .font(.system(size: 20))
+                .foregroundColor(.white.opacity(0.12))
+            Text("Run diagnostics to test all chain connections")
+                .font(.system(size: 10, design: .monospaced))
                 .foregroundColor(.white.opacity(0.20))
+                .multilineTextAlignment(.center)
         }
-        .offset(x: dist * cos(angle), y: dist * sin(angle))
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
     }
 
-    // ── Latency map — proximity visualization ──
+    private var diagnosticsResultList: some View {
+        VStack(spacing: 4) {
+            ForEach(NodeChain.allCases) { chain in
+                if let result = pulseResults[chain] {
+                    diagnosticsResultRow(chain: chain, result: result)
+                }
+            }
+        }
+    }
+
+    private func diagnosticsResultRow(chain: NodeChain, result: PulseResult) -> some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(.white.opacity(result.connected ? 0.35 : 0.08))
+                .frame(width: 8, height: 8)
+
+            Text(chain.symbol)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(.white.opacity(0.45))
+                .frame(width: 45, alignment: .leading)
+
+            Text(chain.displayName)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.white.opacity(0.25))
+
+            Spacer()
+
+            if let lat = result.latencyMs {
+                Text("\(lat)ms")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(latencyOpacity(lat)))
+            } else {
+                Text("FAIL")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.15))
+            }
+
+            Text(result.connected ? "OK" : "ERR")
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .foregroundColor(.white.opacity(result.connected ? 0.35 : 0.15))
+                .frame(width: 28)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+    }
+
+    // ── Latency map — bar visualization ──
     private var latencyMap: some View {
         VStack(spacing: 4) {
             ForEach(NodeChain.allCases) { chain in
@@ -1016,7 +1262,6 @@ struct NetworkOverlay: View {
                 .foregroundColor(.white.opacity(0.30))
                 .frame(width: 40, alignment: .leading)
 
-            // Latency bar — length proportional to response time
             GeometryReader { geo in
                 let maxW = geo.size.width
                 let barW = latencyBarWidth(latency: latency, maxWidth: maxW)
@@ -1049,7 +1294,6 @@ struct NetworkOverlay: View {
 
     private func latencyBarWidth(latency: Int?, maxWidth: CGFloat) -> CGFloat {
         guard let lat = latency else { return 0 }
-        // Inverse — lower latency = shorter bar (closer)
         let normalized = min(1.0, CGFloat(lat) / 500.0)
         return max(4, normalized * maxWidth)
     }
@@ -1061,43 +1305,68 @@ struct NetworkOverlay: View {
         return 0.08
     }
 
-    // ── Bandwidth card ──
-    private var bandwidthCard: some View {
-        VStack(spacing: 8) {
-            ForEach([NodeChain.bitcoin, .ethereum, .solana], id: \.self) { chain in
-                bandwidthRow(chain)
+    // ── Provider health — status from ProviderHealthManager ──
+    private var providerHealthCard: some View {
+        let manager = ProviderHealthManager.shared
+        return VStack(spacing: 4) {
+            ForEach(ProviderType.allCases) { provider in
+                providerHealthRow(provider, status: manager.providerStatuses[provider])
             }
         }
-        .padding(14)
         .background(netCardBg)
     }
 
-    private func bandwidthRow(_ chain: NodeChain) -> some View {
-        let mockData = mockBandwidth(chain)
+    private func providerHealthRow(_ provider: ProviderType, status: ProviderStatus?) -> some View {
+        let state = status?.state ?? .unknown
         return HStack(spacing: 10) {
-            Text(chain.symbol)
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.30))
-                .frame(width: 35, alignment: .leading)
-            // Upload
-            HStack(spacing: 3) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 7))
-                    .foregroundColor(.white.opacity(0.15))
-                Text(mockData.tx)
-                    .font(.system(size: 8, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.25))
+            providerHealthDot(state)
+                .frame(width: 8, height: 8)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(provider.displayName.uppercased())
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .tracking(0.3)
+                    .foregroundColor(.white.opacity(0.45))
+                Text(provider.category.rawValue.uppercased())
+                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(.white.opacity(0.18))
             }
+
             Spacer()
-            // Download
-            HStack(spacing: 3) {
-                Image(systemName: "arrow.down")
-                    .font(.system(size: 7))
-                    .foregroundColor(.white.opacity(0.15))
-                Text(mockData.rx)
-                    .font(.system(size: 8, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.25))
-            }
+
+            Text(providerStateLabel(state))
+                .font(.system(size: 7, weight: .bold, design: .monospaced))
+                .tracking(0.3)
+                .foregroundColor(.white.opacity(providerStateOpacity(state)))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+    }
+
+    private func providerHealthDot(_ state: ProviderHealthState) -> some View {
+        Circle().fill(.white.opacity(
+            state == .healthy ? 0.40 :
+            state == .unknown ? 0.12 :
+            0.20
+        ))
+    }
+
+    private func providerStateLabel(_ state: ProviderHealthState) -> String {
+        switch state {
+        case .healthy: return "HEALTHY"
+        case .degraded: return "DEGRADED"
+        case .offline: return "OFFLINE"
+        case .unknown: return "UNKNOWN"
+        }
+    }
+
+    private func providerStateOpacity(_ state: ProviderHealthState) -> Double {
+        switch state {
+        case .healthy: return 0.40
+        case .degraded: return 0.30
+        case .offline: return 0.22
+        case .unknown: return 0.15
         }
     }
 
@@ -1107,8 +1376,11 @@ struct NetworkOverlay: View {
 
     private var settingsContent: some View {
         VStack(spacing: 16) {
-            netSectionLabel("TESTNET MODE")
-            testnetCard
+            netSectionLabel("NETWORK MODE")
+            networkModeCard
+            if selectedNetwork == "custom" {
+                customRpcCard
+            }
             netSectionLabel("AUTO-FAILOVER")
             failoverCard
             netSectionLabel("CONNECTION")
@@ -1116,77 +1388,190 @@ struct NetworkOverlay: View {
         }
     }
 
-    private var testnetCard: some View {
+    // ── Network mode selector — mainnet / testnet / custom ──
+    private var networkModeCard: some View {
         VStack(spacing: 12) {
-            // Testnet visualization — dimmed parallel
-            testnetVisual
+            networkModeVisual
 
-            netToggle(label: "TESTNET MODE", enabled: $testnetMode)
-
-            if testnetMode {
-                Text("Connected to test networks. Balances and transactions are not real. Separate provider configurations apply.")
-                    .font(.system(size: 9))
-                    .foregroundColor(.white.opacity(0.25))
-                    .lineSpacing(2)
-            } else {
-                Text("Running on mainnet. All transactions involve real assets and irreversible operations.")
-                    .font(.system(size: 9))
-                    .foregroundColor(.white.opacity(0.20))
-                    .lineSpacing(2)
+            // Radio options
+            VStack(spacing: 6) {
+                networkModeOption(
+                    mode: "mainnet",
+                    label: "MAINNET",
+                    description: "Production network. All transactions involve real assets."
+                )
+                networkModeOption(
+                    mode: "testnet",
+                    label: "TESTNET",
+                    description: "Test network. Balances and transactions are not real."
+                )
+                networkModeOption(
+                    mode: "custom",
+                    label: "CUSTOM RPC",
+                    description: "Connect to a custom RPC endpoint."
+                )
             }
         }
         .padding(16)
         .background(netCardBg)
     }
 
-    // Testnet visual — a faded/outlined version of the network
-    private var testnetVisual: some View {
-        HStack(spacing: 16) {
-            // Mainnet representation
-            VStack(spacing: 4) {
+    private func networkModeOption(mode: String, label: String, description: String) -> some View {
+        let isSelected = selectedNetwork == mode
+        return Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                selectedNetwork = mode
+                testnetMode = (mode == "testnet")
+            }
+        } label: {
+            HStack(spacing: 10) {
+                // Radio indicator
                 ZStack {
                     Circle()
-                        .fill(.white.opacity(testnetMode ? 0.04 : 0.10))
-                        .frame(width: 32, height: 32)
-                    Circle()
-                        .strokeBorder(.white.opacity(testnetMode ? 0.06 : 0.18), lineWidth: 1.5)
-                        .frame(width: 32, height: 32)
-                    Text("M")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(.white.opacity(testnetMode ? 0.15 : 0.45))
+                        .strokeBorder(.white.opacity(isSelected ? 0.35 : 0.10), lineWidth: 1.5)
+                        .frame(width: 16, height: 16)
+                    if isSelected {
+                        Circle()
+                            .fill(.white.opacity(0.45))
+                            .frame(width: 8, height: 8)
+                    }
                 }
-                Text("MAINNET")
-                    .font(.system(size: 6, weight: .bold, design: .monospaced))
-                    .tracking(0.5)
-                    .foregroundColor(.white.opacity(testnetMode ? 0.10 : 0.30))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .tracking(0.5)
+                        .foregroundColor(.white.opacity(isSelected ? 0.60 : 0.30))
+                    Text(description)
+                        .font(.system(size: 8))
+                        .foregroundColor(.white.opacity(isSelected ? 0.25 : 0.15))
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(.white.opacity(isSelected ? 0.04 : 0.01))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // ── Custom RPC card ──
+    private var customRpcCard: some View {
+        VStack(spacing: 10) {
+            netTextField(placeholder: "https://your-rpc-endpoint.com", text: $customRpcUrl)
+
+            HStack(spacing: 8) {
+                Button {
+                    testCustomRpc()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .font(.system(size: 9))
+                        Text(isTestingCustomRpc ? "TESTING..." : "TEST CONNECTION")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .tracking(0.5)
+                    }
+                    .foregroundColor(.white.opacity(isTestingCustomRpc ? 0.20 : 0.35))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04)))
+                }
+                .buttonStyle(.plain)
+                .disabled(isTestingCustomRpc || customRpcUrl.isEmpty)
             }
 
-            // Arrow
+            if let result = customRpcTestResult {
+                Text(result)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.30))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(16)
+        .background(netCardBg)
+    }
+
+    private func testCustomRpc() {
+        guard !customRpcUrl.isEmpty else { return }
+        isTestingCustomRpc = true
+        customRpcTestResult = nil
+
+        let tempNode = NodeConfiguration(
+            chain: .ethereum,
+            label: "Custom RPC Test",
+            url: customRpcUrl
+        )
+        nodeManager.addNode(tempNode)
+
+        Task {
+            await nodeManager.testNode(tempNode.id)
+            if let tested = nodeManager.nodes.first(where: { $0.id == tempNode.id }) {
+                if tested.health.status == .connected {
+                    let latency = tested.health.latencyMs.map { "\($0)ms" } ?? "?"
+                    customRpcTestResult = "Connected — \(latency) latency"
+                } else {
+                    customRpcTestResult = tested.health.lastError ?? "Connection failed"
+                }
+                nodeManager.nodes.removeAll { $0.id == tempNode.id }
+                nodeManager.saveNodes()
+            } else {
+                customRpcTestResult = "Test interrupted"
+            }
+            isTestingCustomRpc = false
+        }
+    }
+
+    // ── Network mode visual — M / T / C circles ──
+    private var networkModeVisual: some View {
+        HStack(spacing: 12) {
+            networkModeCircle(letter: "M", label: "MAINNET", isActive: selectedNetwork == "mainnet")
+
             Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: 10))
-                .foregroundColor(.white.opacity(0.10))
+                .font(.system(size: 8))
+                .foregroundColor(.white.opacity(0.08))
 
-            // Testnet representation
-            VStack(spacing: 4) {
-                ZStack {
-                    Circle()
-                        .strokeBorder(
-                            .white.opacity(testnetMode ? 0.18 : 0.06),
-                            style: StrokeStyle(lineWidth: 1.5, dash: [3, 2])
-                        )
-                        .frame(width: 32, height: 32)
-                    Text("T")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(.white.opacity(testnetMode ? 0.45 : 0.12))
-                }
-                Text("TESTNET")
-                    .font(.system(size: 6, weight: .bold, design: .monospaced))
-                    .tracking(0.5)
-                    .foregroundColor(.white.opacity(testnetMode ? 0.30 : 0.10))
-            }
+            networkModeCircle(letter: "T", label: "TESTNET", isActive: selectedNetwork == "testnet", isDashed: true)
+
+            Image(systemName: "arrow.left.arrow.right")
+                .font(.system(size: 8))
+                .foregroundColor(.white.opacity(0.08))
+
+            networkModeCircle(letter: "C", label: "CUSTOM", isActive: selectedNetwork == "custom", isDashed: true)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
+    }
+
+    private func networkModeCircle(letter: String, label: String, isActive: Bool, isDashed: Bool = false) -> some View {
+        VStack(spacing: 4) {
+            ZStack {
+                if isDashed {
+                    Circle()
+                        .strokeBorder(
+                            .white.opacity(isActive ? 0.18 : 0.06),
+                            style: StrokeStyle(lineWidth: 1.5, dash: [3, 2])
+                        )
+                        .frame(width: 28, height: 28)
+                } else {
+                    Circle()
+                        .fill(.white.opacity(isActive ? 0.10 : 0.04))
+                        .frame(width: 28, height: 28)
+                    Circle()
+                        .strokeBorder(.white.opacity(isActive ? 0.18 : 0.06), lineWidth: 1.5)
+                        .frame(width: 28, height: 28)
+                }
+                Text(letter)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white.opacity(isActive ? 0.45 : 0.12))
+            }
+            Text(label)
+                .font(.system(size: 6, weight: .bold, design: .monospaced))
+                .tracking(0.5)
+                .foregroundColor(.white.opacity(isActive ? 0.30 : 0.10))
+        }
     }
 
     private var failoverCard: some View {
@@ -1211,10 +1596,31 @@ struct NetworkOverlay: View {
                 // Failover history
                 if !nodeManager.failoverEvents.isEmpty {
                     Divider().background(.white.opacity(0.06))
-                    netSectionLabel("RECENT FAILOVERS")
-                    ForEach(nodeManager.failoverEvents.prefix(3)) { event in
-                        failoverEventRow(event)
+
+                    HStack {
+                        netSectionLabel("FAILOVER LOG")
+                        Spacer()
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                nodeManager.failoverEvents.removeAll()
+                            }
+                        } label: {
+                            Text("CLEAR")
+                                .font(.system(size: 7, weight: .bold, design: .monospaced))
+                                .tracking(0.5)
+                                .foregroundColor(.white.opacity(0.20))
+                        }
+                        .buttonStyle(.plain)
                     }
+
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 2) {
+                            ForEach(nodeManager.failoverEvents) { event in
+                                failoverEventRow(event)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 150)
                 }
             }
         }
@@ -1297,7 +1703,10 @@ struct NetworkOverlay: View {
 
             // Reset all
             Button {
-                // Placeholder — resets node configs to defaults
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    nodeManager.nodes = NodeManager.defaultNodes()
+                    nodeManager.saveNodes()
+                }
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.counterclockwise")
@@ -1324,8 +1733,8 @@ struct NetworkOverlay: View {
     private func netSectionLabel(_ text: String) -> some View {
         HStack {
             Text(text)
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.25))
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundColor(.white.opacity(0.35))
                 .tracking(1)
             Spacer()
         }
@@ -1472,40 +1881,5 @@ struct NetworkOverlay: View {
         if diff < 3600 { return "\(Int(diff / 60))m ago" }
         if diff < 86400 { return "\(Int(diff / 3600))h ago" }
         return "\(Int(diff / 86400))d ago"
-    }
-
-    private func computeSyncProgress(current: UInt64?, network: UInt64) -> Double {
-        guard let c = current, network > 0 else { return 0 }
-        return min(1.0, Double(c) / Double(network))
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MARK: – Mock Data
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    private func mockNetworkBlockHeight(_ chain: NodeChain) -> UInt64 {
-        switch chain {
-        case .bitcoin:   return 882_450
-        case .ethereum:  return 21_987_654
-        case .solana:    return 318_452_100
-        case .litecoin:  return 2_743_200
-        case .monero:    return 3_245_600
-        case .bnb:       return 47_123_456
-        case .xrp:       return 92_345_678
-        case .polygon:   return 68_901_234
-        case .arbitrum:  return 312_456_789
-        case .optimism:  return 134_567_890
-        case .base:      return 27_890_123
-        case .avalanche: return 58_901_234
-        }
-    }
-
-    private func mockBandwidth(_ chain: NodeChain) -> (tx: String, rx: String) {
-        switch chain {
-        case .bitcoin:  return ("2.1 MB", "14.8 MB")
-        case .ethereum: return ("5.3 MB", "28.4 MB")
-        case .solana:   return ("8.7 MB", "42.1 MB")
-        default:        return ("1.2 MB", "6.5 MB")
-        }
     }
 }

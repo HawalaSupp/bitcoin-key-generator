@@ -12,6 +12,13 @@ struct SettingsView: View {
     var onOpenBackup: (() -> Void)? = nil
     var onOpenTokens: (() -> Void)? = nil
     var onOpenSecurityPolicies: (() -> Void)? = nil
+    var onOpenHardwareWallet: (() -> Void)? = nil
+    var onOpenAddressBook: ((AddressBookOverlay.ABTab?) -> Void)? = nil
+    var onOpenScheduledTx: (() -> Void)? = nil
+    var onOpenExport: (() -> Void)? = nil
+    var onOpenDebugConsole: (() -> Void)? = nil
+    var onOpenAbout: (() -> Void)? = nil
+    var onOpenHelpSupport: (() -> Void)? = nil
     @Environment(\.dismiss) private var envDismiss
     @ObservedObject var passcodeManager = PasscodeManager.shared
     @ObservedObject var themeManager = ThemeManager.shared
@@ -35,28 +42,14 @@ struct SettingsView: View {
     @AppStorage("demo_litecoin") private var demoLitecoin: Double = 8420.0
     @AppStorage("demo_monero") private var demoMonero: Double = 5310.0
     
-    @State private var showAbout = false
-    @State private var showBackupSheet = false
-    @State private var showNetworkSettingsSheet = false
-    @State private var showExportSheet = false
+    // Export now uses overlay via onOpenExport callback
     @State private var showResetConfirm = false
     @State private var showChangePasscode = false
     @State private var showSetPasscode = false
-    @State private var showTermsSheet = false
-    @State private var showPrivacySheet = false
-    @State private var showSupportSheet = false
-    @State private var showDebugConsole = false
+
     @State private var isForceSyncing = false
-    @State private var showCustomTokensSheet = false
-    @State private var showAddressManagement = false
-    @State private var showStealthAddresses = false
-    @State private var showScheduledTransactions = false
-    @State private var showProviderSettings = false
-    @State private var showPrivacySettings = false
-    @State private var showSecurityPolicies = false
-    @State private var showAddressLabels = false
-    @State private var showHardwareWallet = false
-    @State private var showAirGapSigning = false
+
+
     
     // Animation states
     @State private var contentOpacity: Double = 0
@@ -93,7 +86,7 @@ struct SettingsView: View {
     var body: some View {
         ZStack {
             // Background
-            Color(red: 0.10, green: 0.10, blue: 0.12)
+            Color(red: 0.06, green: 0.06, blue: 0.07)
                 .ignoresSafeArea()
             
             VStack(spacing: 0) {
@@ -138,9 +131,7 @@ struct SettingsView: View {
                 cardScale = 1
             }
         }
-        .sheet(isPresented: $showAbout) {
-            AboutView()
-        }
+
         .sheet(isPresented: $showChangePasscode) {
             ChangePasscodeSheet(passcodeManager: passcodeManager)
         }
@@ -149,65 +140,8 @@ struct SettingsView: View {
                 showSetPasscode = false
             }
         }
-        .sheet(isPresented: $showBackupSheet) {
-            BackupWalletSheet()
-        }
-        .sheet(isPresented: $showNetworkSettingsSheet) {
-            NetworkSettingsSheet()
-        }
-        .sheet(isPresented: $showExportSheet) {
-            ExportHistorySheet()
-        }
-        .sheet(isPresented: $showTermsSheet) {
-            TermsOfServiceSheet()
-        }
-        .sheet(isPresented: $showPrivacySheet) {
-            PrivacyPolicySheet()
-        }
-        .sheet(isPresented: $showSupportSheet) {
-            HelpSupportSheet()
-        }
-        .sheet(isPresented: $showDebugConsole) {
-            DebugConsoleSheet()
-        }
-        .sheet(isPresented: $showCustomTokensSheet) {
-            CustomTokensSheet()
-        }
-        .sheet(isPresented: $showAddressManagement) {
-            AddressManagementView()
-        }
-        .sheet(isPresented: $showStealthAddresses) {
-            StealthAddressView()
-        }
-        .sheet(isPresented: $showScheduledTransactions) {
-            ScheduledTransactionsView()
-        }
-        .sheet(isPresented: $showAddressLabels) {
-            AddressLabelsView()
-                .frame(width: 700, height: 600)
-        }
-        .sheet(isPresented: $showPrivacySettings) {
-            NavigationStack {
-                PrivacySettingsView()
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Close") { showPrivacySettings = false }
-                        }
-                    }
-            }
-            .frame(width: 500, height: 650)
-        }
-        .sheet(isPresented: $showSecurityPolicies) {
-            SecurityPoliciesView()
-        }
-        .sheet(isPresented: $showHardwareWallet) {
-            HardwareWalletView()
-                .frame(minWidth: 500, minHeight: 600)
-        }
-        .sheet(isPresented: $showAirGapSigning) {
-            AirGapDemoView()
-                .frame(minWidth: 400, minHeight: 500)
-        }
+        // Backup, Tokens, Privacy, Export now use overlay callbacks
+
         .alert("Reset Wallet", isPresented: $showResetConfirm) {
             Button("Cancel", role: .cancel) { }
             Button("Reset", role: .destructive) {
@@ -243,8 +177,8 @@ struct SettingsView: View {
         ZStack {
             // Centered title
             Text("Settings")
-                .font(.clashGroteskMedium(size: 20))
-                .foregroundColor(.white)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundColor(.white.opacity(0.9))
             
             // Close button
             HStack {
@@ -419,11 +353,7 @@ struct SettingsView: View {
                     accentColor: .white
                 ) {
                     triggerHaptic()
-                    if let onOpenPrivacy = onOpenPrivacy {
-                        onOpenPrivacy()
-                    } else {
-                        showPrivacySettings = true
-                    }
+                    onOpenPrivacy?()
                 }
             }
             
@@ -436,11 +366,7 @@ struct SettingsView: View {
                     accentColor: .white
                 ) {
                     triggerHaptic()
-                    if let onOpenNetwork = onOpenNetwork {
-                        onOpenNetwork()
-                    } else {
-                        showProviderSettings = true
-                    }
+                    onOpenNetwork?()
                 }
                 
                 SettingsGridCard(
@@ -463,11 +389,7 @@ struct SettingsView: View {
                     accentColor: .white
                 ) {
                     triggerHaptic()
-                    if let onOpenBackup {
-                        onOpenBackup()
-                    } else {
-                        showBackupSheet = true
-                    }
+                    onOpenBackup?()
                 }
                 
                 SettingsGridCard(
@@ -477,11 +399,7 @@ struct SettingsView: View {
                     accentColor: .white
                 ) {
                     triggerHaptic()
-                    if let onOpenTokens {
-                        onOpenTokens()
-                    } else {
-                        showCustomTokensSheet = true
-                    }
+                    onOpenTokens?()
                 }
             }
             
@@ -497,8 +415,6 @@ struct SettingsView: View {
                 triggerHaptic()
                 if let onOpenSecurityPolicies {
                     onOpenSecurityPolicies()
-                } else {
-                    showSecurityPolicies = true
                 }
             }
             
@@ -506,77 +422,72 @@ struct SettingsView: View {
             
             SettingsListRow(icon: "cpu", title: "Hardware Wallet") {
                 triggerHaptic()
-                showHardwareWallet = true
+                if let onOpenHardwareWallet {
+                    onOpenHardwareWallet()
+                }
             }
             
             Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
             
-            SettingsListRow(icon: "qrcode.viewfinder", title: "Air-Gap Signing") {
+            SettingsListRow(icon: "person.crop.rectangle.stack.fill", title: "Address Book") {
                 triggerHaptic()
-                showAirGapSigning = true
-            }
-            
-            Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
-            
-            SettingsListRow(icon: "tag.fill", title: "Address Labels") {
-                triggerHaptic()
-                showAddressLabels = true
+                onOpenAddressBook?(nil)
             }
             
             Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
             
             SettingsListRow(icon: "list.bullet.rectangle", title: "Address Management") {
                 triggerHaptic()
-                showAddressManagement = true
+                onOpenAddressBook?(.addresses)
             }
             
             Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
             
             SettingsListRow(icon: "calendar.badge.clock", title: "Scheduled Transactions") {
                 triggerHaptic()
-                showScheduledTransactions = true
+                if let cb = onOpenScheduledTx { cb() } else { /* legacy fallback */ }
             }
             
             Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
             
             SettingsListRow(icon: "network", title: "Network Settings") {
                 triggerHaptic()
-                showNetworkSettingsSheet = true
+                if let cb = onOpenNetwork { cb() }
             }
             
             Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
             
             SettingsListRow(icon: "server.rack", title: "Node Management") {
                 triggerHaptic()
-                NotificationCenter.default.post(name: .openNodeManagement, object: nil)
+                if let cb = onOpenNetwork { cb() }
             }
             
             Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
             
             SettingsListRow(icon: "doc.text.fill", title: "Export History") {
                 triggerHaptic()
-                showExportSheet = true
+                if let cb = onOpenExport { cb() }
             }
             
             Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
             
             SettingsListRow(icon: "terminal.fill", title: "Debug Console") {
                 triggerHaptic()
-                showDebugConsole = true
+                if let cb = onOpenDebugConsole { cb() }
             }
             
             Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
             
             SettingsListRow(icon: "info.circle.fill", title: "About Hawala") {
                 triggerHaptic()
-                showAbout = true
+                if let cb = onOpenAbout { cb() }
             }
             
             Divider().background(Color.white.opacity(0.06)).padding(.leading, 52)
             
             SettingsListRow(icon: "questionmark.circle.fill", title: "Help & Support") {
                 triggerHaptic()
-                showSupportSheet = true
+                if let cb = onOpenHelpSupport { cb() }
             }
         }
         .background(Color.white.opacity(0.03))
@@ -741,7 +652,7 @@ struct SettingsQuickToggle: View {
                     .frame(width: 44, height: 26)
                 
                 Circle()
-                    .fill(isOn ? Color(red: 0.10, green: 0.10, blue: 0.12) : Color.white.opacity(0.6))
+                    .fill(isOn ? Color(red: 0.06, green: 0.06, blue: 0.07) : Color.white.opacity(0.6))
                     .frame(width: 20, height: 20)
                     .shadow(color: Color.black.opacity(0.2), radius: 2, x: 0, y: 1)
                     .offset(x: isOn ? 9 : -9)
@@ -1055,95 +966,6 @@ struct CurrencyPickerRow: View {
     }
 }
 
-// MARK: - About View
-struct AboutView: View {
-    @Environment(\.dismiss) private var dismiss
-    
-    var body: some View {
-        VStack(spacing: HawalaTheme.Spacing.xl) {
-            // Close button
-            HStack {
-                Spacer()
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding()
-            
-            Spacer()
-            
-            // Logo
-            VStack(spacing: HawalaTheme.Spacing.lg) {
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    HawalaTheme.Colors.accent,
-                                    HawalaTheme.Colors.accentHover
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 100, height: 100)
-                    
-                    Image(systemName: "wallet.pass.fill")
-                        .font(.system(size: 44, weight: .medium))
-                        .foregroundColor(.white)
-                }
-                
-                Text("Hawala")
-                    .font(.system(size: 36, weight: .bold, design: .rounded))
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
-                
-                Text("Version \(AppVersion.version)")
-                    .font(HawalaTheme.Typography.body)
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
-            }
-            
-            Spacer()
-            
-            // Description
-            Text("A modern, secure multi-chain cryptocurrency wallet for macOS.")
-                .font(HawalaTheme.Typography.body)
-                .foregroundColor(HawalaTheme.Colors.textSecondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, HawalaTheme.Spacing.xxl)
-            
-            // Features list
-            VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
-                FeatureRow(icon: "shield.fill", text: "Self-custody security")
-                FeatureRow(icon: "link", text: "Multi-chain support")
-                FeatureRow(icon: "eye.slash.fill", text: "Privacy focused")
-                FeatureRow(icon: "bolt.fill", text: "Lightning fast")
-            }
-            .padding(HawalaTheme.Spacing.xl)
-            .background(HawalaTheme.Colors.backgroundSecondary)
-            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous))
-            
-            Spacer()
-            
-            // Footer
-            VStack(spacing: HawalaTheme.Spacing.xs) {
-                Text("Made with ❤️ for the crypto community")
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
-                
-                Text("© 2024 Hawala. All rights reserved.")
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
-            }
-            .padding(.bottom, HawalaTheme.Spacing.xl)
-        }
-        .frame(width: 400, height: 600)
-        .background(HawalaTheme.Colors.background)
-    }
-}
-
 // MARK: - Auto Lock Timeout Picker
 struct AutoLockTimeoutPicker: View {
     @Binding var autoLockTimeout: Int
@@ -1207,147 +1029,221 @@ struct ChangePasscodeSheet: View {
     @State private var confirmPasscode = ""
     @State private var errorMessage: String?
     @State private var isLoading = false
+    @State private var step: ChangeStep = .verifyCurrent
+    @State private var shakeOffset: CGFloat = 0
+    
+    enum ChangeStep {
+        case verifyCurrent
+        case enterNew
+        case confirmNew
+    }
     
     var body: some View {
-        VStack(spacing: HawalaTheme.Spacing.xl) {
-            // Header
-            HStack {
-                Text("Change Passcode")
-                    .font(HawalaTheme.Typography.h2)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+        ZStack {
+            Color(red: 0.05, green: 0.05, blue: 0.06).ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // Header
+                ZStack {
+                    Text(stepTitle)
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                    
+                    HStack {
+                        if step != .verifyCurrent {
+                            Button {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                    goBack()
+                                }
+                            } label: {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.5))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Spacer()
+                        Button { dismiss() } label: {
+                            Circle()
+                                .fill(Color.white.opacity(0.08))
+                                .frame(width: 28, height: 28)
+                                .overlay(
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.white.opacity(0.5))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 20)
+                .padding(.bottom, 12)
+                
+                // Step indicator
+                HStack(spacing: 6) {
+                    ForEach(0..<3, id: \.self) { i in
+                        Capsule()
+                            .fill(i <= stepIndex ? Color.white : Color.white.opacity(0.12))
+                            .frame(width: i == stepIndex ? 24 : 8, height: 4)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: stepIndex)
+                    }
+                }
+                .padding(.bottom, 20)
                 
                 Spacer()
                 
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, HawalaTheme.Spacing.xl)
-            .padding(.top, HawalaTheme.Spacing.xl)
-            
-            // Icon
-            ZStack {
-                Circle()
-                    .fill(HawalaTheme.Colors.accent.opacity(0.15))
-                    .frame(width: 80, height: 80)
+                // Icon
+                Image(systemName: stepIcon)
+                    .font(.system(size: 36, weight: .thin))
+                    .foregroundColor(.white.opacity(0.5))
+                    .padding(.bottom, 16)
                 
-                Image(systemName: "key.fill")
-                    .font(.system(size: 36, weight: .medium))
-                    .foregroundColor(HawalaTheme.Colors.accent)
-            }
-            
-            // Instructions
-            Text("Enter your current passcode, then create a new one")
-                .font(HawalaTheme.Typography.body)
-                .foregroundColor(HawalaTheme.Colors.textSecondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, HawalaTheme.Spacing.xl)
-            
-            // Form
-            VStack(spacing: HawalaTheme.Spacing.md) {
-                PasscodeField(
-                    title: "Current Passcode",
-                    text: $currentPasscode,
-                    placeholder: "Enter current passcode"
-                )
+                // Subtitle
+                Text(stepSubtitle)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.35))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                    .padding(.bottom, 24)
                 
-                PasscodeField(
-                    title: "New Passcode",
-                    text: $newPasscode,
-                    placeholder: "Enter new passcode (min 4 digits)"
-                )
-                
-                PasscodeField(
-                    title: "Confirm New Passcode",
-                    text: $confirmPasscode,
-                    placeholder: "Confirm new passcode"
-                )
-                
-                // Error message
+                // Error
                 if let error = errorMessage {
-                    HStack {
+                    HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(HawalaTheme.Colors.error)
+                            .font(.system(size: 11))
                         Text(error)
-                            .font(HawalaTheme.Typography.bodySmall)
-                            .foregroundColor(HawalaTheme.Colors.error)
+                            .font(.system(size: 12, weight: .medium))
                     }
-                    .padding(HawalaTheme.Spacing.sm)
-                    .background(HawalaTheme.Colors.error.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color.red.opacity(0.1))
+                    .cornerRadius(8)
+                    .padding(.bottom, 16)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-            }
-            .padding(.horizontal, HawalaTheme.Spacing.xl)
-            
-            Spacer()
-            
-            // Buttons
-            VStack(spacing: HawalaTheme.Spacing.md) {
-                HawalaPrimaryButton(
-                    isLoading ? "Updating..." : "Update Passcode",
-                    icon: "checkmark.shield.fill"
-                ) {
-                    validateAndSavePasscode()
-                }
-                .disabled(isLoading || currentPasscode.isEmpty || newPasscode.isEmpty || confirmPasscode.isEmpty)
                 
-                Button("Cancel") {
-                    dismiss()
-                }
-                .font(HawalaTheme.Typography.body)
-                .foregroundColor(HawalaTheme.Colors.textSecondary)
-                .buttonStyle(.plain)
+                // PIN pad
+                HawalaPinPad(pin: currentPinBinding, maxDigits: 6, onComplete: handlePinComplete)
+                    .offset(x: shakeOffset)
+                
+                Spacer()
             }
-            .padding(.horizontal, HawalaTheme.Spacing.xl)
-            .padding(.bottom, HawalaTheme.Spacing.xl)
         }
-        .frame(width: 400, height: 550)
-        .background(HawalaTheme.Colors.background)
+        .frame(width: 400, height: 560)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: step)
     }
     
-    private func validateAndSavePasscode() {
+    private var stepIndex: Int {
+        switch step {
+        case .verifyCurrent: return 0
+        case .enterNew: return 1
+        case .confirmNew: return 2
+        }
+    }
+    
+    private var stepTitle: String {
+        switch step {
+        case .verifyCurrent: return "Current Passcode"
+        case .enterNew: return "New Passcode"
+        case .confirmNew: return "Confirm Passcode"
+        }
+    }
+    
+    private var stepSubtitle: String {
+        switch step {
+        case .verifyCurrent: return "Enter your current passcode to continue"
+        case .enterNew: return "Choose a new 6-digit passcode"
+        case .confirmNew: return "Enter the same passcode again to confirm"
+        }
+    }
+    
+    private var stepIcon: String {
+        switch step {
+        case .verifyCurrent: return "key.fill"
+        case .enterNew: return "lock.fill"
+        case .confirmNew: return "checkmark.shield.fill"
+        }
+    }
+    
+    private var currentPinBinding: Binding<String> {
+        switch step {
+        case .verifyCurrent: return $currentPasscode
+        case .enterNew: return $newPasscode
+        case .confirmNew: return $confirmPasscode
+        }
+    }
+    
+    private func goBack() {
         errorMessage = nil
-        
-        // Actually verify current passcode against stored hash
-        guard passcodeManager.verifyPasscode(currentPasscode) else {
-            errorMessage = "Current passcode is incorrect"
-            return
+        switch step {
+        case .confirmNew:
+            step = .enterNew
+            confirmPasscode = ""
+        case .enterNew:
+            step = .verifyCurrent
+            newPasscode = ""
+            currentPasscode = ""
+        default: break
         }
-        
-        // Validate new passcode length
-        guard newPasscode.count >= 4 else {
-            errorMessage = "New passcode must be at least 4 digits"
-            return
-        }
-        
-        // Validate passcodes match
-        guard newPasscode == confirmPasscode else {
-            errorMessage = "New passcodes don't match"
-            return
-        }
-        
-        // Validate not same as current
-        guard newPasscode != currentPasscode else {
-            errorMessage = "New passcode must be different from current"
-            return
-        }
-        
-        isLoading = true
-        
-        // Use the passcode manager to change the passcode
-        let result = passcodeManager.changePasscode(current: currentPasscode, new: newPasscode)
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            isLoading = false
-            if result.success {
-                ToastManager.shared.success("Passcode Updated", message: "Your passcode has been changed successfully")
-                dismiss()
-            } else {
-                errorMessage = result.error ?? "Failed to update passcode"
+    }
+    
+    private func handlePinComplete(_ pin: String) {
+        errorMessage = nil
+        switch step {
+        case .verifyCurrent:
+            guard passcodeManager.verifyPasscode(pin) else {
+                errorMessage = "Incorrect passcode"
+                triggerShake()
+                currentPasscode = ""
+                return
             }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                step = .enterNew
+            }
+        case .enterNew:
+            guard pin != currentPasscode else {
+                errorMessage = "Must be different from current"
+                triggerShake()
+                newPasscode = ""
+                return
+            }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                step = .confirmNew
+            }
+        case .confirmNew:
+            guard pin == newPasscode else {
+                errorMessage = "Passcodes don't match"
+                triggerShake()
+                confirmPasscode = ""
+                return
+            }
+            isLoading = true
+            let result = passcodeManager.changePasscode(current: currentPasscode, new: newPasscode)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                isLoading = false
+                if result.success {
+                    ToastManager.shared.success("Passcode Updated")
+                    dismiss()
+                } else {
+                    errorMessage = result.error ?? "Failed to update"
+                }
+            }
+        }
+    }
+    
+    private func triggerShake() {
+        withAnimation(.default) { shakeOffset = -12 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            withAnimation(.default) { shakeOffset = 12 }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            withAnimation(.default) { shakeOffset = -8 }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) { shakeOffset = 0 }
         }
     }
 }
@@ -1363,6 +1259,7 @@ struct PasscodeSetupSheet: View {
     @State private var step: SetupStep = .create
     @State private var errorMessage: String?
     @State private var isLoading = false
+    @State private var shakeOffset: CGFloat = 0
     
     enum SetupStep {
         case create
@@ -1370,134 +1267,145 @@ struct PasscodeSetupSheet: View {
     }
     
     var body: some View {
-        VStack(spacing: HawalaTheme.Spacing.xl) {
-            // Header
-            HStack {
-                Text(step == .create ? "Set Passcode" : "Confirm Passcode")
-                    .font(HawalaTheme.Typography.h2)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+        ZStack {
+            Color(red: 0.05, green: 0.05, blue: 0.06).ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // Header
+                ZStack {
+                    Text(step == .create ? "Set Passcode" : "Confirm Passcode")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                    
+                    HStack {
+                        if step == .confirm {
+                            Button {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                    step = .create
+                                    confirmPasscode = ""
+                                    passcode = ""
+                                    errorMessage = nil
+                                }
+                            } label: {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.5))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Spacer()
+                        Button { dismiss() } label: {
+                            Circle()
+                                .fill(Color.white.opacity(0.08))
+                                .frame(width: 28, height: 28)
+                                .overlay(
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.white.opacity(0.5))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 20)
+                .padding(.bottom, 12)
+                
+                // Step indicator
+                HStack(spacing: 6) {
+                    ForEach(0..<2, id: \.self) { i in
+                        Capsule()
+                            .fill(i <= (step == .create ? 0 : 1) ? Color.white : Color.white.opacity(0.12))
+                            .frame(width: i == (step == .create ? 0 : 1) ? 24 : 8, height: 4)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: step)
+                    }
+                }
+                .padding(.bottom, 20)
                 
                 Spacer()
                 
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, HawalaTheme.Spacing.xl)
-            .padding(.top, HawalaTheme.Spacing.xl)
-            
-            // Icon
-            ZStack {
-                Circle()
-                    .fill(HawalaTheme.Colors.accent.opacity(0.15))
-                    .frame(width: 80, height: 80)
-                
+                // Icon
                 Image(systemName: step == .create ? "lock.fill" : "checkmark.shield.fill")
-                    .font(.system(size: 36, weight: .medium))
-                    .foregroundColor(HawalaTheme.Colors.accent)
-            }
-            
-            // Instructions
-            Text(step == .create ? "Choose a passcode to protect your wallet" : "Enter the same passcode again")
-                .font(HawalaTheme.Typography.body)
-                .foregroundColor(HawalaTheme.Colors.textSecondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, HawalaTheme.Spacing.xl)
-            
-            // Form
-            VStack(spacing: HawalaTheme.Spacing.md) {
-                PasscodeField(
-                    title: step == .create ? "New Passcode" : "Confirm Passcode",
-                    text: step == .create ? $passcode : $confirmPasscode,
-                    placeholder: step == .create ? "Enter passcode (min 4 digits)" : "Confirm your passcode"
-                )
+                    .font(.system(size: 36, weight: .thin))
+                    .foregroundColor(.white.opacity(0.5))
+                    .padding(.bottom, 16)
                 
-                // Error message
+                Text(step == .create ? "Choose a 6-digit passcode" : "Enter the same passcode again")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.35))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                    .padding(.bottom, 24)
+                
                 if let error = errorMessage {
-                    HStack {
+                    HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(HawalaTheme.Colors.error)
+                            .font(.system(size: 11))
                         Text(error)
-                            .font(HawalaTheme.Typography.bodySmall)
-                            .foregroundColor(HawalaTheme.Colors.error)
+                            .font(.system(size: 12, weight: .medium))
                     }
-                    .padding(HawalaTheme.Spacing.sm)
-                    .background(HawalaTheme.Colors.error.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-            }
-            .padding(.horizontal, HawalaTheme.Spacing.xl)
-            
-            Spacer()
-            
-            // Buttons
-            VStack(spacing: HawalaTheme.Spacing.md) {
-                if step == .create {
-                    HawalaPrimaryButton("Continue", icon: "arrow.right") {
-                        if passcode.count >= 4 {
-                            step = .confirm
-                            errorMessage = nil
-                        } else {
-                            errorMessage = "Passcode must be at least 4 digits"
-                        }
-                    }
-                    .disabled(passcode.isEmpty)
-                } else {
-                    HawalaPrimaryButton(
-                        isLoading ? "Saving..." : "Set Passcode",
-                        icon: "checkmark.shield.fill"
-                    ) {
-                        savePasscode()
-                    }
-                    .disabled(isLoading || confirmPasscode.isEmpty)
-                    
-                    Button("Back") {
-                        step = .create
-                        confirmPasscode = ""
-                        errorMessage = nil
-                    }
-                    .font(HawalaTheme.Typography.body)
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
-                    .buttonStyle(.plain)
+                    .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color.red.opacity(0.1))
+                    .cornerRadius(8)
+                    .padding(.bottom, 16)
+                    .transition(.opacity)
                 }
                 
-                Button("Cancel") {
-                    dismiss()
-                }
-                .font(HawalaTheme.Typography.body)
-                .foregroundColor(HawalaTheme.Colors.textSecondary)
-                .buttonStyle(.plain)
+                HawalaPinPad(
+                    pin: step == .create ? $passcode : $confirmPasscode,
+                    maxDigits: 6,
+                    onComplete: handlePinComplete
+                )
+                .offset(x: shakeOffset)
+                
+                Spacer()
             }
-            .padding(.horizontal, HawalaTheme.Spacing.xl)
-            .padding(.bottom, HawalaTheme.Spacing.xl)
         }
-        .frame(width: 400, height: 450)
-        .background(HawalaTheme.Colors.background)
+        .frame(width: 400, height: 520)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: step)
     }
     
-    private func savePasscode() {
+    private func handlePinComplete(_ pin: String) {
         errorMessage = nil
-        
-        guard confirmPasscode == passcode else {
-            errorMessage = "Passcodes don't match"
-            return
-        }
-        
-        isLoading = true
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            if passcodeManager.setPasscode(passcode) {
-                isLoading = false
-                ToastManager.shared.success("Passcode Set", message: "Your wallet is now protected")
-                onComplete()
-                dismiss()
-            } else {
-                isLoading = false
-                errorMessage = "Failed to save passcode"
+        if step == .create {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                step = .confirm
             }
+        } else {
+            guard pin == passcode else {
+                errorMessage = "Passcodes don't match"
+                triggerShake()
+                confirmPasscode = ""
+                return
+            }
+            isLoading = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                if passcodeManager.setPasscode(passcode) {
+                    isLoading = false
+                    ToastManager.shared.success("Passcode Set", message: "Your wallet is now protected")
+                    onComplete()
+                    dismiss()
+                } else {
+                    isLoading = false
+                    errorMessage = "Failed to save passcode"
+                }
+            }
+        }
+    }
+    
+    private func triggerShake() {
+        withAnimation(.default) { shakeOffset = -12 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            withAnimation(.default) { shakeOffset = 12 }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            withAnimation(.default) { shakeOffset = -8 }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) { shakeOffset = 0 }
         }
     }
 }
@@ -1540,24 +1448,6 @@ struct PasscodeField: View {
                 RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
                     .stroke(HawalaTheme.Colors.border, lineWidth: 1)
             )
-        }
-    }
-}
-
-struct FeatureRow: View {
-    let icon: String
-    let text: String
-    
-    var body: some View {
-        HStack(spacing: HawalaTheme.Spacing.md) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(HawalaTheme.Colors.accent)
-                .frame(width: 24)
-            
-            Text(text)
-                .font(HawalaTheme.Typography.body)
-                .foregroundColor(HawalaTheme.Colors.textPrimary)
         }
     }
 }
@@ -1720,484 +1610,6 @@ struct BackupWalletSheet: View {
         }
         .frame(width: 500, height: 550)
         .background(HawalaTheme.Colors.background)
-    }
-}
-
-// MARK: - Network Settings Sheet
-struct NetworkSettingsSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @AppStorage("hawala.selectedNetwork") private var selectedNetwork = "mainnet"
-    @AppStorage("hawala.customRpcUrl") private var customRpcUrl = ""
-    
-    @State private var isTestingConnection = false
-    @State private var connectionStatus: ConnectionStatus?
-    
-    enum ConnectionStatus {
-        case success(latency: Int)
-        case error(String)
-    }
-    
-    private let networks = [
-        ("mainnet", "Mainnet", "Production network"),
-        ("testnet", "Testnet", "Test network for development"),
-        ("custom", "Custom RPC", "Use your own endpoint")
-    ]
-    
-    var body: some View {
-        VStack(spacing: HawalaTheme.Spacing.xl) {
-            // Header
-            HStack {
-                Text("Network Settings")
-                    .font(HawalaTheme.Typography.h2)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
-                
-                Spacer()
-                
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, HawalaTheme.Spacing.xl)
-            .padding(.top, HawalaTheme.Spacing.xl)
-            
-            // Network Selection
-            VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
-                Text("Network")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
-                
-                ForEach(networks, id: \.0) { network in
-                    NetworkOptionRow(
-                        id: network.0,
-                        title: network.1,
-                        subtitle: network.2,
-                        isSelected: selectedNetwork == network.0,
-                        onSelect: {
-                            selectedNetwork = network.0
-                            connectionStatus = nil
-                        }
-                    )
-                }
-            }
-            .padding(.horizontal, HawalaTheme.Spacing.xl)
-            
-            // Custom RPC URL field (if custom is selected)
-            if selectedNetwork == "custom" {
-                VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
-                    Text("Custom RPC URL")
-                        .font(HawalaTheme.Typography.bodySmall)
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
-                    
-                    HStack {
-                        TextField("https://your-node.example.com", text: $customRpcUrl)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 13, design: .monospaced))
-                        
-                        if !customRpcUrl.isEmpty {
-                            Button(action: { customRpcUrl = "" }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(HawalaTheme.Colors.textTertiary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(HawalaTheme.Spacing.md)
-                    .background(HawalaTheme.Colors.backgroundSecondary)
-                    .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
-                            .stroke(HawalaTheme.Colors.border, lineWidth: 1)
-                    )
-                }
-                .padding(.horizontal, HawalaTheme.Spacing.xl)
-            }
-            
-            // Test connection button
-            VStack(spacing: HawalaTheme.Spacing.sm) {
-                Button(action: testConnection) {
-                    HStack {
-                        if isTestingConnection {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                                .frame(width: 16, height: 16)
-                        } else {
-                            Image(systemName: "antenna.radiowaves.left.and.right")
-                        }
-                        Text(isTestingConnection ? "Testing..." : "Test Connection")
-                    }
-                    .font(HawalaTheme.Typography.body)
-                    .foregroundColor(HawalaTheme.Colors.accent)
-                    .padding(.horizontal, HawalaTheme.Spacing.lg)
-                    .padding(.vertical, HawalaTheme.Spacing.md)
-                    .background(HawalaTheme.Colors.accent.opacity(0.15))
-                    .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
-                }
-                .buttonStyle(.plain)
-                .disabled(isTestingConnection)
-                
-                // Connection status
-                if let status = connectionStatus {
-                    HStack {
-                        switch status {
-                        case .success(let latency):
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(HawalaTheme.Colors.success)
-                            Text("Connected • \(latency)ms latency")
-                                .foregroundColor(HawalaTheme.Colors.success)
-                        case .error(let message):
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(HawalaTheme.Colors.error)
-                            Text(message)
-                                .foregroundColor(HawalaTheme.Colors.error)
-                        }
-                    }
-                    .font(HawalaTheme.Typography.bodySmall)
-                }
-            }
-            .padding(.horizontal, HawalaTheme.Spacing.xl)
-            
-            Spacer()
-            
-            // Save button
-            HawalaPrimaryButton("Save Settings", icon: "checkmark") {
-                ToastManager.shared.success("Settings Saved", message: "Network configuration updated")
-                dismiss()
-            }
-            .padding(.horizontal, HawalaTheme.Spacing.xl)
-            .padding(.bottom, HawalaTheme.Spacing.xl)
-        }
-        .frame(width: 450, height: 550)
-        .background(HawalaTheme.Colors.background)
-    }
-    
-    private func testConnection() {
-        isTestingConnection = true
-        connectionStatus = nil
-        
-        // Simulate network test
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            isTestingConnection = false
-            
-            if selectedNetwork == "custom" && customRpcUrl.isEmpty {
-                connectionStatus = .error("Please enter a valid RPC URL")
-            } else {
-                // Simulate successful connection with random latency
-                let latency = Int.random(in: 50...200)
-                connectionStatus = .success(latency: latency)
-            }
-        }
-    }
-}
-
-// MARK: - Network Option Row
-struct NetworkOptionRow: View {
-    let id: String
-    let title: String
-    let subtitle: String
-    let isSelected: Bool
-    let onSelect: () -> Void
-    
-    @State private var isHovered = false
-    
-    var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: HawalaTheme.Spacing.md) {
-                // Radio button
-                ZStack {
-                    Circle()
-                        .stroke(isSelected ? HawalaTheme.Colors.accent : HawalaTheme.Colors.border, lineWidth: 2)
-                        .frame(width: 20, height: 20)
-                    
-                    if isSelected {
-                        Circle()
-                            .fill(HawalaTheme.Colors.accent)
-                            .frame(width: 10, height: 10)
-                    }
-                }
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(HawalaTheme.Typography.body)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    
-                    Text(subtitle)
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
-                }
-                
-                Spacer()
-                
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(HawalaTheme.Colors.accent)
-                }
-            }
-            .padding(HawalaTheme.Spacing.md)
-            .background(isSelected ? HawalaTheme.Colors.accent.opacity(0.1) : (isHovered ? HawalaTheme.Colors.backgroundHover : Color.clear))
-            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
-                    .stroke(isSelected ? HawalaTheme.Colors.accent.opacity(0.3) : Color.clear, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-    }
-}
-
-// MARK: - Export History Sheet
-struct ExportHistorySheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedFormat: ExportFormat = .csv
-    @State private var selectedDateRange: DateRange = .all
-    @State private var includeNotes = true
-    @State private var isExporting = false
-    @State private var exportComplete = false
-    
-    enum ExportFormat: String, CaseIterable {
-        case csv = "CSV"
-        case json = "JSON"
-        case pdf = "PDF"
-        
-        var icon: String {
-            switch self {
-            case .csv: return "tablecells"
-            case .json: return "curlybraces"
-            case .pdf: return "doc.richtext"
-            }
-        }
-    }
-    
-    enum DateRange: String, CaseIterable {
-        case week = "Last 7 Days"
-        case month = "Last 30 Days"
-        case year = "Last Year"
-        case all = "All Time"
-    }
-    
-    var body: some View {
-        VStack(spacing: HawalaTheme.Spacing.xl) {
-            // Header
-            HStack {
-                Text("Export Transaction History")
-                    .font(HawalaTheme.Typography.h2)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
-                
-                Spacer()
-                
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, HawalaTheme.Spacing.xl)
-            .padding(.top, HawalaTheme.Spacing.xl)
-            
-            if exportComplete {
-                // Success state
-                VStack(spacing: HawalaTheme.Spacing.lg) {
-                    ZStack {
-                        Circle()
-                            .fill(HawalaTheme.Colors.success.opacity(0.15))
-                            .frame(width: 100, height: 100)
-                        
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 50))
-                            .foregroundColor(HawalaTheme.Colors.success)
-                    }
-                    
-                    Text("Export Complete!")
-                        .font(HawalaTheme.Typography.h3)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    
-                    Text("Your transaction history has been exported and saved to your Downloads folder.")
-                        .font(HawalaTheme.Typography.body)
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, HawalaTheme.Spacing.xl)
-                }
-            } else {
-                // Export options
-                VStack(alignment: .leading, spacing: HawalaTheme.Spacing.lg) {
-                    // Format selection
-                    VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
-                        Text("Export Format")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(HawalaTheme.Colors.textPrimary)
-                        
-                        HStack(spacing: HawalaTheme.Spacing.sm) {
-                            ForEach(ExportFormat.allCases, id: \.self) { format in
-                                FormatOptionButton(
-                                    format: format,
-                                    isSelected: selectedFormat == format,
-                                    onSelect: { selectedFormat = format }
-                                )
-                            }
-                        }
-                    }
-                    
-                    // Date range
-                    VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
-                        Text("Date Range")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(HawalaTheme.Colors.textPrimary)
-                        
-                        Picker("", selection: $selectedDateRange) {
-                            ForEach(DateRange.allCases, id: \.self) { range in
-                                Text(range.rawValue).tag(range)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                    }
-                    
-                    // Options
-                    VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
-                        Text("Options")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(HawalaTheme.Colors.textPrimary)
-                        
-                        Toggle(isOn: $includeNotes) {
-                            HStack {
-                                Image(systemName: "note.text")
-                                    .foregroundColor(HawalaTheme.Colors.textSecondary)
-                                Text("Include transaction notes")
-                                    .font(HawalaTheme.Typography.body)
-                                    .foregroundColor(HawalaTheme.Colors.textPrimary)
-                            }
-                        }
-                        .toggleStyle(.switch)
-                        .tint(HawalaTheme.Colors.accent)
-                    }
-                }
-                .padding(.horizontal, HawalaTheme.Spacing.xl)
-            }
-            
-            Spacer()
-            
-            // Action buttons
-            VStack(spacing: HawalaTheme.Spacing.md) {
-                if exportComplete {
-                    HawalaPrimaryButton("Done", icon: "checkmark") {
-                        dismiss()
-                    }
-                } else {
-                    HawalaPrimaryButton(isExporting ? "Exporting..." : "Export", icon: "square.and.arrow.up") {
-                        performExport()
-                    }
-                    .disabled(isExporting)
-                    
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                    .font(HawalaTheme.Typography.body)
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, HawalaTheme.Spacing.xl)
-            .padding(.bottom, HawalaTheme.Spacing.xl)
-        }
-        .frame(width: 450, height: exportComplete ? 400 : 500)
-        .background(HawalaTheme.Colors.background)
-        .animation(.easeInOut(duration: 0.3), value: exportComplete)
-    }
-    
-    private func performExport() {
-        isExporting = true
-        
-        // Simulate export process
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            // Create and save the file
-            let filename = "hawala_transactions_\(Date().ISO8601Format()).\(selectedFormat.rawValue.lowercased())"
-            
-            #if os(macOS)
-            let panel = NSSavePanel()
-            panel.nameFieldStringValue = filename
-            panel.allowedContentTypes = [.commaSeparatedText, .json, .pdf]
-            panel.canCreateDirectories = true
-            
-            panel.begin { response in
-                if response == .OK, let url = panel.url {
-                    // Generate sample export content
-                    let content = generateExportContent()
-                    
-                    do {
-                        try content.write(to: url, atomically: true, encoding: .utf8)
-                        isExporting = false
-                        exportComplete = true
-                        ToastManager.shared.success("Export Complete", message: "Saved to \(url.lastPathComponent)")
-                    } catch {
-                        isExporting = false
-                        ToastManager.shared.error("Export Failed", message: error.localizedDescription)
-                    }
-                } else {
-                    isExporting = false
-                }
-            }
-            #endif
-        }
-    }
-    
-    private func generateExportContent() -> String {
-        switch selectedFormat {
-        case .csv:
-            return """
-            Date,Type,Asset,Amount,Value,TxHash,Notes
-            2024-11-30 10:00:00,Received,BTC,0.005,485.00,bc1q...abc,Deposit
-            2024-11-29 15:30:00,Sent,ETH,0.1,350.00,0x123...def,Payment
-            2024-11-28 09:15:00,Received,SOL,10.0,220.00,5xYz...ghi,Staking reward
-            """
-        case .json:
-            return """
-            {
-              "transactions": [
-                {"date": "2024-11-30T10:00:00Z", "type": "received", "asset": "BTC", "amount": 0.005, "value": 485.00},
-                {"date": "2024-11-29T15:30:00Z", "type": "sent", "asset": "ETH", "amount": 0.1, "value": 350.00}
-              ]
-            }
-            """
-        case .pdf:
-            return "PDF export would generate a formatted document"
-        }
-    }
-}
-
-// MARK: - Format Option Button
-struct FormatOptionButton: View {
-    let format: ExportHistorySheet.ExportFormat
-    let isSelected: Bool
-    let onSelect: () -> Void
-    
-    @State private var isHovered = false
-    
-    var body: some View {
-        Button(action: onSelect) {
-            VStack(spacing: HawalaTheme.Spacing.xs) {
-                Image(systemName: format.icon)
-                    .font(.system(size: 24))
-                    .foregroundColor(isSelected ? HawalaTheme.Colors.accent : HawalaTheme.Colors.textSecondary)
-                
-                Text(format.rawValue)
-                    .font(HawalaTheme.Typography.bodySmall)
-                    .foregroundColor(isSelected ? HawalaTheme.Colors.accent : HawalaTheme.Colors.textSecondary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, HawalaTheme.Spacing.md)
-            .background(isSelected ? HawalaTheme.Colors.accent.opacity(0.1) : (isHovered ? HawalaTheme.Colors.backgroundHover : HawalaTheme.Colors.backgroundSecondary))
-            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
-                    .stroke(isSelected ? HawalaTheme.Colors.accent : Color.clear, lineWidth: 2)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
     }
 }
 
@@ -2646,156 +2058,6 @@ struct FAQItem: View {
             RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
                 .stroke(HawalaTheme.Colors.border, lineWidth: 1)
         )
-    }
-}
-
-// MARK: - Debug Console Sheet
-struct DebugConsoleSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @StateObject private var logger = DebugLogger.shared
-    @State private var filterCategory: LogCategory? = nil
-    @State private var filterLevel: LogLevel? = nil
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("Debug Console")
-                    .font(HawalaTheme.Typography.h2)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
-                
-                Spacer()
-                
-                // Filter buttons
-                Menu {
-                    Button("All Categories") { filterCategory = nil }
-                    Divider()
-                    ForEach([LogCategory.general, .network, .wallet, .transaction, .security], id: \.self) { cat in
-                        Button(cat.rawValue.capitalized) { filterCategory = cat }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "line.3.horizontal.decrease.circle")
-                        Text(filterCategory?.rawValue.capitalized ?? "All")
-                    }
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
-                }
-                .buttonStyle(.plain)
-                
-                Button(action: { logger.clear() }) {
-                    Image(systemName: "trash")
-                        .foregroundColor(HawalaTheme.Colors.error)
-                }
-                .buttonStyle(.plain)
-                .padding(.leading, HawalaTheme.Spacing.sm)
-                
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
-                }
-                .buttonStyle(.plain)
-                .padding(.leading, HawalaTheme.Spacing.sm)
-            }
-            .padding(HawalaTheme.Spacing.lg)
-            .background(HawalaTheme.Colors.backgroundSecondary)
-            
-            // Stats bar
-            HStack(spacing: HawalaTheme.Spacing.lg) {
-                DebugStatBadge(title: "Entries", value: "\(logger.entries.count)")
-                DebugStatBadge(title: "Network Latency", value: logger.latencyDescription)
-                DebugStatBadge(title: "WebSocket", value: logger.webSocketStatus)
-                Spacer()
-            }
-            .padding(.horizontal, HawalaTheme.Spacing.lg)
-            .padding(.vertical, HawalaTheme.Spacing.sm)
-            .background(HawalaTheme.Colors.backgroundTertiary.opacity(0.5))
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-            
-            // Log entries
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(filteredEntries) { entry in
-                        LogEntryRow(entry: entry)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .frame(minWidth: 600, minHeight: 400)
-        .background(HawalaTheme.Colors.background)
-    }
-    
-    private var filteredEntries: [LogEntry] {
-        var result = logger.entries
-        if let cat = filterCategory {
-            result = result.filter { $0.category == cat }
-        }
-        if let level = filterLevel {
-            result = result.filter { $0.level == level }
-        }
-        return result.reversed() // Most recent first
-    }
-}
-
-// Log entry row
-private struct LogEntryRow: View {
-    let entry: LogEntry
-    
-    var body: some View {
-        HStack(alignment: .top, spacing: HawalaTheme.Spacing.sm) {
-            Text(entry.timeString)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundColor(HawalaTheme.Colors.textTertiary)
-                .frame(width: 80, alignment: .leading)
-            
-            Text(entry.level.rawValue.uppercased())
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundColor(levelColor(entry.level))
-                .frame(width: 50, alignment: .leading)
-            
-            Text(entry.category.rawValue)
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                .foregroundColor(HawalaTheme.Colors.textSecondary)
-                .frame(width: 70, alignment: .leading)
-            
-            Text(entry.message)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(HawalaTheme.Colors.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, HawalaTheme.Spacing.md)
-        .padding(.vertical, 4)
-        .background(entry.level == .error ? HawalaTheme.Colors.error.opacity(0.05) : Color.clear)
-    }
-    
-    private func levelColor(_ level: LogLevel) -> Color {
-        switch level {
-        case .debug: return HawalaTheme.Colors.textTertiary
-        case .info: return HawalaTheme.Colors.accent
-        case .warning: return HawalaTheme.Colors.warning
-        case .error: return HawalaTheme.Colors.error
-        }
-    }
-}
-
-// Debug stat badge
-private struct DebugStatBadge: View {
-    let title: String
-    let value: String
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundColor(HawalaTheme.Colors.textTertiary)
-            Text(value)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundColor(HawalaTheme.Colors.textPrimary)
-        }
     }
 }
 

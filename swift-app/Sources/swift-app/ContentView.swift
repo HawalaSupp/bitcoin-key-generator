@@ -36,7 +36,7 @@ struct ContentView: View {
     @StateObject private var priceService = PriceService.shared
     @StateObject private var walletManager = MultiWalletManager.shared
     @StateObject private var hwManager = HardwareWalletManagerV2.shared
-    @ObservedObject private var duressManager = DuressManager.shared
+    @ObservedObject private var duressManager = DuressWalletManager.shared
     private let backupService = BackupService.shared
     private let wcSigningService = WalletConnectSigningService.shared
     // Phase 3 Feature Sheets
@@ -88,13 +88,6 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            // Splash screen overlay
-            if navigationVM.showSplashScreen {
-                HawalaSplashView(isShowingSplash: $navigationVM.showSplashScreen)
-                    .zIndex(100)
-                    .transition(.opacity)
-            }
-            
             ZStack(alignment: .topTrailing) {
                 Group {
                     if onboardingCompleted {
@@ -122,7 +115,6 @@ struct ContentView: View {
                 }
                 #endif
             }
-            .opacity(navigationVM.showSplashScreen ? 0 : 1)
         }
         #if DEBUG
         .onAppear {
@@ -132,7 +124,6 @@ struct ContentView: View {
             }
         }
         #endif
-        .animation(.easeInOut(duration: 0.3), value: navigationVM.showSplashScreen)
         .animation(.easeInOut(duration: 0.3), value: onboardingCompleted)
         .animation(.easeInOut(duration: 0.3), value: navigationVM.onboardingStep)
         .preferredColorScheme(appearanceMode.colorScheme)
@@ -245,10 +236,7 @@ struct ContentView: View {
                 
                 // ROADMAP-23 E6: Subtle duress mode indicator in sidebar
                 DuressModeBadge(
-                    duressManager: duressManager,
-                    onTap: {
-                        navigationVM.showAuditLogSheet = true
-                    }
+                    duressManager: duressManager
                 )
                 
                 // Custom themed navigation items
@@ -394,10 +382,6 @@ struct ContentView: View {
                 showStatus("Hardware wallet connected", tone: .success)
             }
         }
-        // ROADMAP-23 E8: Duress audit log sheet
-        .sheet(isPresented: $navigationVM.showAuditLogSheet) {
-            DuressAuditLogView()
-        }
         // ROADMAP-23 E9: Hidden panic wipe gesture
         .panicWipeGesture(duressManager: duressManager)
         .overlay {
@@ -509,7 +493,6 @@ struct ContentView: View {
                     // Phase 4: Account Abstraction
                     showSmartAccountSheet: $navigationVM.showSmartAccountSheet,
                     showGasAccountSheet: $navigationVM.showGasAccountSheet,
-                    showPasskeyAuthSheet: $navigationVM.showPasskeyAuthSheet,
                     showGaslessTxSheet: $navigationVM.showGaslessTxSheet,
                     showHardwareWalletSheet: $navigationVM.showHardwareWalletSheet,
                     onGenerateKeys: {

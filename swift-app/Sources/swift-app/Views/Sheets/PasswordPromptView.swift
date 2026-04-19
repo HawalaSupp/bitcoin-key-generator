@@ -34,6 +34,14 @@ struct PasswordPromptView: View {
             }
         }
 
+        var icon: String {
+            switch self {
+            case .export: return "lock.doc"
+            case .import: return "lock.open.doc"
+            case .privateKeyExport: return "key.viewfinder"
+            }
+        }
+
         var requiresConfirmation: Bool {
             self == .export
         }
@@ -49,45 +57,56 @@ struct PasswordPromptView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section(header: Text(mode.title)) {
-                    Text(mode.description)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+        HawalaSheetShell(title: mode.title, width: 380, height: mode.requiresConfirmation ? 380 : 340) {
 
-                    SecureField("Passphrase", text: $password)
-                        .textContentType(.password)
+            // Icon + description
+            VStack(spacing: 12) {
+                Image(systemName: mode.icon)
+                    .font(.system(size: 28, weight: .thin))
+                    .foregroundColor(Color.white.opacity(0.5))
 
-                    if mode.requiresConfirmation {
-                        SecureField("Confirm passphrase", text: $confirmation)
-                            .textContentType(.password)
-                    }
+                Text(mode.description)
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.4))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+            }
 
-                    if let errorMessage {
+            // Fields
+            VStack(spacing: 12) {
+                HawalaSecureField(placeholder: "Passphrase", text: $password)
+
+                if mode.requiresConfirmation {
+                    HawalaSecureField(placeholder: "Confirm passphrase", text: $confirmation)
+                }
+
+                if let errorMessage {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.circle")
+                            .font(.system(size: 11))
                         Text(errorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
+                            .font(.system(size: 12))
                     }
+                    .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
+                    .padding(10)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.red.opacity(0.1))
+                    .cornerRadius(8)
                 }
             }
-            .navigationTitle(mode.title)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        onCancel()
-                        dismiss()
-                    }
+            .hawalaSectionCard()
+
+            // Actions
+            HStack(spacing: 12) {
+                HawalaActionButton(icon: "xmark", label: "Cancel", style: .secondary) {
+                    onCancel()
+                    dismiss()
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(mode.actionTitle) {
-                        confirmAction()
-                    }
-                    .disabled(password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                HawalaActionButton(icon: "checkmark", label: mode.actionTitle, style: .primary) {
+                    confirmAction()
                 }
             }
         }
-        .frame(minWidth: 360, minHeight: mode.requiresConfirmation ? 280 : 240)
     }
 
     private func confirmAction() {

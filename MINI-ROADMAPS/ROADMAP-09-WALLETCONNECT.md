@@ -101,7 +101,7 @@
 | Q2: Session display | View in manager | Correct info | All sessions |
 | Q3: Disconnect | Disconnect session | Session removed | Both sides |
 | Q4: Signing decode | Request signature | Human-readable | Complex request |
-| Q5: EIP-712 | Typed data request | Structured display | NFT sale example |
+| Q5: EIP-712 | Typed data request | Structured display | token approval example |
 | Q6: Allowlist | Add dApp, connect | Faster flow | Trusted |
 | Q7: Blocklist | Block dApp, try connect | Blocked | No modal |
 | Q8: Rate limit | Rapid requests | Warning shown | 10+ requests |

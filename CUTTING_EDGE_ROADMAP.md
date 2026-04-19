@@ -433,7 +433,7 @@ class ENSResolver {
 - [ ] Show resolved address with confirmation
 - [ ] Display ENS avatars in contacts/history
 - [ ] Cache resolutions locally
-- [ ] Support .eth, .crypto, .wallet, .nft domains
+- [ ] Support .eth, .crypto, .wallet domains
 
 **Acceptance Criteria:**
 - [ ] Send to vitalik.eth resolves correctly
@@ -743,7 +743,7 @@ pub struct SimulationResult {
     pub gas_used: u64,
     pub balance_changes: Vec<BalanceChange>,
     pub token_approvals: Vec<TokenApproval>,
-    pub nft_transfers: Vec<NFTTransfer>,
+    pub asset_transfer_notes: Vec<AssetTransferNote>,
     pub contract_interactions: Vec<ContractCall>,
     pub warnings: Vec<Warning>,
 }

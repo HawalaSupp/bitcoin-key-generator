@@ -6,7 +6,7 @@ import SwiftUI
 final class NavigationViewModel: ObservableObject {
     // MARK: - Main Navigation
     @Published var selectedChain: ChainInfo?
-    @Published var showSplashScreen = true
+    @Published var showSplashScreen = false
     
     // MARK: - Sidebar ↔ Tab Sync (ROADMAP-03 E8)
     @Published var sidebarTab: String = "Portfolio"
@@ -56,7 +56,6 @@ final class NavigationViewModel: ObservableObject {
     // MARK: - Phase 4 Feature Sheets (ERC-4337 Account Abstraction)
     @Published var showSmartAccountSheet = false
     @Published var showGasAccountSheet = false
-    @Published var showPasskeyAuthSheet = false
     @Published var showGaslessTxSheet = false
     
     // MARK: - ROADMAP-21: Multi-Wallet
@@ -74,7 +73,6 @@ final class NavigationViewModel: ObservableObject {
     // MARK: - ROADMAP-23: Duress Mode State
     @Published var isDuressActive = false
     @Published var showDuressSetupSheet = false
-    @Published var showAuditLogSheet = false
     
     // MARK: - Send Flow Context
     @Published var sendChainContext: ChainInfo?
@@ -175,7 +173,6 @@ final class NavigationViewModel: ObservableObject {
         showPriceAlertsSheet = false
         showSmartAccountSheet = false
         showGasAccountSheet = false
-        showPasskeyAuthSheet = false
         showGaslessTxSheet = false
         showWalletPickerSheet = false
         showAddWalletSheet = false
@@ -183,7 +180,6 @@ final class NavigationViewModel: ObservableObject {
         walletToDelete = nil
         showHardwareWalletSetupSheet = false
         showDuressSetupSheet = false
-        showAuditLogSheet = false
         sendChainContext = nil
         pendingSendChain = nil
         receiveChainContext = nil

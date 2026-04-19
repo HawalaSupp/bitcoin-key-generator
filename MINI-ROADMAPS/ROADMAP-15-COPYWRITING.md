@@ -80,7 +80,7 @@
 | E2: Error mapping | Map errors to user copy | Technical → human | ErrorMessages enum |
 | E3: Apply error copy | Replace all error displays | New messages shown | Throughout app |
 | E4: Empty state views | Create EmptyStateView | Reusable component | Icon + text + CTA |
-| E5: Apply empty states | Use in all empty contexts | Consistent experience | Portfolio, NFT, etc. |
+| E5: Apply empty states | Use in all empty contexts | Consistent experience | Portfolio, custom tokens, etc. |
 | E6: Loading messages | Context-specific loading | "Fetching balances..." | Per-view loading |
 | E7: Button labels | Update button text | Action verbs | "Send ETH" not "Send" |
 | E8: Add tooltips | `.help()` modifier | Hover reveals info | Complex elements |
@@ -133,7 +133,7 @@
 | Context | Copy |
 |:---|:---|
 | Portfolio (no tokens) | "Your wallet is empty. Buy or receive crypto to get started." |
-| NFT Gallery (no NFTs) | "No NFTs yet. Buy your first NFT or receive one from a friend." |
+| Custom Tokens (none) | "No custom tokens yet. Add a token contract to track more assets." |
 | Transaction History | "No transactions yet. Send or receive crypto to see activity here." |
 | Swap History | "No swaps yet. Exchange tokens to see your swap history." |
 
@@ -144,7 +144,7 @@
 | Portfolio | "Fetching your balances..." |
 | Token Prices | "Getting latest prices..." |
 | Transaction History | "Loading your activity..." |
-| NFT Gallery | "Loading your collection..." |
+| Custom Tokens | "Checking token metadata..." |
 
 ### Button Labels
 
@@ -174,7 +174,7 @@
 - [ ] Trigger "invalid address" → human-readable message
 - [ ] Disconnect network → friendly network error
 - [ ] View empty portfolio → helpful message + CTA
-- [ ] View empty NFT gallery → helpful message + CTA
+- [ ] View empty custom tokens view → helpful message + CTA
 - [ ] View empty history → helpful message + CTA
 - [ ] Block network, view portfolio → "Fetching balances..."
 - [ ] Check all buttons → verb-first labels

@@ -127,6 +127,39 @@ final class DuressWalletManager: ObservableObject {
         
         return true
     }
+
+    // MARK: - Convenience API (used by UI)
+
+    /// Alias for UI compatibility
+    var isInDecoyMode: Bool { isInDuressMode }
+
+    /// Reset to real mode (app restart or after panic wipe)
+    func resetToRealMode() {
+        deactivateDuressMode()
+    }
+
+    /// Emergency: post panic wipe notification (actual wipe handled by ContentView)
+    func panicWipeRealWallet() {
+        guard isInDuressMode else { return }
+        NotificationCenter.default.post(name: .panicWipeRequested, object: nil)
+    }
+
+    /// Change the duress PIN (verify old PIN first)
+    func changeDuressPin(oldPin: String, newPin: String, confirmPin: String) -> Result<Void, DuressError> {
+        guard isDuressPin(oldPin) else {
+            return .failure(.pinMismatch)
+        }
+        return setDuressPin(newPin, confirmPin: confirmPin)
+    }
+
+    /// Disable duress mode entirely
+    func disableDuress() {
+        _ = deleteDuressPINHash()
+        _ = deleteDecoyWallet()
+        isDuressEnabled = false
+        duressConfigured = false
+        isConfigured = false
+    }
     
     /// Configure decoy wallet
     func configureDecoyWallet(_ config: DecoyWalletConfig) -> Result<Void, DuressError> {
@@ -426,6 +459,13 @@ final class DuressWalletManager: ObservableObject {
     }
 }
 
+// MARK: - Notification Names
+
+extension Notification.Name {
+    static let panicWipeRequested = Notification.Name("panicWipeRequested")
+    static let walletModeChanged = Notification.Name("walletModeChanged")
+}
+
 // MARK: - Models
 
 struct DecoyWallet: Codable, Identifiable {
@@ -463,19 +503,16 @@ struct DecoyWalletConfig {
     }
     
     static func generateDecoyPhrase() -> [String] {
-        // Common BIP-39 words for a realistic-looking decoy phrase
-        let words = [
-            "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract",
-            "absurd", "abuse", "access", "accident", "account", "accuse", "achieve", "acid",
-            "acoustic", "acquire", "across", "act", "action", "actor", "actress", "actual",
-            "adapt", "add", "addict", "address", "adjust", "admit", "adult", "advance",
-            "advice", "aerobic", "affair", "afford", "afraid", "again", "age", "agent",
-            "agree", "ahead", "aim", "air", "airport", "aisle", "alarm", "album",
-            "alcohol", "alert", "alien", "all", "alley", "allow", "almost", "alone",
-            "alpha", "already", "also", "alter", "always", "amateur", "amazing", "among"
-        ]
-        
-        return (0..<12).map { _ in words.randomElement()! }
+        // Use the full BIP39 word list with cryptographic randomness
+        let wordlist = BIP39Wordlist.english
+        var bytes = [UInt8](repeating: 0, count: 12 * 2)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+
+        return (0..<12).map { i in
+            let offset = i * 2
+            let index = Int(UInt16(bytes[offset]) | (UInt16(bytes[offset + 1]) << 8)) % wordlist.count
+            return wordlist[index]
+        }
     }
 }
 

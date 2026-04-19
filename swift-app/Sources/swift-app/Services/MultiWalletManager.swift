@@ -36,7 +36,7 @@ struct HawalaWalletProfile: Identifiable, Codable, Equatable {
         "#F97316", // Orange
         "#EAB308", // Yellow
         "#22C55E", // Green
-        "#14B8A6", // Teal
+        "#FFFFFF", // White
         "#06B6D4", // Cyan
         "#3B82F6"  // Blue
     ]

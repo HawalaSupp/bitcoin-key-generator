@@ -239,10 +239,6 @@ struct SheetCoordinator: ViewModifier {
                 GasAccountView()
                     .frame(minWidth: 520, minHeight: 500)
             }
-            .sheet(isPresented: $navigationVM.showPasskeyAuthSheet) {
-                PasskeyAuthView()
-                    .frame(minWidth: 520, minHeight: 500)
-            }
             .sheet(isPresented: $navigationVM.showGaslessTxSheet) {
                 GaslessTxView()
                     .frame(minWidth: 520, minHeight: 500)

@@ -1,144 +1,150 @@
 import SwiftUI
 
-/// Settings view for configuring duress/decoy wallet
+/// Settings view for configuring duress/decoy wallet — Hawala glass design
 struct DuressSettingsView: View {
-    @ObservedObject private var duressManager = DuressManager.shared
+    @ObservedObject private var duressManager = DuressWalletManager.shared
     @Environment(\.dismiss) private var dismiss
-    
+
     @State private var showSetupSheet = false
     @State private var showChangePasscodeSheet = false
     @State private var showDisableConfirmation = false
     @State private var showPanicWipeConfirmation = false
-    @State private var showAuditLog = false
+    @State private var showTips = false
+    @State private var showInfo = false
     @State private var errorMessage: String?
-    
+
     var body: some View {
-        Form {
-            // MARK: - Status Section
-            Section {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
+        HawalaSheetShell(title: "Duress Protection", width: 460, height: 600) {
+
+            // ── Status ──
+            VStack(spacing: 12) {
+                HawalaOverlaySectionHeader(icon: "shield.lefthalf.filled", title: "Status")
+
+                HStack(spacing: 14) {
+                    Image(systemName: duressManager.isDuressEnabled ? "checkmark.shield.fill" : "shield.slash")
+                        .font(.system(size: 22))
+                        .foregroundColor(duressManager.isDuressEnabled
+                            ? Color(red: 0.20, green: 0.84, blue: 0.29)
+                            : .white.opacity(0.25))
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("Duress Protection")
-                            .font(.headline)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.85))
                         Text(duressManager.isDuressEnabled ? "Active" : "Not Configured")
-                            .font(.caption)
-                            .foregroundColor(duressManager.isDuressEnabled ? .green : .secondary)
+                            .font(.system(size: 12))
+                            .foregroundColor(duressManager.isDuressEnabled
+                                ? Color(red: 0.20, green: 0.84, blue: 0.29)
+                                : .white.opacity(0.35))
                     }
-                    
                     Spacer()
-                    
                     if duressManager.isDuressEnabled {
-                        Image(systemName: "checkmark.shield.fill")
-                            .font(.title2)
-                            .foregroundColor(.green)
-                    } else {
-                        Image(systemName: "shield.slash")
-                            .font(.title2)
-                            .foregroundColor(.secondary)
+                        HawalaStatusBadge(text: "Enabled", color: Color(red: 0.20, green: 0.84, blue: 0.29))
                     }
                 }
-            } header: {
-                Label("Status", systemImage: "shield.lefthalf.filled")
             }
-            
-            // MARK: - What is Duress Mode
-            Section {
-                DisclosureGroup {
-                    VStack(alignment: .leading, spacing: 12) {
-                        infoRow(icon: "eye.slash", title: "Decoy Wallet", description: "A separate wallet with its own funds that opens when you enter the decoy passcode.")
-                        
-                        infoRow(icon: "lock.shield", title: "Plausible Deniability", description: "No way to detect the real wallet exists when in decoy mode.")
-                        
-                        infoRow(icon: "hand.raised", title: "Coercion Protection", description: "Under duress, enter the decoy passcode to show the decoy wallet instead.")
-                        
-                        infoRow(icon: "exclamationmark.triangle", title: "Important", description: "Keep small amounts in your decoy wallet to make it believable.")
+            .hawalaSectionCard()
+
+            // ── What is Duress Mode ──
+            VStack(spacing: 12) {
+                Button(action: { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { showInfo.toggle() } }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "questionmark.circle")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.45))
+                        Text("WHAT IS DURESS MODE?")
+                            .font(.system(size: 11, weight: .semibold))
+                            .tracking(1.2)
+                            .foregroundColor(.white.opacity(0.35))
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.25))
+                            .rotationEffect(.degrees(showInfo ? 90 : 0))
                     }
-                    .padding(.vertical, 8)
-                } label: {
-                    Label("What is Duress Mode?", systemImage: "questionmark.circle")
+                }
+                .buttonStyle(.plain)
+
+                if showInfo {
+                    VStack(spacing: 10) {
+                        duressInfoRow(icon: "eye.slash", title: "Decoy Wallet", desc: "A separate wallet with its own funds that opens when you enter the decoy passcode.")
+                        duressInfoRow(icon: "lock.shield", title: "Plausible Deniability", desc: "No way to detect the real wallet exists when in decoy mode.")
+                        duressInfoRow(icon: "hand.raised", title: "Coercion Protection", desc: "Under duress, enter the decoy passcode to show the decoy wallet.")
+                        duressInfoRow(icon: "exclamationmark.triangle", title: "Important", desc: "Keep small amounts in your decoy wallet to make it believable.")
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
-            
-            // MARK: - Setup/Configuration
-            Section {
+            .hawalaSectionCard()
+
+            // ── Configuration ──
+            VStack(spacing: 12) {
+                HawalaOverlaySectionHeader(icon: "gearshape", title: "Configuration")
+
                 if !duressManager.isDuressEnabled {
-                    Button(action: { showSetupSheet = true }) {
-                        Label("Set Up Decoy Wallet", systemImage: "plus.circle")
+                    HawalaActionButton(icon: "plus.circle", label: "Set Up Decoy Wallet", style: .primary) {
+                        showSetupSheet = true
                     }
-                    .buttonStyle(.borderedProminent)
                 } else {
-                    Button(action: { showChangePasscodeSheet = true }) {
-                        Label("Change Decoy Passcode", systemImage: "key")
+                    HawalaActionButton(icon: "key", label: "Change Decoy Passcode", style: .secondary) {
+                        showChangePasscodeSheet = true
                     }
-                    
-                    Button(role: .destructive, action: { showDisableConfirmation = true }) {
-                        Label("Disable Duress Protection", systemImage: "trash")
+                    HawalaActionButton(icon: "trash", label: "Disable Duress Protection", style: .destructive) {
+                        showDisableConfirmation = true
                     }
                 }
-            } header: {
-                Label("Configuration", systemImage: "gearshape")
             }
-            
-            // MARK: - Emergency Actions (only when enabled)
+            .hawalaSectionCard()
+
+            // ── Emergency (only when enabled) ──
             if duressManager.isDuressEnabled {
-                Section {
-                    Button(role: .destructive, action: { showPanicWipeConfirmation = true }) {
-                        HStack {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.red)
-                            Text("Emergency Wipe")
-                            Spacer()
-                            Text("Destroys real wallet")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                VStack(spacing: 12) {
+                    HawalaOverlaySectionHeader(icon: "exclamationmark.octagon", title: "Emergency")
+
+                    HawalaActionButton(icon: "exclamationmark.triangle.fill", label: "Emergency Wipe", style: .destructive) {
+                        showPanicWipeConfirmation = true
                     }
-                    .disabled(!duressManager.isInDecoyMode)
-                } header: {
-                    Label("Emergency", systemImage: "exclamationmark.octagon")
-                } footer: {
-                    Text("Emergency wipe is only available when in decoy mode. This permanently destroys the real wallet.")
-                        .foregroundColor(.red)
+
+                    if !duressManager.isInDecoyMode {
+                        HawalaInfoRow(icon: "info.circle", text: "Only available in decoy mode", color: .white.opacity(0.3))
+                    }
+                }
+                .hawalaSectionCard()
+                .opacity(duressManager.isInDecoyMode ? 1 : 0.5)
+            }
+
+            // ── Tips ──
+            VStack(spacing: 12) {
+                Button(action: { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { showTips.toggle() } }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "lightbulb")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.45))
+                        Text("TIPS")
+                            .font(.system(size: 11, weight: .semibold))
+                            .tracking(1.2)
+                            .foregroundColor(.white.opacity(0.35))
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.25))
+                            .rotationEffect(.degrees(showTips ? 90 : 0))
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if showTips {
+                    VStack(spacing: 8) {
+                        duressTipRow("Use a passcode you can remember under stress")
+                        duressTipRow("Keep a believable amount in your decoy wallet")
+                        duressTipRow("Practice switching between wallets")
+                        duressTipRow("The decoy passcode should be similar but different")
+                        duressTipRow("Never reveal that duress mode exists")
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
-            
-            // MARK: - ROADMAP-23 E8: Audit Log
-            if duressManager.isDuressEnabled && !duressManager.isInDecoyMode {
-                Section {
-                    Button(action: { showAuditLog = true }) {
-                        HStack {
-                            Label("Security Audit Log", systemImage: "clock.arrow.circlepath")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                } header: {
-                    Label("Monitoring", systemImage: "eye")
-                } footer: {
-                    Text("View timestamps of all duress activations.")
-                }
-            }
-            
-            // MARK: - Tips
-            Section {
-                DisclosureGroup {
-                    VStack(alignment: .leading, spacing: 12) {
-                        tipRow(text: "Use a passcode you can remember under stress")
-                        tipRow(text: "Keep a believable amount in your decoy wallet")
-                        tipRow(text: "Practice switching between wallets")
-                        tipRow(text: "The decoy passcode should be similar but different")
-                        tipRow(text: "Never reveal that duress mode exists")
-                    }
-                    .padding(.vertical, 8)
-                } label: {
-                    Label("Tips", systemImage: "lightbulb")
-                }
-            }
+            .hawalaSectionCard()
         }
-        .formStyle(.grouped)
-        .navigationTitle("Duress Protection")
         .alert("Error", isPresented: .constant(errorMessage != nil)) {
             Button("Dismiss") { errorMessage = nil }
         } message: {
@@ -150,7 +156,6 @@ struct DuressSettingsView: View {
             Button("Cancel", role: .cancel) { }
             Button("Disable", role: .destructive) {
                 duressManager.disableDuress()
-                // ROADMAP-23: Track duress mode disabled
                 AnalyticsService.shared.track(AnalyticsService.EventName.duressModeDisabled)
             }
         } message: {
@@ -162,7 +167,7 @@ struct DuressSettingsView: View {
                 duressManager.panicWipeRealWallet()
             }
         } message: {
-            Text("⚠️ THIS CANNOT BE UNDONE ⚠️\n\nThis will permanently destroy your real wallet. Only use this in extreme emergency situations.")
+            Text("THIS CANNOT BE UNDONE\n\nThis will permanently destroy your real wallet. Only use this in extreme emergency situations.")
         }
         .sheet(isPresented: $showSetupSheet) {
             DuressSetupSheet(onComplete: { showSetupSheet = false })
@@ -170,38 +175,37 @@ struct DuressSettingsView: View {
         .sheet(isPresented: $showChangePasscodeSheet) {
             DuressChangePasscodeSheet(onComplete: { showChangePasscodeSheet = false })
         }
-        // ROADMAP-23 E8: Audit log sheet
-        .sheet(isPresented: $showAuditLog) {
-            DuressAuditLogView()
-        }
     }
-    
+
+    // ── Helpers ──
+
     @ViewBuilder
-    private func infoRow(icon: String, title: String, description: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+    private func duressInfoRow(icon: String, title: String, desc: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
-                .foregroundColor(.blue)
-                .frame(width: 24)
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.4))
+                .frame(width: 18)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                Text(description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
+                Text(desc)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.35))
             }
         }
     }
-    
+
     @ViewBuilder
-    private func tipRow(text: String) -> some View {
+    private func duressTipRow(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.green)
-                .font(.caption)
+                .font(.system(size: 10))
+                .foregroundColor(Color(red: 0.20, green: 0.84, blue: 0.29).opacity(0.6))
             Text(text)
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.4))
         }
     }
 }
@@ -210,168 +214,147 @@ struct DuressSettingsView: View {
 
 struct DuressSetupSheet: View {
     let onComplete: () -> Void
-    
-    @ObservedObject private var duressManager = DuressManager.shared
+
+    @ObservedObject private var duressManager = DuressWalletManager.shared
     @AppStorage("hawala.passcodeHash") private var realPasscodeHash: String?
-    
+
     @State private var passcode = ""
     @State private var confirmPasscode = ""
     @State private var errorMessage: String?
-    @State private var step = 1
-    
-    @Environment(\.dismiss) private var dismiss
-    
+    @State private var step = 0 // 0=intro, 1=passcode, 2=done
+
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-                // Progress indicator
-                HStack(spacing: 8) {
-                    ForEach(1...3, id: \.self) { i in
-                        Circle()
-                            .fill(i <= step ? Color.blue : Color.gray.opacity(0.3))
-                            .frame(width: 8, height: 8)
-                    }
-                }
-                
-                Spacer()
-                
-                switch step {
-                case 1:
-                    introView
-                case 2:
-                    passcodeEntryView
-                case 3:
-                    confirmationView
-                default:
-                    EmptyView()
-                }
-                
-                Spacer()
-                
-                if let error = errorMessage {
+        HawalaSheetShell(title: "Set Up Decoy Wallet", width: 420, height: 480) {
+
+            HawalaStepIndicator(totalSteps: 3, currentStep: step)
+                .frame(maxWidth: .infinity)
+
+            Spacer().frame(height: 8)
+
+            switch step {
+            case 0: introContent
+            case 1: passcodeContent
+            case 2: confirmationContent
+            default: EmptyView()
+            }
+
+            if let error = errorMessage {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle")
+                        .font(.system(size: 11))
                     Text(error)
-                        .font(.caption)
-                        .foregroundColor(.red)
-                        .padding()
+                        .font(.system(size: 12))
                 }
-            }
-            .padding()
-            .frame(width: 400, height: 450)
-            .navigationTitle("Set Up Decoy Wallet")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
+                .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
+                .padding(10)
+                .frame(maxWidth: .infinity)
+                .background(Color(red: 1, green: 0.27, blue: 0.23).opacity(0.08))
+                .cornerRadius(8)
             }
         }
     }
-    
-    private var introView: some View {
-        VStack(spacing: 16) {
+
+    private var introContent: some View {
+        VStack(spacing: 20) {
+            Spacer().frame(height: 12)
             Image(systemName: "shield.lefthalf.filled")
-                .font(.system(size: 60))
-                .foregroundColor(.blue)
-            
+                .font(.system(size: 48, weight: .thin))
+                .foregroundColor(.white.opacity(0.35))
+
             Text("Duress Protection")
-                .font(.title2)
-                .fontWeight(.bold)
-            
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(.white.opacity(0.9))
+
             Text("Create a decoy wallet that opens with a separate passcode. Use it to protect your real funds under coercion.")
-                .font(.body)
-                .foregroundColor(.secondary)
+                .font(.system(size: 13))
+                .foregroundColor(.white.opacity(0.45))
                 .multilineTextAlignment(.center)
-                .padding(.horizontal)
-            
-            Button("Continue") {
-                withAnimation { step = 2 }
+                .lineSpacing(2)
+
+            Spacer().frame(height: 4)
+            HawalaActionButton(icon: "arrow.right", label: "Continue", style: .primary) {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { step = 1 }
             }
-            .buttonStyle(.borderedProminent)
         }
     }
-    
-    private var passcodeEntryView: some View {
+
+    private var passcodeContent: some View {
         VStack(spacing: 16) {
+            Spacer().frame(height: 8)
             Image(systemName: "key.fill")
-                .font(.system(size: 40))
-                .foregroundColor(.orange)
-            
+                .font(.system(size: 32, weight: .thin))
+                .foregroundColor(.white.opacity(0.45))
+
             Text("Create Decoy Passcode")
-                .font(.title3)
-                .fontWeight(.semibold)
-            
-            Text("Enter a passcode for your decoy wallet. This must be different from your real passcode.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-            
-            SecureField("Decoy Passcode", text: $passcode)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 200)
-            
-            SecureField("Confirm Passcode", text: $confirmPasscode)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 200)
-            
-            Button("Set Passcode") {
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white.opacity(0.9))
+
+            Text("Must be different from your real passcode.")
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.35))
+
+            HawalaSecureField(placeholder: "Decoy Passcode", text: $passcode)
+            HawalaSecureField(placeholder: "Confirm Passcode", text: $confirmPasscode)
+
+            HawalaActionButton(icon: "checkmark", label: "Set Passcode", style: .primary) {
                 validateAndProceed()
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(passcode.isEmpty || passcode != confirmPasscode)
         }
     }
-    
-    private var confirmationView: some View {
-        VStack(spacing: 16) {
+
+    private var confirmationContent: some View {
+        VStack(spacing: 20) {
+            Spacer().frame(height: 12)
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 60))
-                .foregroundColor(.green)
-            
-            Text("Decoy Wallet Created!")
-                .font(.title2)
-                .fontWeight(.bold)
-            
-            Text("Your decoy wallet is now active. Enter your decoy passcode at unlock to access it.")
-                .font(.body)
-                .foregroundColor(.secondary)
+                .font(.system(size: 48, weight: .thin))
+                .foregroundColor(Color(red: 0.20, green: 0.84, blue: 0.29))
+
+            Text("Decoy Wallet Created")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(.white.opacity(0.9))
+
+            Text("Enter your decoy passcode at unlock to access it.")
+                .font(.system(size: 13))
+                .foregroundColor(.white.opacity(0.45))
                 .multilineTextAlignment(.center)
-                .padding(.horizontal)
-            
+
             VStack(alignment: .leading, spacing: 8) {
-                Label("Remember to add some funds to make it believable", systemImage: "exclamationmark.triangle")
-                Label("Never reveal that you have a decoy wallet", systemImage: "eye.slash")
+                HawalaInfoRow(icon: "exclamationmark.triangle", text: "Add some funds to make it believable", color: Color(red: 1, green: 0.84, blue: 0.04).opacity(0.8))
+                HawalaInfoRow(icon: "eye.slash", text: "Never reveal that you have a decoy wallet", color: Color(red: 1, green: 0.84, blue: 0.04).opacity(0.8))
             }
-            .font(.caption)
-            .foregroundColor(.orange)
-            .padding()
-            .background(Color.orange.opacity(0.1))
-            .cornerRadius(8)
-            
-            Button("Done") {
+            .padding(12)
+            .background(Color(red: 1, green: 0.84, blue: 0.04).opacity(0.08))
+            .cornerRadius(10)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(Color(red: 1, green: 0.84, blue: 0.04).opacity(0.15), lineWidth: 1)
+            )
+
+            HawalaActionButton(icon: "checkmark.circle", label: "Done", style: .primary) {
                 onComplete()
             }
-            .buttonStyle(.borderedProminent)
         }
     }
-    
+
     private func validateAndProceed() {
         errorMessage = nil
-        
+
         guard passcode == confirmPasscode else {
             errorMessage = "Passcodes don't match"
             return
         }
-        
+
         guard passcode.count >= 4 else {
             errorMessage = "Passcode must be at least 4 characters"
             return
         }
-        
-        do {
-            try duressManager.setupDecoyWallet(passcode: passcode, realPasscodeHash: realPasscodeHash)
-            // ROADMAP-23: Track duress mode enabled
+
+        let result = duressManager.setDuressPin(passcode, confirmPin: confirmPasscode)
+        switch result {
+        case .success:
             AnalyticsService.shared.track(AnalyticsService.EventName.duressModeEnabled)
-            withAnimation { step = 3 }
-        } catch {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { step = 2 }
+        case .failure(let error):
             errorMessage = error.localizedDescription
         }
     }
@@ -381,70 +364,64 @@ struct DuressSetupSheet: View {
 
 struct DuressChangePasscodeSheet: View {
     let onComplete: () -> Void
-    
-    @ObservedObject private var duressManager = DuressManager.shared
+
+    @ObservedObject private var duressManager = DuressWalletManager.shared
     @AppStorage("hawala.passcodeHash") private var realPasscodeHash: String?
-    
+
     @State private var oldPasscode = ""
     @State private var newPasscode = ""
     @State private var confirmPasscode = ""
     @State private var errorMessage: String?
-    
-    @Environment(\.dismiss) private var dismiss
-    
+
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    SecureField("Current Decoy Passcode", text: $oldPasscode)
-                } header: {
-                    Text("Current Passcode")
-                }
-                
-                Section {
-                    SecureField("New Decoy Passcode", text: $newPasscode)
-                    SecureField("Confirm New Passcode", text: $confirmPasscode)
-                } header: {
-                    Text("New Passcode")
-                }
-                
-                if let error = errorMessage {
-                    Section {
-                        Text(error)
-                            .foregroundColor(.red)
-                    }
-                }
-                
-                Section {
-                    Button("Change Passcode") {
-                        changePasscode()
-                    }
-                    .disabled(oldPasscode.isEmpty || newPasscode.isEmpty || newPasscode != confirmPasscode)
-                }
+        HawalaSheetShell(title: "Change Decoy Passcode", width: 380, height: 400) {
+
+            VStack(spacing: 12) {
+                HawalaOverlaySectionHeader(icon: "key", title: "Current Passcode")
+                HawalaSecureField(placeholder: "Current Decoy Passcode", text: $oldPasscode)
             }
-            .formStyle(.grouped)
-            .frame(width: 350, height: 350)
-            .navigationTitle("Change Decoy Passcode")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+            .hawalaSectionCard()
+
+            VStack(spacing: 12) {
+                HawalaOverlaySectionHeader(icon: "key.fill", title: "New Passcode")
+                HawalaSecureField(placeholder: "New Decoy Passcode", text: $newPasscode)
+                HawalaSecureField(placeholder: "Confirm New Passcode", text: $confirmPasscode)
+            }
+            .hawalaSectionCard()
+
+            if let error = errorMessage {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle")
+                        .font(.system(size: 11))
+                    Text(error)
+                        .font(.system(size: 12))
                 }
+                .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
+                .padding(10)
+                .frame(maxWidth: .infinity)
+                .background(Color(red: 1, green: 0.27, blue: 0.23).opacity(0.08))
+                .cornerRadius(8)
+            }
+
+            HawalaActionButton(icon: "checkmark", label: "Change Passcode", style: .primary) {
+                changePasscode()
             }
         }
     }
-    
+
     private func changePasscode() {
         errorMessage = nil
-        
+
         guard newPasscode == confirmPasscode else {
             errorMessage = "New passcodes don't match"
             return
         }
-        
-        do {
-            try duressManager.changeDecoyPasscode(oldPasscode: oldPasscode, newPasscode: newPasscode, realPasscodeHash: realPasscodeHash)
+
+        let result = duressManager.changeDuressPin(oldPin: oldPasscode, newPin: newPasscode, confirmPin: confirmPasscode)
+        switch result {
+        case .success:
             onComplete()
-        } catch {
+        case .failure(let error):
             errorMessage = error.localizedDescription
         }
     }

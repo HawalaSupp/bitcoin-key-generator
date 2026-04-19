@@ -28,7 +28,9 @@ struct TransactionHistoryView: View {
                 filterSection
                 
                 // Content
-                if viewModel.isLoading && viewModel.transactions.isEmpty {
+                if PrivacyManager.shared.shouldHideTransactions {
+                    transactionHiddenView
+                } else if viewModel.isLoading && viewModel.transactions.isEmpty {
                     loadingView
                 } else if filteredTransactions.isEmpty {
                     emptyStateView
@@ -165,6 +167,33 @@ struct TransactionHistoryView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
+    // MARK: - Privacy Hidden State
+
+    private var transactionHiddenView: some View {
+        VStack(spacing: HawalaTheme.Spacing.lg) {
+            Spacer()
+            ZStack {
+                Circle()
+                    .fill(HawalaTheme.Colors.backgroundTertiary)
+                    .frame(width: 100, height: 100)
+                Image(systemName: "eye.slash")
+                    .font(.system(size: 40))
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+            }
+            VStack(spacing: HawalaTheme.Spacing.sm) {
+                Text("Transaction History Hidden")
+                    .font(HawalaTheme.Typography.h3)
+                    .foregroundColor(HawalaTheme.Colors.textPrimary)
+                Text("Privacy mode is active. Disable it in Privacy settings to view transactions.")
+                    .font(HawalaTheme.Typography.body)
+                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+            Spacer()
+        }
+        .padding(HawalaTheme.Spacing.xl)
+    }
+
     // MARK: - Empty State
     
     private var emptyStateView: some View {

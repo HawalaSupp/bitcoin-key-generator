@@ -5,49 +5,25 @@ import AppKit
 
 // MARK: - Transaction Detail Sheet
 
-/// A detailed view for displaying all information about a single transaction
+/// A detailed view for displaying all information about a single transaction — Hawala glass design
 struct TransactionDetailSheet: View {
     let transaction: HawalaTransactionEntry
     var onRetryTransaction: ((HawalaTransactionEntry) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var showCopiedToast = false
-    
+
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Header with type and amount
-                    transactionHeader
-                    
-                    // Status badge
-                    statusSection
-                    
-                    // Details card
-                    detailsCard
+        HawalaSheetShell(title: "Transaction Details", width: 480, height: 600) {
+            transactionHeader
+            statusSection
+            detailsCard
 
-                    // Failed transaction explanation (E10)
-                    if transaction.status.lowercased() == "failed" {
-                        failedExplanationSection
-                    }
+            if transaction.status.lowercased() == "failed" {
+                failedExplanationSection
+            }
 
-                    // Actions
-                    actionsSection
-                    
-                    Spacer(minLength: 40)
-                }
-                .padding(20)
-            }
-            .background(Color(nsColor: .windowBackgroundColor))
-            .navigationTitle("Transaction Details")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
+            actionsSection
         }
-        .frame(minWidth: 450, minHeight: 550)
         .overlay(alignment: .bottom) {
             if showCopiedToast {
                 copiedToastView
@@ -55,311 +31,265 @@ struct TransactionDetailSheet: View {
             }
         }
     }
-    
+
     // MARK: - Header
-    
+
     private var transactionHeader: some View {
-        VStack(spacing: 16) {
-            // Type icon
+        VStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(typeColor.opacity(0.15))
-                    .frame(width: 72, height: 72)
-                
+                    .fill(typeColor.opacity(0.12))
+                    .frame(width: 64, height: 64)
+
                 Image(systemName: typeIcon)
-                    .font(.system(size: 32, weight: .medium))
-                    .foregroundStyle(typeColor)
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundColor(typeColor)
             }
-            
-            // Amount
+
             VStack(spacing: 4) {
                 Text(transaction.amountDisplay)
-                    .font(.system(size: 36, weight: .bold, design: .rounded))
-                    .foregroundStyle(amountColor)
-                
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundColor(amountColor)
+
                 Text(transaction.asset)
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.45))
             }
-            
-            // Type label
+
             Text(transaction.type)
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(typeColor.opacity(0.1))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(typeColor)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(typeColor.opacity(0.12))
                 .clipShape(Capsule())
         }
-        .padding(.vertical, 8)
+        .padding(.bottom, 4)
     }
-    
+
     // MARK: - Status Section
-    
+
     private var statusSection: some View {
         HStack(spacing: 8) {
             Image(systemName: statusIcon)
-                .foregroundStyle(statusColor)
-            
+                .font(.system(size: 12))
+                .foregroundColor(statusColor)
+
             Text(transaction.status)
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundStyle(statusColor)
-            
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(statusColor)
+
             if let confirmations = transaction.confirmationsDisplay {
-                Text("•")
-                    .foregroundStyle(.secondary)
+                Circle()
+                    .fill(.white.opacity(0.15))
+                    .frame(width: 3, height: 3)
                 Text(confirmations)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
         .background(statusColor.opacity(0.1))
         .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(statusColor.opacity(0.2), lineWidth: 1)
+        )
     }
-    
+
     // MARK: - Details Card
-    
+
     private var detailsCard: some View {
         VStack(spacing: 0) {
-            // Transaction Hash
             if let hash = transaction.txHash {
-                TxDetailRow(
-                    label: "Transaction Hash",
-                    value: hash,
-                    isMonospace: true,
-                    canCopy: true,
-                    onCopy: { copyToClipboard(hash) }
-                )
-                
-                Divider()
-                    .padding(.horizontal)
-            }
-            
-            // Date/Time
-            TxDetailRow(
-                label: "Date",
-                value: transaction.timestamp,
-                isMonospace: false,
-                canCopy: false
-            )
-            
-            Divider()
-                .padding(.horizontal)
-            
-            // Chain
-            if let chainId = transaction.chainId {
-                TxDetailRow(
-                    label: "Network",
-                    value: networkName(for: chainId),
-                    isMonospace: false,
-                    canCopy: false
-                )
-                
-                Divider()
-                    .padding(.horizontal)
-            }
-            
-            // Block Number
-            if let blockNumber = transaction.blockNumber {
-                TxDetailRow(
-                    label: "Block Number",
-                    value: "\(blockNumber)",
-                    isMonospace: true,
-                    canCopy: true,
-                    onCopy: { copyToClipboard("\(blockNumber)") }
-                )
-                
-                Divider()
-                    .padding(.horizontal)
-            }
-            
-            // Fee
-            if let fee = transaction.fee {
-                TxDetailRow(
-                    label: "Transaction Fee",
-                    value: fee,
-                    isMonospace: false,
-                    canCopy: false
-                )
-                
-                Divider()
-                    .padding(.horizontal)
-            }
-            
-            // Confirmations
-            if let confirmations = transaction.confirmations {
-                TxDetailRow(
-                    label: "Confirmations",
-                    value: confirmations >= 6 ? "6+ (Final)" : "\(confirmations)",
-                    isMonospace: false,
-                    canCopy: false
-                )
-            }
-            
-            // Counterparty
-            if let counterparty = transaction.counterparty, !counterparty.isEmpty {
-                Divider()
-                    .padding(.horizontal)
-                
-                TxDetailRow(
-                    label: transaction.type == "Send" ? "Recipient" : "Sender",
-                    value: counterparty,
-                    isMonospace: true,
-                    canCopy: true,
-                    onCopy: { copyToClipboard(counterparty) }
-                )
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-        )
-    }
-    
-    // MARK: - Actions Section
-    
-    private var actionsSection: some View {
-        VStack(spacing: 12) {
-            // View on Explorer
-            if let explorerURL = transaction.explorerURL {
-                Button {
-                    openInBrowser(explorerURL)
-                } label: {
-                    HStack {
-                        Image(systemName: "safari")
-                        Text("View on \(explorerName)")
-                        Spacer()
-                        Image(systemName: "arrow.up.right.square")
-                            .font(.subheadline)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(Color.accentColor.opacity(0.1))
-                    .foregroundStyle(Color.accentColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
-            
-            // Copy Transaction Hash
-            if let hash = transaction.txHash {
-                Button {
-                    copyToClipboard(hash)
-                } label: {
-                    HStack {
-                        Image(systemName: "doc.on.doc")
-                        Text("Copy Transaction Hash")
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(Color.secondary.opacity(0.1))
-                    .foregroundStyle(.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                }
-                .buttonStyle(.plain)
+                TxDetailRow(label: "Transaction Hash", value: hash, isMonospace: true, canCopy: true, onCopy: { copyToClipboard(hash) })
+                rowDivider
             }
 
-            // Retry Failed Transaction (E11)
+            TxDetailRow(label: "Date", value: transaction.timestamp, isMonospace: false, canCopy: false)
+            rowDivider
+
+            if let chainId = transaction.chainId {
+                TxDetailRow(label: "Network", value: networkName(for: chainId), isMonospace: false, canCopy: false)
+                rowDivider
+            }
+
+            if let providerName = transaction.providerName {
+                TxDetailRow(label: "Provider", value: providerName, isMonospace: false, canCopy: false)
+                rowDivider
+            }
+
+            if let blockNumber = transaction.blockNumber {
+                TxDetailRow(label: "Block Number", value: "\(blockNumber)", isMonospace: true, canCopy: true, onCopy: { copyToClipboard("\(blockNumber)") })
+                rowDivider
+            }
+
+            if let fee = transaction.fee {
+                TxDetailRow(label: "Transaction Fee", value: fee, isMonospace: false, canCopy: false)
+                rowDivider
+            }
+
+            if let confirmations = transaction.confirmations {
+                TxDetailRow(label: "Confirmations", value: confirmations >= 6 ? "6+ (Final)" : "\(confirmations)", isMonospace: false, canCopy: false)
+            }
+
+            if let counterparty = transaction.counterparty, !counterparty.isEmpty {
+                rowDivider
+                TxDetailRow(label: transaction.type == "Send" ? "Recipient" : (transaction.type == "Bridge" ? "Route" : "Sender"), value: counterparty, isMonospace: true, canCopy: true, onCopy: { copyToClipboard(counterparty) })
+            }
+
+            if let destinationTxHash = transaction.secondaryTxHash {
+                rowDivider
+                TxDetailRow(label: "Destination Hash", value: destinationTxHash, isMonospace: true, canCopy: true, onCopy: { copyToClipboard(destinationTxHash) })
+            }
+
+            if let note = transaction.detailNote, !note.isEmpty {
+                rowDivider
+                TxDetailRow(label: "Bridge Notes", value: note, isMonospace: false, canCopy: false)
+            }
+        }
+        .hawalaSectionCard()
+    }
+
+    private var rowDivider: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.04))
+            .frame(height: 1)
+            .padding(.horizontal, 12)
+    }
+
+    // MARK: - Actions Section
+
+    private var actionsSection: some View {
+        VStack(spacing: 10) {
+            if let explorerURL = transaction.explorerURL {
+                actionRow(icon: "safari", label: "View on \(explorerName)", trailing: "arrow.up.right.square", tint: Color.white.opacity(0.5)) {
+                    openInBrowser(explorerURL)
+                }
+            }
+
+            if let destinationURL = transaction.secondaryExplorerURL {
+                actionRow(icon: "point.3.connected.trianglepath.dotted", label: "View Destination on \(secondaryExplorerName)", trailing: "arrow.up.right.square", tint: .blue) {
+                    openInBrowser(destinationURL)
+                }
+            }
+
+            if let title = transaction.externalActionTitle, let url = transaction.externalActionURL {
+                actionRow(icon: "link", label: title, trailing: "arrow.up.right.square", tint: .purple) {
+                    openInBrowser(url)
+                }
+            }
+
+            if let hash = transaction.txHash {
+                actionRow(icon: "doc.on.doc", label: "Copy Transaction Hash", tint: .white.opacity(0.6)) {
+                    copyToClipboard(hash)
+                }
+            }
+
             if transaction.status.lowercased() == "failed", let onRetry = onRetryTransaction {
-                Button {
+                actionRow(icon: "arrow.counterclockwise", label: "Retry Transaction", trailing: "arrow.right", tint: Color(red: 1, green: 0.84, blue: 0.04)) {
                     dismiss()
                     onRetry(transaction)
-                } label: {
-                    HStack {
-                        Image(systemName: "arrow.counterclockwise")
-                        Text("Retry Transaction")
-                        Spacer()
-                        Image(systemName: "arrow.right")
-                            .font(.subheadline)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(Color.orange.opacity(0.15))
-                    .foregroundStyle(.orange)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
-                .buttonStyle(.plain)
                 .accessibilityIdentifier("retry_transaction_button")
             }
         }
     }
-    
+
+    private func actionRow(icon: String, label: String, trailing: String? = nil, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 13))
+                Text(label)
+                    .font(.system(size: 13, weight: .medium))
+                Spacer()
+                if let trailing {
+                    Image(systemName: trailing)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.25))
+                }
+            }
+            .foregroundColor(tint)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(tint.opacity(0.08))
+            .cornerRadius(10)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(tint.opacity(0.12), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Failed Explanation Section (E10)
-    
+
     private var failedExplanationSection: some View {
         let explanation = TransactionFailureReason.explanation(
             status: transaction.status,
             chainId: transaction.chainId,
             fee: transaction.fee
         )
-        
+
         return Group {
             if let explanation {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
                         Image(systemName: explanation.icon)
-                            .font(.title3)
-                            .foregroundStyle(.red)
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
                         Text(explanation.reason)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.85))
                     }
-                    
+
                     Text(explanation.explanation)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.5))
                         .fixedSize(horizontal: false, vertical: true)
-                    
+
                     HStack(spacing: 6) {
                         Image(systemName: "lightbulb.fill")
-                            .font(.caption)
-                            .foregroundStyle(.yellow)
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04))
                         Text(explanation.suggestion)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.4))
                     }
-                    .padding(.top, 4)
+                    .padding(.top, 2)
                 }
-                .padding(16)
+                .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.red.opacity(0.08))
-                )
+                .background(Color(red: 1, green: 0.27, blue: 0.23).opacity(0.08))
+                .cornerRadius(12)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.red.opacity(0.2), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(Color(red: 1, green: 0.27, blue: 0.23).opacity(0.15), lineWidth: 1)
                 )
                 .accessibilityIdentifier("failed_transaction_explanation")
             }
         }
     }
-    
+
     // MARK: - Toast View
-    
+
     private var copiedToastView: some View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
+                .foregroundColor(Color(red: 0.20, green: 0.84, blue: 0.29))
             Text("Copied to clipboard")
-                .font(.subheadline)
-                .fontWeight(.medium)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial)
+        .padding(.vertical, 10)
+        .background(Color(red: 0.10, green: 0.10, blue: 0.12).opacity(0.95))
         .clipShape(Capsule())
-        .shadow(color: .black.opacity(0.1), radius: 8, y: 4)
-        .padding(.bottom, 20)
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
+        .padding(.bottom, 16)
     }
     
     // MARK: - Helpers
@@ -369,22 +299,24 @@ struct TransactionDetailSheet: View {
         case "receive": return "arrow.down.left"
         case "send": return "arrow.up.right"
         case "swap": return "arrow.triangle.2.circlepath"
+        case "bridge": return "point.3.connected.trianglepath.dotted"
         default: return "arrow.left.arrow.right"
         }
     }
     
     private var typeColor: Color {
         switch transaction.type.lowercased() {
-        case "receive": return .green
-        case "send": return .red
-        case "swap": return .blue
-        default: return .secondary
+        case "receive": return Color(red: 0.20, green: 0.84, blue: 0.29)
+        case "send": return Color(red: 1, green: 0.27, blue: 0.23)
+        case "swap": return Color.white.opacity(0.5)
+        case "bridge": return Color.white.opacity(0.5)
+        default: return .white.opacity(0.5)
         }
     }
     
     private var amountColor: Color {
-        transaction.amountDisplay.hasPrefix("+") ? .green :
-        transaction.amountDisplay.hasPrefix("-") ? .primary : .primary
+        transaction.amountDisplay.hasPrefix("+") ? Color(red: 0.20, green: 0.84, blue: 0.29) :
+        transaction.amountDisplay.hasPrefix("-") ? .white.opacity(0.85) : .white.opacity(0.85)
     }
     
     private var statusIcon: String {
@@ -393,17 +325,19 @@ struct TransactionDetailSheet: View {
         case "pending": return "clock"
         case "processing": return "arrow.triangle.2.circlepath"
         case "failed": return "xmark.circle.fill"
+        case "refunded": return "arrow.uturn.backward.circle.fill"
         default: return "questionmark.circle"
         }
     }
     
     private var statusColor: Color {
         switch transaction.status.lowercased() {
-        case "confirmed": return .green
-        case "pending": return .orange
-        case "processing": return .blue
-        case "failed": return .red
-        default: return .secondary
+        case "confirmed": return Color(red: 0.20, green: 0.84, blue: 0.29)
+        case "pending": return Color(red: 1, green: 0.84, blue: 0.04)
+        case "processing": return Color.white.opacity(0.5)
+        case "failed": return Color(red: 1, green: 0.27, blue: 0.23)
+        case "refunded": return .purple
+        default: return .white.opacity(0.5)
         }
     }
     
@@ -414,9 +348,38 @@ struct TransactionDetailSheet: View {
         case "bitcoin", "bitcoin-testnet": return "Mempool"
         case "litecoin": return "Blockchair"
         case "ethereum", "ethereum-sepolia": return "Etherscan"
-        case "bnb": return "BscScan"
+        case "bnb", "bsc": return "BscScan"
+        case "polygon": return "PolygonScan"
+        case "arbitrum": return "Arbiscan"
+        case "optimism": return "Optimism Explorer"
+        case "avalanche": return "Snowtrace"
+        case "base": return "BaseScan"
+        case "fantom": return "FTMScan"
         case "solana": return "Solscan"
-        case "xrp": return "XRPScan"
+        case "xrp", "xrp-testnet": return "XRPScan"
+        default: return "Explorer"
+        }
+    }
+
+    private var secondaryExplorerName: String {
+        guard let chainId = transaction.secondaryChainId else { return "Explorer" }
+        return explorerName(for: chainId)
+    }
+
+    private func explorerName(for chainId: String) -> String {
+        switch chainId {
+        case "bitcoin", "bitcoin-testnet": return "Mempool"
+        case "litecoin": return "Blockchair"
+        case "ethereum", "ethereum-sepolia": return "Etherscan"
+        case "bnb", "bsc": return "BscScan"
+        case "polygon": return "PolygonScan"
+        case "arbitrum": return "Arbiscan"
+        case "optimism": return "Optimism Explorer"
+        case "avalanche": return "Snowtrace"
+        case "base": return "BaseScan"
+        case "fantom": return "FTMScan"
+        case "solana", "solana-devnet": return "Solscan"
+        case "xrp", "xrp-testnet": return "XRPScan"
         default: return "Explorer"
         }
     }
@@ -428,9 +391,15 @@ struct TransactionDetailSheet: View {
         case "litecoin": return "Litecoin"
         case "ethereum": return "Ethereum Mainnet"
         case "ethereum-sepolia": return "Ethereum Sepolia"
-        case "bnb": return "BNB Chain"
-        case "solana": return "Solana"
-        case "xrp": return "XRP Ledger"
+        case "bnb", "bsc": return "BNB Chain"
+        case "polygon": return "Polygon"
+        case "arbitrum": return "Arbitrum"
+        case "optimism": return "Optimism"
+        case "avalanche": return "Avalanche"
+        case "base": return "Base"
+        case "fantom": return "Fantom"
+        case "solana", "solana-devnet": return "Solana"
+        case "xrp", "xrp-testnet": return "XRP Ledger"
         default: return chainId.capitalized
         }
     }
@@ -467,41 +436,40 @@ private struct TxDetailRow: View {
     var isMonospace: Bool = false
     var canCopy: Bool = false
     var onCopy: (() -> Void)? = nil
-    
+
     @State private var isHovered = false
-    
+
     var body: some View {
         HStack(alignment: .top) {
             Text(label)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.4))
                 .frame(width: 120, alignment: .leading)
-            
+
             Spacer()
-            
+
             HStack(spacing: 8) {
                 Text(displayValue)
-                    .font(isMonospace ? .system(.subheadline, design: .monospaced) : .subheadline)
-                    .foregroundStyle(.primary)
+                    .font(isMonospace ? .system(size: 12, weight: .regular, design: .monospaced) : .system(size: 12))
+                    .foregroundColor(.white.opacity(0.7))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                
+
                 if canCopy {
                     Button {
                         onCopy?()
                     } label: {
                         Image(systemName: "doc.on.doc")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(isHovered ? 0.5 : 0.2))
                     }
                     .buttonStyle(.plain)
-                    .opacity(isHovered ? 1 : 0.5)
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(isHovered ? Color.primary.opacity(0.03) : Color.clear)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(isHovered ? Color.white.opacity(0.02) : Color.clear)
         .onHover { hovering in
             isHovered = hovering
         }

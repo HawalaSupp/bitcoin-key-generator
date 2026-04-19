@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Sheet showing details for a specific chain including balance, price, and receive address
+/// Sheet showing details for a specific chain — Hawala glass design
 struct ChainDetailSheet: View {
     let chain: ChainInfo
     let balanceState: ChainBalanceState
@@ -13,35 +13,25 @@ struct ChainDetailSheet: View {
     @State private var showReceiveQR = false
     @State private var copyFeedbackMessage: String?
     @State private var copyFeedbackTask: Task<Void, Never>?
-    
+
     private var isBitcoinChain: Bool {
         chain.id.starts(with: "bitcoin")
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if isBitcoinChain {
-                        quickActionsSection
-                    }
-                    
-                    if let receiveAddress = chain.receiveAddress {
-                        receiveSection(address: receiveAddress)
-                    }
-                    balanceSummary
-                    priceSummary
-                }
-                .padding()
+        HawalaSheetShell(title: chain.title, width: 480, height: 600) {
+
+            if isBitcoinChain {
+                quickActionsSection
             }
-            .navigationTitle(chain.title)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                }
+
+            if let receiveAddress = chain.receiveAddress {
+                receiveSection(address: receiveAddress)
             }
+
+            balanceSummary
+            priceSummary
         }
-        .frame(width: 480, height: 600)
         .overlay(alignment: .bottom) {
             if let message = copyFeedbackMessage {
                 CopyFeedbackBanner(message: message)
@@ -50,56 +40,46 @@ struct ChainDetailSheet: View {
             }
         }
     }
-    
+
     @ViewBuilder
     private var quickActionsSection: some View {
         HStack(spacing: 12) {
-            Button {
+            HawalaActionButton(icon: "paperplane.fill", label: "Send", style: .primary) {
                 onSendRequested(chain)
-            } label: {
-                Label("Send", systemImage: "paperplane.fill")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.orange)
-            .disabled(keys == nil)
-            
-            Button {
-                withAnimation { showReceiveInfo = true }
-            } label: {
-                Label("Receive", systemImage: "arrow.down.circle.fill")
-                    .frame(maxWidth: .infinity)
+            HawalaActionButton(icon: "arrow.down.circle.fill", label: "Receive", style: .secondary) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { showReceiveInfo = true }
             }
-            .buttonStyle(.bordered)
         }
-        .padding(12)
-        .background(Color.primary.opacity(0.03))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     @ViewBuilder
     private func receiveSection(address: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                Image(systemName: "arrow.down.to.line.compact")
-                    .font(.title3)
-                    .foregroundStyle(chain.accentColor)
-                Text("Receive")
-                    .font(.headline)
-                Spacer()
-                Button(showReceiveInfo ? "Hide" : "Show") {
-                    withAnimation { showReceiveInfo.toggle() }
+            Button(action: { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { showReceiveInfo.toggle() } }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.down.to.line.compact")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Color.white.opacity(0.5))
+                    Text("RECEIVE")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(1.2)
+                        .foregroundColor(.white.opacity(0.35))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.25))
+                        .rotationEffect(.degrees(showReceiveInfo ? 90 : 0))
                 }
-                .buttonStyle(.bordered)
             }
+            .buttonStyle(.plain)
 
             if showReceiveInfo {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Share this address to receive funds:")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    
-                    // QR Code (toggleable)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.4))
+
                     if showReceiveQR {
                         HStack {
                             Spacer()
@@ -108,61 +88,42 @@ struct ChainDetailSheet: View {
                         }
                         .padding(.vertical, 4)
                     }
-                    
-                    // Address display
+
                     Text(address)
-                        .font(.system(.body, design: .monospaced))
+                        .font(.system(size: 12, weight: .regular, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.7))
                         .textSelection(.enabled)
                         .lineLimit(nil)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.primary.opacity(0.05))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    
-                    // Action buttons
+                        .background(Color.white.opacity(0.04))
+                        .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                        )
+
                     HStack(spacing: 10) {
-                        Button {
+                        HawalaActionButton(icon: "doc.on.doc", label: "Copy", style: .primary) {
                             copyWithFeedback(value: address, label: "Receive address")
-                        } label: {
-                            Label("Copy", systemImage: "doc.on.doc")
-                                .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(chain.accentColor)
-                        
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showReceiveQR.toggle()
-                            }
-                        } label: {
-                            Label(
-                                showReceiveQR ? "Hide QR" : "Show QR",
-                                systemImage: showReceiveQR ? "qrcode" : "qrcode.viewfinder"
-                            )
-                            .frame(maxWidth: .infinity)
+                        HawalaActionButton(icon: showReceiveQR ? "qrcode" : "qrcode.viewfinder", label: showReceiveQR ? "Hide QR" : "Show QR", style: .secondary) {
+                            withAnimation(.easeInOut(duration: 0.2)) { showReceiveQR.toggle() }
                         }
-                        .buttonStyle(.bordered)
-                        
                         #if canImport(AppKit)
-                        Button {
+                        HawalaActionButton(icon: "square.and.arrow.up", label: "Share", style: .secondary) {
                             shareReceiveAddress(address)
-                        } label: {
-                            Label("Share", systemImage: "square.and.arrow.up")
-                                .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.bordered)
                         #endif
                     }
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .padding(12)
-        .background(chain.accentColor.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .hawalaSectionCard()
     }
-    
+
     #if canImport(AppKit)
     private func shareReceiveAddress(_ address: String) {
         let sharingText = "My \(chain.title) address: \(address)"
@@ -176,68 +137,21 @@ struct ChainDetailSheet: View {
 
     @ViewBuilder
     private var balanceSummary: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Label("Balance", systemImage: "creditcard.fill")
-                .font(.headline)
-            Spacer()
-            switch balanceState {
-            case .idle:
-                Text("—")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            case .loading:
-                ProgressView()
-                    .controlSize(.small)
-            case .refreshing(let value, let timestamp):
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(value)
-                        .font(.headline)
-                        .foregroundStyle(chain.accentColor)
-                    Text(relativeTimeDescription(from: timestamp).map { "Refreshing… • updated \($0)" } ?? "Refreshing…")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                HStack(spacing: 6) {
+                    Image(systemName: "creditcard.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color.white.opacity(0.5))
+                    Text("Balance")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.7))
                 }
-            case .loaded(let value, let timestamp):
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(value)
-                        .font(.headline)
-                        .foregroundStyle(chain.accentColor)
-                    if let relative = relativeTimeDescription(from: timestamp) {
-                        Text("Updated \(relative)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            case .stale(let value, let timestamp, let message):
-                let detail: String = {
-                    if let relative = relativeTimeDescription(from: timestamp) {
-                        return "\(message) • updated \(relative)"
-                    }
-                    return message
-                }()
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(value)
-                        .font(.headline)
-                        .foregroundStyle(chain.accentColor)
-                    Text(detail)
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-                }
-            case .failed(let message):
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("Unavailable")
-                        .font(.subheadline)
-                        .foregroundStyle(.red)
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.trailing)
-                }
+                Spacer()
+                stateDisplay(balanceState)
             }
         }
-        .padding(12)
-        .background(Color.gray.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .hawalaSectionCard()
         .contextMenu {
             if let copyValue = balanceCopyValue {
                 Button {
@@ -251,68 +165,21 @@ struct ChainDetailSheet: View {
 
     @ViewBuilder
     private var priceSummary: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Label("Price", systemImage: "dollarsign.circle.fill")
-                .font(.headline)
-            Spacer()
-            switch priceState {
-            case .idle:
-                Text("—")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            case .loading:
-                ProgressView()
-                    .controlSize(.small)
-            case .refreshing(let value, let timestamp):
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(value)
-                        .font(.headline)
-                        .foregroundStyle(chain.accentColor)
-                    Text(relativeTimeDescription(from: timestamp).map { "Refreshing… • updated \($0)" } ?? "Refreshing…")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                HStack(spacing: 6) {
+                    Image(systemName: "dollarsign.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color.white.opacity(0.5))
+                    Text("Price")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.7))
                 }
-            case .loaded(let value, let timestamp):
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(value)
-                        .font(.headline)
-                        .foregroundStyle(chain.accentColor)
-                    if let relative = relativeTimeDescription(from: timestamp) {
-                        Text("Updated \(relative)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            case .stale(let value, let timestamp, let message):
-                let detail: String = {
-                    if let relative = relativeTimeDescription(from: timestamp) {
-                        return "\(message) • updated \(relative)"
-                    }
-                    return message
-                }()
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(value)
-                        .font(.headline)
-                        .foregroundStyle(chain.accentColor)
-                    Text(detail)
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-                }
-            case .failed(let message):
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("Unavailable")
-                        .font(.subheadline)
-                        .foregroundStyle(.red)
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.trailing)
-                }
+                Spacer()
+                priceStateDisplay(priceState)
             }
         }
-        .padding(12)
-        .background(Color.gray.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .hawalaSectionCard()
         .contextMenu {
             if let copyValue = priceCopyValue {
                 Button {
@@ -320,6 +187,122 @@ struct ChainDetailSheet: View {
                 } label: {
                     Label("Copy Price", systemImage: "dollarsign.circle")
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func stateDisplay(_ state: ChainBalanceState) -> some View {
+        switch state {
+        case .idle:
+            Text("—")
+                .font(.system(size: 13))
+                .foregroundColor(.white.opacity(0.3))
+        case .loading:
+            ProgressView()
+                .controlSize(.small)
+        case .refreshing(let value, let timestamp):
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color.white.opacity(0.5))
+                Text(relativeTimeDescription(from: timestamp).map { "Refreshing... \($0)" } ?? "Refreshing...")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.25))
+            }
+        case .loaded(let value, let timestamp):
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color.white.opacity(0.5))
+                if let relative = relativeTimeDescription(from: timestamp) {
+                    Text("Updated \(relative)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.25))
+                }
+            }
+        case .stale(let value, let timestamp, let message):
+            let detail: String = {
+                if let relative = relativeTimeDescription(from: timestamp) {
+                    return "\(message) \(relative)"
+                }
+                return message
+            }()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color.white.opacity(0.5))
+                Text(detail)
+                    .font(.system(size: 10))
+                    .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04).opacity(0.6))
+            }
+        case .failed(let message):
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("Unavailable")
+                    .font(.system(size: 13))
+                    .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
+                Text(message)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.3))
+                    .multilineTextAlignment(.trailing)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func priceStateDisplay(_ state: ChainPriceState) -> some View {
+        switch state {
+        case .idle:
+            Text("—")
+                .font(.system(size: 13))
+                .foregroundColor(.white.opacity(0.3))
+        case .loading:
+            ProgressView()
+                .controlSize(.small)
+        case .refreshing(let value, let timestamp):
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color.white.opacity(0.5))
+                Text(relativeTimeDescription(from: timestamp).map { "Refreshing... \($0)" } ?? "Refreshing...")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.25))
+            }
+        case .loaded(let value, let timestamp):
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color.white.opacity(0.5))
+                if let relative = relativeTimeDescription(from: timestamp) {
+                    Text("Updated \(relative)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.25))
+                }
+            }
+        case .stale(let value, let timestamp, let message):
+            let detail: String = {
+                if let relative = relativeTimeDescription(from: timestamp) {
+                    return "\(message) \(relative)"
+                }
+                return message
+            }()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color.white.opacity(0.5))
+                Text(detail)
+                    .font(.system(size: 10))
+                    .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04).opacity(0.6))
+            }
+        case .failed(let message):
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("Unavailable")
+                    .font(.system(size: 13))
+                    .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
+                Text(message)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.3))
+                    .multilineTextAlignment(.trailing)
             }
         }
     }

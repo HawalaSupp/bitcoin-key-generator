@@ -222,6 +222,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // ROADMAP-11: Start memory pressure monitoring
         _ = MemoryPressureHandler.shared
         
+        // Screenshot prevention: listen for privacy mode changes
+        NotificationCenter.default.addObserver(
+            forName: .updateScreenshotPrevention,
+            object: nil,
+            queue: .main
+        ) { notification in
+            let prevent = notification.userInfo?["prevent"] as? Bool ?? false
+            Task { @MainActor in
+                if let window = NSApplication.shared.windows.first {
+                    window.sharingType = prevent ? .none : .readWrite
+                }
+            }
+        }
+        
+        // Apply initial screenshot prevention state
+        if PrivacyManager.shared.isPrivacyModeEnabled && PrivacyManager.shared.disableScreenshots {
+            if let window = NSApplication.shared.windows.first {
+                window.sharingType = .none
+            }
+        }
+
         // ROADMAP-11: Register startup boot tasks by priority
         let boot = StartupSequenceManager.shared
         

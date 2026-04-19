@@ -15,110 +15,80 @@ struct SmartAccountView: View {
     @State private var errorMessage: String?
     
     var body: some View {
-        NavigationView {
-            List {
-                if accounts.isEmpty && !isLoading {
-                    emptyStateView
-                } else {
-                    accountsSection
-                    benefitsSection
-                }
+        HawalaSheetShell(title: "Smart Accounts", width: 480, height: 580) {
+            if accounts.isEmpty && !isLoading {
+                emptyStateView
+            } else {
+                accountsSection
+                benefitsSection
             }
-            .navigationTitle("Smart Accounts")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button(action: { showingCreateSheet = true }) {
-                        Image(systemName: "plus.circle.fill")
-                    }
-                }
-            }
-            .sheet(isPresented: $showingCreateSheet) {
-                CreateSmartAccountSheet(
-                    accountType: $selectedAccountType,
-                    isCreating: $isCreating,
-                    onCreate: createSmartAccount
-                )
-            }
-            .alert("Something Went Wrong", isPresented: .constant(errorMessage != nil)) {
-                Button("Dismiss") { errorMessage = nil }
-            } message: {
-                Text(errorMessage ?? "")
-            }
-            .onAppear(perform: loadAccounts)
         }
-        .preferredColorScheme(.dark)
+        .sheet(isPresented: $showingCreateSheet) {
+            CreateSmartAccountSheet(
+                accountType: $selectedAccountType,
+                isCreating: $isCreating,
+                onCreate: createSmartAccount
+            )
+        }
+        .alert("Something Went Wrong", isPresented: .constant(errorMessage != nil)) {
+            Button("Dismiss") { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
+        .onAppear(perform: loadAccounts)
     }
     
     private var emptyStateView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Image(systemName: "person.crop.circle.badge.checkmark")
-                .font(.system(size: 60))
-                .foregroundColor(.blue)
+                .font(.system(size: 48))
+                .foregroundColor(Color.white.opacity(0.5))
             
             Text("No Smart Accounts")
-                .font(.title2)
-                .fontWeight(.semibold)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white.opacity(0.7))
             
             Text("Create an ERC-4337 smart account to enable advanced features like gasless transactions, batch operations, and social recovery.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.4))
                 .multilineTextAlignment(.center)
-                .padding(.horizontal)
             
-            Button(action: { showingCreateSheet = true }) {
-                Label("Create Smart Account", systemImage: "plus.circle.fill")
-                    .font(.headline)
-                    .padding()
-                    .frame(maxWidth: .infinity)
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
+            HawalaActionButton(icon: "plus.circle.fill", label: "Create Smart Account", style: .primary) {
+                showingCreateSheet = true
             }
-            .padding(.horizontal)
         }
-        .padding()
     }
     
     private var accountsSection: some View {
-        Section("Your Smart Accounts") {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                HawalaOverlaySectionHeader(icon: "person.crop.circle", title: "Your Smart Accounts")
+                Spacer()
+                Button { showingCreateSheet = true } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(Color.white.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+            }
+            
             ForEach(accounts) { account in
                 SmartAccountRow(account: account)
-                    .onTapGesture {
-                        selectedAccount = account
-                    }
+                    .onTapGesture { selectedAccount = account }
             }
         }
+        .hawalaSectionCard()
     }
     
     private var benefitsSection: some View {
-        Section("Smart Account Benefits") {
-            BenefitRow(
-                icon: "dollarsign.circle",
-                title: "Gasless Transactions",
-                description: "Pay gas with stablecoins or get sponsored"
-            )
-            BenefitRow(
-                icon: "rectangle.stack",
-                title: "Batch Operations",
-                description: "Execute multiple actions in one transaction"
-            )
-            BenefitRow(
-                icon: "person.3",
-                title: "Social Recovery",
-                description: "Recover your account with trusted contacts"
-            )
-            BenefitRow(
-                icon: "lock.shield",
-                title: "Enhanced Security",
-                description: "Spending limits, 2FA, and session keys"
-            )
+        VStack(alignment: .leading, spacing: 8) {
+            HawalaOverlaySectionHeader(icon: "sparkles", title: "Smart Account Benefits")
+            BenefitRow(icon: "dollarsign.circle", title: "Gasless Transactions", description: "Pay gas with stablecoins or get sponsored")
+            BenefitRow(icon: "rectangle.stack", title: "Batch Operations", description: "Execute multiple actions in one transaction")
+            BenefitRow(icon: "person.3", title: "Social Recovery", description: "Recover your account with trusted contacts")
+            BenefitRow(icon: "lock.shield", title: "Enhanced Security", description: "Spending limits, 2FA, and session keys")
         }
+        .hawalaSectionCard()
     }
     
     private func loadAccounts() {
@@ -150,45 +120,45 @@ struct SmartAccountView: View {
 
 struct SmartAccountRow: View {
     let account: SmartAccountInfo
-    
+
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
             Image(systemName: account.accountType.icon)
-                .font(.title2)
-                .foregroundColor(.blue)
-                .frame(width: 44, height: 44)
-                .background(Color.blue.opacity(0.1))
-                .cornerRadius(10)
-            
-            VStack(alignment: .leading, spacing: 4) {
+                .font(.system(size: 18))
+                .foregroundColor(Color.white.opacity(0.5))
+                .frame(width: 36, height: 36)
+                .background(Color.white.opacity(0.1))
+                .cornerRadius(8)
+
+            VStack(alignment: .leading, spacing: 3) {
                 Text(account.accountType.displayName)
-                    .font(.headline)
-                
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.85))
                 Text(account.shortAddress)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 10, weight: .regular, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.35))
             }
-            
+
             Spacer()
-            
-            VStack(alignment: .trailing, spacing: 4) {
+
+            VStack(alignment: .trailing, spacing: 3) {
                 Text(account.balance)
-                    .font(.headline)
-                
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.7))
                 statusBadge
             }
         }
         .padding(.vertical, 4)
     }
-    
+
     private var statusBadge: some View {
         Text(account.isDeployed ? "Deployed" : "Not Deployed")
-            .font(.caption2)
-            .padding(.horizontal, 8)
+            .font(.system(size: 9, weight: .medium))
+            .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(account.isDeployed ? Color.green.opacity(0.2) : Color.orange.opacity(0.2))
-            .foregroundColor(account.isDeployed ? .green : .orange)
-            .cornerRadius(4)
+            .background(account.isDeployed ? Color(red: 0.20, green: 0.84, blue: 0.29).opacity(0.12) : Color(red: 1, green: 0.84, blue: 0.04).opacity(0.12))
+            .foregroundColor(account.isDeployed ? Color(red: 0.20, green: 0.84, blue: 0.29) : Color(red: 1, green: 0.84, blue: 0.04))
+            .clipShape(Capsule())
     }
 }
 
@@ -196,22 +166,21 @@ struct BenefitRow: View {
     let icon: String
     let title: String
     let description: String
-    
+
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Image(systemName: icon)
-                .font(.title2)
-                .foregroundColor(.green)
-                .frame(width: 32)
-            
+                .font(.system(size: 14))
+                .foregroundColor(Color(red: 0.20, green: 0.84, blue: 0.29))
+                .frame(width: 28)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
                 Text(description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.35))
             }
         }
     }
@@ -227,70 +196,56 @@ struct CreateSmartAccountSheet: View {
     let chains = ["Ethereum", "Polygon", "Arbitrum", "Optimism", "Base"]
     
     var body: some View {
-        NavigationView {
-            Form {
-                Section("Account Type") {
-                    ForEach(AccountType.allCases, id: \.self) { type in
-                        HStack {
+        HawalaSheetShell(title: "New Smart Account", width: 420, height: 500) {
+            VStack(alignment: .leading, spacing: 8) {
+                HawalaOverlaySectionHeader(icon: "person.crop.circle", title: "Account Type")
+                ForEach(AccountType.allCases, id: \.self) { type in
+                    Button {
+                        accountType = type
+                    } label: {
+                        HStack(spacing: 10) {
                             Image(systemName: type.icon)
-                                .foregroundColor(.blue)
-                            
-                            VStack(alignment: .leading) {
+                                .font(.system(size: 14))
+                                .foregroundColor(Color.white.opacity(0.5))
+                            VStack(alignment: .leading, spacing: 2) {
                                 Text(type.displayName)
-                                    .font(.headline)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.85))
                                 Text(type.description)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.white.opacity(0.35))
                             }
-                            
                             Spacer()
-                            
                             if accountType == type {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.blue)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Color.white.opacity(0.5))
                             }
                         }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            accountType = type
-                        }
+                        .padding(.vertical, 4)
                     }
-                }
-                
-                Section("Network") {
-                    Picker("Chain", selection: $selectedChain) {
-                        ForEach(chains, id: \.self) { chain in
-                            Text(chain).tag(chain)
-                        }
-                    }
-                }
-                
-                Section {
-                    Button(action: onCreate) {
-                        if isCreating {
-                            HStack {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle())
-                                Text("Creating...")
-                            }
-                            .frame(maxWidth: .infinity)
-                        } else {
-                            Text("Create Smart Account")
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .disabled(isCreating)
+                    .buttonStyle(.plain)
                 }
             }
-            .navigationTitle("New Smart Account")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+            .hawalaSectionCard()
+
+            VStack(alignment: .leading, spacing: 8) {
+                HawalaOverlaySectionHeader(icon: "network", title: "Network")
+                Picker("Chain", selection: $selectedChain) {
+                    ForEach(chains, id: \.self) { chain in
+                        Text(chain).tag(chain)
+                    }
                 }
+                .pickerStyle(.menu)
+                .tint(Color.white)
             }
+            .hawalaSectionCard()
+
+            HawalaActionButton(icon: isCreating ? "hourglass" : "plus.circle.fill", label: isCreating ? "Creating..." : "Create Smart Account", style: .primary) {
+                onCreate()
+            }
+            .disabled(isCreating)
+            .opacity(isCreating ? 0.5 : 1)
         }
     }
 }

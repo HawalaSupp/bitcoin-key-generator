@@ -15,191 +15,125 @@ struct GasAccountView: View {
     @State private var lowBalanceAlert: Double = 5.0
     
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    balanceCard
-                    
-                    if !chainBalances.isEmpty {
-                        chainBreakdownSection
-                    }
-                    
-                    settingsSection
-                    
-                    howItWorksSection
-                }
-                .padding()
+        HawalaSheetShell(title: "Gas Account", width: 480, height: 620) {
+            balanceCard
+            
+            if !chainBalances.isEmpty {
+                chainBreakdownSection
             }
-            .background(HawalaTheme.Colors.background)
-            .navigationTitle("Gas Account")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button(action: refreshBalances) {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .disabled(isRefreshing)
-                }
-            }
-            .sheet(isPresented: $showingDepositSheet) {
-                GasDepositSheet(onDeposit: handleDeposit)
-            }
-            .sheet(isPresented: $showingWithdrawSheet) {
-                GasWithdrawSheet(maxAmount: totalBalanceUSD, onWithdraw: handleWithdraw)
-            }
-            .onAppear(perform: loadGasAccount)
+            
+            settingsSection
+            
+            howItWorksSection
         }
-        .preferredColorScheme(.dark)
+        .sheet(isPresented: $showingDepositSheet) {
+            GasDepositSheet(onDeposit: handleDeposit)
+        }
+        .sheet(isPresented: $showingWithdrawSheet) {
+            GasWithdrawSheet(maxAmount: totalBalanceUSD, onWithdraw: handleWithdraw)
+        }
+        .onAppear(perform: loadGasAccount)
     }
     
     private var balanceCard: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
             HStack {
                 Image(systemName: "fuelpump.circle.fill")
-                    .font(.title)
-                    .foregroundColor(.orange)
-                
+                    .font(.system(size: 20))
+                    .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04))
                 Text("Gas Balance")
-                    .font(.headline)
-                
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.7))
                 Spacer()
-                
                 if isRefreshing {
                     ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white.opacity(0.4)))
+                        .scaleEffect(0.7)
+                } else {
+                    Button(action: refreshBalances) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.35))
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             
             Text("$\(totalBalanceUSD, specifier: "%.2f")")
-                .font(.system(size: 48, weight: .bold, design: .rounded))
+                .font(.system(size: 36, weight: .bold, design: .monospaced))
+                .foregroundColor(.white.opacity(0.9))
             
             if totalBalanceUSD < lowBalanceAlert {
-                HStack {
+                HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
-                    Text("Low balance - consider topping up")
-                        .font(.caption)
-                        .foregroundColor(.orange)
+                        .font(.system(size: 10))
+                        .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04))
+                    Text("Low balance — consider topping up")
+                        .font(.system(size: 10))
+                        .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04).opacity(0.8))
                 }
             }
             
-            HStack(spacing: 12) {
-                Button(action: { showingDepositSheet = true }) {
-                    Label("Deposit", systemImage: "arrow.down.circle.fill")
-                        .font(.headline)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.green)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
+            HStack(spacing: 10) {
+                HawalaActionButton(icon: "arrow.down.circle.fill", label: "Deposit", style: .primary) {
+                    showingDepositSheet = true
                 }
-                
-                Button(action: { showingWithdrawSheet = true }) {
-                    Label("Withdraw", systemImage: "arrow.up.circle.fill")
-                        .font(.headline)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
+                HawalaActionButton(icon: "arrow.up.circle.fill", label: "Withdraw", style: .secondary) {
+                    showingWithdrawSheet = true
                 }
-                .disabled(totalBalanceUSD <= 0)
             }
         }
-        .padding()
-        .background(
-            LinearGradient(
-                gradient: Gradient(colors: [Color.orange.opacity(0.2), Color.red.opacity(0.1)]),
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .cornerRadius(16)
+        .hawalaSectionCard()
     }
     
     private var chainBreakdownSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Balance by Chain")
-                .font(.headline)
-            
+        VStack(alignment: .leading, spacing: 8) {
+            HawalaOverlaySectionHeader(icon: "chart.bar.fill", title: "Balance by Chain")
             ForEach(chainBalances) { balance in
                 ChainGasRow(balance: balance)
             }
         }
-        .padding()
-        .background(HawalaTheme.Colors.backgroundSecondary)
-        .cornerRadius(12)
+        .hawalaSectionCard()
     }
     
     private var settingsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Settings")
-                .font(.headline)
-            
-            Toggle("Auto-Refill", isOn: $autoRefillEnabled)
+        VStack(alignment: .leading, spacing: 10) {
+            HawalaOverlaySectionHeader(icon: "gearshape.fill", title: "Settings")
+            HawalaToggleRow(icon: "arrow.triangle.2.circlepath", label: "Auto-Refill", isOn: $autoRefillEnabled)
             
             if autoRefillEnabled {
                 HStack {
                     Text("Refill when below")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.5))
                     Spacer()
                     Text("$\(lowBalanceAlert, specifier: "%.0f")")
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(Color.white.opacity(0.5))
                 }
-                
                 Slider(value: $lowBalanceAlert, in: 1...50, step: 1)
+                    .tint(Color.white)
             }
             
-            Divider()
+            Rectangle().fill(.white.opacity(0.04)).frame(height: 1)
             
-            HStack {
-                Image(systemName: "bell.badge")
-                    .foregroundColor(.blue)
-                Text("Low Balance Alerts")
-                Spacer()
-                Toggle("", isOn: .constant(true))
-                    .labelsHidden()
-            }
+            HawalaToggleRow(icon: "bell.badge", label: "Low Balance Alerts", isOn: .constant(true))
         }
-        .padding()
-        .background(HawalaTheme.Colors.backgroundSecondary)
-        .cornerRadius(12)
+        .hawalaSectionCard()
     }
     
     private var howItWorksSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("How It Works")
-                .font(.headline)
-            
-            GasFeatureRow(
-                icon: "1.circle.fill",
-                title: "Deposit Once",
-                description: "Add funds to your gas account on any chain"
-            )
-            
-            GasFeatureRow(
-                icon: "2.circle.fill",
-                title: "Use Everywhere",
-                description: "Pay for gas on any supported network"
-            )
-            
-            GasFeatureRow(
-                icon: "3.circle.fill",
-                title: "No ETH Needed",
-                description: "We handle the cross-chain bridging for you"
-            )
-            
+        VStack(alignment: .leading, spacing: 10) {
+            HawalaOverlaySectionHeader(icon: "questionmark.circle", title: "How It Works")
+            GasFeatureRow(icon: "1.circle.fill", title: "Deposit Once", description: "Add funds to your gas account on any chain")
+            GasFeatureRow(icon: "2.circle.fill", title: "Use Everywhere", description: "Pay for gas on any supported network")
+            GasFeatureRow(icon: "3.circle.fill", title: "No ETH Needed", description: "We handle the cross-chain bridging for you")
             Text("Supported: Ethereum, Polygon, Arbitrum, Optimism, Base, Avalanche, BNB Chain")
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(.system(size: 9))
+                .foregroundColor(.white.opacity(0.25))
+                .padding(.top, 2)
         }
-        .padding()
-        .background(HawalaTheme.Colors.backgroundSecondary)
-        .cornerRadius(12)
+        .hawalaSectionCard()
     }
     
     private func loadGasAccount() {
@@ -238,24 +172,23 @@ struct ChainGasRow: View {
     let balance: ChainGasBalance
     
     var body: some View {
-        HStack {
+        HStack(spacing: 10) {
             chainIcon
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(balance.chain)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
                 Text("\(balance.amount) \(balance.symbol)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.35))
             }
             
             Spacer()
             
             Text("$\(balance.usdValue, specifier: "%.2f")")
-                .font(.subheadline)
-                .fontWeight(.semibold)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundColor(.white.opacity(0.8))
         }
         .padding(.vertical, 4)
     }
@@ -277,11 +210,11 @@ struct ChainGasRow: View {
                     .foregroundColor(.blue)
             default:
                 Image(systemName: "circle.fill")
-                    .foregroundColor(.gray)
+                    .foregroundColor(.white.opacity(0.2))
             }
         }
-        .font(.title2)
-        .frame(width: 32)
+        .font(.system(size: 16))
+        .frame(width: 24)
     }
 }
 
@@ -295,52 +228,73 @@ struct GasDepositSheet: View {
     let chains = ["Ethereum", "Polygon", "Arbitrum", "Base"]
     
     var body: some View {
-        NavigationView {
-            Form {
-                Section("Select Chain") {
-                    Picker("Chain", selection: $selectedChain) {
-                        ForEach(chains, id: \.self) { chain in
-                            Text(chain).tag(chain)
+        HawalaSheetShell(title: "Deposit to Gas Account", width: 420, height: 380) {
+            VStack(alignment: .leading, spacing: 8) {
+                HawalaOverlaySectionHeader(icon: "link", title: "Select Chain")
+                HStack(spacing: 6) {
+                    ForEach(chains, id: \.self) { chain in
+                        Button {
+                            selectedChain = chain
+                        } label: {
+                            Text(chain)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(selectedChain == chain ? .white : .white.opacity(0.4))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(
+                                    selectedChain == chain
+                                        ? Color.white.opacity(0.3)
+                                        : Color.white.opacity(0.04)
+                                )
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule().strokeBorder(
+                                        selectedChain == chain
+                                            ? Color.white.opacity(0.5)
+                                            : .clear,
+                                        lineWidth: 1
+                                    )
+                                )
                         }
+                        .buttonStyle(.plain)
                     }
-                    .pickerStyle(SegmentedPickerStyle())
-                }
-                
-                Section("Amount") {
-                    HStack {
-                        Text("$")
-                        TextField("0.00", text: $depositAmount)
-                            #if os(iOS)
-                            .keyboardType(.decimalPad)
-                            #endif
-                    }
-                    
-                    HStack(spacing: 12) {
-                        ForEach(["10", "25", "50", "100"], id: \.self) { amount in
-                            Button("$\(amount)") {
-                                depositAmount = amount
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                }
-                
-                Section {
-                    Button("Deposit") {
-                        if let amount = Double(depositAmount) {
-                            onDeposit(selectedChain, amount)
-                        }
-                    }
-                    .disabled(depositAmount.isEmpty)
                 }
             }
-            .navigationTitle("Deposit to Gas Account")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+            .hawalaSectionCard()
+
+            VStack(alignment: .leading, spacing: 8) {
+                HawalaOverlaySectionHeader(icon: "dollarsign.circle", title: "Amount")
+                HStack(spacing: 4) {
+                    Text("$")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.35))
+                    TextField("0.00", text: $depositAmount)
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.85))
+                        .textFieldStyle(.plain)
+                }
+                .padding(8)
+                .background(Color.white.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                HStack(spacing: 6) {
+                    ForEach(["10", "25", "50", "100"], id: \.self) { amount in
+                        Button("$\(amount)") { depositAmount = amount }
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Color.white.opacity(0.04))
+                            .clipShape(Capsule())
+                            .buttonStyle(.plain)
+                    }
+                }
+            }
+            .hawalaSectionCard()
+
+            HawalaActionButton(icon: "arrow.down.circle.fill", label: "Deposit", style: .primary) {
+                if let amount = Double(depositAmount) {
+                    onDeposit(selectedChain, amount)
                 }
             }
         }
@@ -359,55 +313,61 @@ struct GasWithdrawSheet: View {
     let chains = ["Ethereum", "Polygon", "Arbitrum", "Base"]
     
     var body: some View {
-        NavigationView {
-            Form {
-                Section("Withdraw To") {
-                    TextField("0x...", text: $withdrawAddress)
-                        .font(.system(.body, design: .monospaced))
-                }
-                
-                Section("Select Chain") {
-                    Picker("Chain", selection: $selectedChain) {
-                        ForEach(chains, id: \.self) { chain in
-                            Text(chain).tag(chain)
-                        }
+        HawalaSheetShell(title: "Withdraw from Gas Account", width: 420, height: 440) {
+            VStack(alignment: .leading, spacing: 8) {
+                HawalaOverlaySectionHeader(icon: "arrow.right.circle", title: "Withdraw To")
+                TextField("0x...", text: $withdrawAddress)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.85))
+                    .textFieldStyle(.plain)
+                    .padding(8)
+                    .background(Color.white.opacity(0.04))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .hawalaSectionCard()
+
+            VStack(alignment: .leading, spacing: 8) {
+                HawalaOverlaySectionHeader(icon: "link", title: "Select Chain")
+                Picker("Chain", selection: $selectedChain) {
+                    ForEach(chains, id: \.self) { chain in
+                        Text(chain).tag(chain)
                     }
                 }
-                
-                Section("Amount") {
-                    HStack {
-                        Text("$")
-                        TextField("0.00", text: $withdrawAmount)
-                            #if os(iOS)
-                            .keyboardType(.decimalPad)
-                            #endif
-                    }
-                    
+                .pickerStyle(.segmented)
+            }
+            .hawalaSectionCard()
+
+            VStack(alignment: .leading, spacing: 8) {
+                HawalaOverlaySectionHeader(icon: "dollarsign.circle", title: "Amount")
+                HStack(spacing: 4) {
+                    Text("$")
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.35))
+                    TextField("0.00", text: $withdrawAmount)
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.85))
+                        .textFieldStyle(.plain)
+                }
+                .padding(8)
+                .background(Color.white.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                HStack {
                     Text("Available: $\(maxAmount, specifier: "%.2f")")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    Button("Max") {
-                        withdrawAmount = String(format: "%.2f", maxAmount)
-                    }
-                }
-                
-                Section {
-                    Button("Withdraw") {
-                        if let amount = Double(withdrawAmount) {
-                            onWithdraw(selectedChain, amount)
-                        }
-                    }
-                    .disabled(withdrawAmount.isEmpty || withdrawAddress.isEmpty)
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.35))
+                    Spacer()
+                    Button("Max") { withdrawAmount = String(format: "%.2f", maxAmount) }
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.5))
+                        .buttonStyle(.plain)
                 }
             }
-            .navigationTitle("Withdraw from Gas Account")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+            .hawalaSectionCard()
+
+            HawalaActionButton(icon: "arrow.up.circle.fill", label: "Withdraw", style: .primary) {
+                if let amount = Double(withdrawAmount) {
+                    onWithdraw(selectedChain, amount)
                 }
             }
         }
@@ -431,19 +391,19 @@ private struct GasFeatureRow: View {
     let description: String
     
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
-                .font(.title2)
-                .foregroundColor(.blue)
-                .frame(width: 32)
+                .font(.system(size: 14))
+                .foregroundColor(Color.white.opacity(0.5))
+                .frame(width: 24)
             
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
                 Text(description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.35))
             }
         }
     }

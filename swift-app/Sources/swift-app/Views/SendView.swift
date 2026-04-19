@@ -406,8 +406,8 @@ struct SendView: View {
             ContactPickerSheet(
                 chain: selectedChain.chainId,
                 contacts: ContactsManager.shared.contacts,
-                onSelect: { contact in
-                    recipientAddress = contact.address
+                onSelect: { _, address in
+                    recipientAddress = address.address
                     showingContactPicker = false
                     validateAddressAsync()
                 },
@@ -627,7 +627,7 @@ struct SendView: View {
                         showingSuccessSheet = false
                         
                         // ROADMAP-16 E13: Show save-contact prompt if address is new
-                        if !savedRecipientAddress.isEmpty && !ContactsManager.shared.hasContact(forAddress: savedRecipientAddress) {
+                        if !savedRecipientAddress.isEmpty && !ContactsManager.shared.hasContact(forAddress: savedRecipientAddress, chainId: savedRecipientChain) {
                             // Small delay to allow sheet dismiss animation
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                 self.showingSaveContactPrompt = true
@@ -1036,7 +1036,7 @@ struct SendView: View {
     
     @ViewBuilder
     private var recentRecipientsSection: some View {
-        let recents = AddressIntelligenceManager.shared.getRecentRecipients(limit: 5)
+        let recents = AddressIntelligenceManager.shared.getRecentRecipients(limit: 5, chainId: selectedChain.chainId)
         if !recents.isEmpty {
             VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
                 Text("RECENT")
@@ -1060,7 +1060,7 @@ struct SendView: View {
                                             .font(HawalaTheme.Typography.mono)
                                             .foregroundColor(HawalaTheme.Colors.accent)
                                     }
-                                    Text(truncateAddress(entry.address))
+                                    Text(truncateAddress(PrivacyManager.shared.redactAddress(entry.address)))
                                         .font(HawalaTheme.Typography.monoSmall)
                                         .foregroundColor(HawalaTheme.Colors.textSecondary)
                                     Text("\(entry.count)×")
@@ -1428,6 +1428,12 @@ struct SendView: View {
             Text("Some exchanges require a destination tag")
                 .font(HawalaTheme.Typography.caption)
                 .foregroundColor(HawalaTheme.Colors.textTertiary)
+
+            if let destinationTagValidationError {
+                Text(destinationTagValidationError)
+                    .font(HawalaTheme.Typography.caption)
+                    .foregroundColor(HawalaTheme.Colors.error)
+            }
         }
         .hawalaCard()
     }
@@ -1681,15 +1687,17 @@ struct SendView: View {
         if let qrChain = parsed.chainType {
             switch qrChain {
             case .bitcoin, .bitcoinTestnet:
-                selectedChain = .bitcoinTestnet
+                selectedChain = qrChain == .bitcoinTestnet ? .bitcoinTestnet : .bitcoinMainnet
+            case .litecoin:
+                selectedChain = .litecoin
             case .ethereum, .ethereumTestnet:
-                selectedChain = .ethereumSepolia
+                selectedChain = qrChain == .ethereumTestnet ? .ethereumSepolia : .ethereumMainnet
+            case .bnb:
+                selectedChain = .bnb
             case .solana:
-                selectedChain = .solanaDevnet
+                selectedChain = .solanaMainnet
             case .xrp:
-                selectedChain = .xrpTestnet
-            default:
-                break
+                selectedChain = .xrpMainnet
             }
         }
         
@@ -1729,16 +1737,14 @@ struct SendView: View {
         isEstimatingGas = true
         
         // Get sender address based on chain
-        // For EVM chains, we use the same Ethereum address (all EVM chains share the same key)
+        // For EVM chains, we use the same Ethereum address (all EVM chains share the same key derivation path)
         let fromAddress: String
         switch selectedChain {
         case .ethereumSepolia:
             fromAddress = keys.ethereumSepolia.address
-        case .ethereumMainnet, .polygon, .bnb:
-            // Mainnet EVM chains share the same EVM address
-            fromAddress = keys.ethereum.address
         default:
-            fromAddress = keys.ethereumSepolia.address
+            // All mainnet EVM chains (ETH, Polygon, BNB, Arbitrum, Optimism, Base, etc.) share the same address
+            fromAddress = keys.ethereum.address
         }
         
         // Convert amount to wei hex (Decimal-safe — ROADMAP-05 E1)
@@ -1863,7 +1869,22 @@ struct SendView: View {
         guard Double(amount) ?? 0 > 0 else { return false }
         // ROADMAP-05 E10/E11: Block send if amount validation fails
         guard amountValidationError == nil else { return false }
+        guard destinationTagValidationError == nil else { return false }
         return true
+    }
+
+    private var destinationTagValidationError: String? {
+        guard selectedChain.isXRP else { return nil }
+
+        let trimmed = destinationTag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard trimmed.allSatisfy(\.isNumber) else {
+            return "Destination tag must contain only numbers"
+        }
+        guard UInt32(trimmed) != nil else {
+            return "Destination tag must fit in 32 bits"
+        }
+        return nil
     }
     
     /// The available balance for the currently selected chain, or nil if not loaded
@@ -2288,7 +2309,7 @@ struct SendView: View {
         let manager = AddressIntelligenceManager.shared
         
         // Quick local check first (instant)
-        let quickRisk = manager.quickRiskCheck(recipientAddress)
+        let quickRisk = manager.quickRiskCheck(recipientAddress, chainId: selectedChain.chainId)
         
         if quickRisk == .critical {
             // Sanctioned address — block immediately
@@ -2328,7 +2349,7 @@ struct SendView: View {
     /// Continue the send flow after scam check passes or is acknowledged
     private func continueAfterScamCheck() {
         // ROADMAP-05 E5: First-time address warning
-        if AddressIntelligenceManager.shared.isFirstTimeSend(to: recipientAddress) {
+        if AddressIntelligenceManager.shared.isFirstTimeSend(to: recipientAddress, chainId: selectedChain.chainId) {
             showingFirstTimeWarning = true
             return
         }
@@ -2356,6 +2377,7 @@ struct SendView: View {
     private func showReviewScreen() {
         let amountValue = Double(amount) ?? 0
         let (feeValue, feeRateValue, feeUnit, estimatedTime) = calculateFeeDetails()
+        let normalizedDestinationTag = normalizedDestinationTag
         
         // ROADMAP-17 E6/E14: Compute fiat values from FeeEstimator price data
         let currentEstimate = getEstimate(for: selectedFeePriority)
@@ -2378,6 +2400,7 @@ struct SendView: View {
             amount: amountValue,
             recipientAddress: recipientAddress,
             recipientDisplayName: resolvedENSName,
+            destinationTag: normalizedDestinationTag,
             feeRate: feeRateValue,
             feeRateUnit: feeUnit,
             fee: feeValue,
@@ -2700,7 +2723,7 @@ struct SendView: View {
             )
             
             // ROADMAP-05 E5: Record successful send for address history
-            AddressIntelligenceManager.shared.recordSend(to: recipientAddress)
+            AddressIntelligenceManager.shared.recordSend(to: recipientAddress, chainId: selectedChain.chainId)
             
             // ROADMAP-19 #30: Record send for duplicate detection
             EdgeCaseGuards.recordSend(to: recipientAddress, chain: selectedChain.chainId)
@@ -2711,7 +2734,7 @@ struct SendView: View {
             ])
             
             // ROADMAP-16 E13: Prompt to save contact if address is new
-            if !ContactsManager.shared.hasContact(forAddress: recipientAddress) {
+            if !ContactsManager.shared.hasContact(forAddress: recipientAddress, chainId: selectedChain.chainId) {
                 savedRecipientAddress = recipientAddress
                 savedRecipientChain = selectedChain.chainId
             }
@@ -2731,7 +2754,7 @@ struct SendView: View {
             // Store the result to be passed when user dismisses
             self.pendingSuccessResult = TransactionBroadcastResult(
                 txid: txId,
-                chainId: selectedChain.id,
+                chainId: selectedChain.chainId,
                 chainName: selectedChain.displayName,
                 amount: amount,
                 recipient: recipientAddress,
@@ -3176,7 +3199,7 @@ struct SendView: View {
         if nonce.isEmpty {
             // Use our nonce manager so we don't accidentally reuse a nonce locally.
             // This also gives us a place to implement replacement logic reliably.
-            let chainKey = (chainId == 11155111) ? "ethereum-sepolia" : (chainId == 1 ? "ethereum" : String(chainId))
+            let chainKey = selectedChain.chainId
             nonceVal = try await EVMNonceManager.shared.getNextNonce(for: senderAddress, chainId: chainKey)
             EVMNonceManager.shared.reserveNonce(nonceVal, chainId: chainKey)
             #if DEBUG
@@ -3211,12 +3234,16 @@ struct SendView: View {
             #endif
         }
         
-        // For post-London chains (Sepolia, Ethereum mainnet), ensure EIP-1559 params are set
+        // For post-London chains, ensure EIP-1559 params are set
         // This is a fallback in case the async fetchGasPriceForChain didn't complete
         var effectiveMaxFeePerGas = maxFeePerGas
         var effectiveMaxPriorityFeePerGas = maxPriorityFeePerGas
         
-        if chainId == 11155111 || chainId == 1 {  // Sepolia or Ethereum mainnet
+        // All EIP-1559 chains: ETH mainnet, Sepolia, Polygon, Arbitrum, Optimism, Base, Avalanche, Gnosis, Scroll
+        // BSC (56) and Fantom (250) do NOT support EIP-1559
+        let eip1559Chains: Set<UInt64> = [1, 11155111, 137, 42161, 10, 8453, 43114, 100, 534352]
+        
+        if eip1559Chains.contains(chainId) {
             if effectiveMaxFeePerGas.isEmpty {
                 // Use gasPrice as maxFeePerGas fallback
                 effectiveMaxFeePerGas = gasPrice.isEmpty ? "50" : gasPrice
@@ -3225,7 +3252,7 @@ struct SendView: View {
                 #endif
             }
             if effectiveMaxPriorityFeePerGas.isEmpty {
-                // Use 50% of maxFee as priority fee for Sepolia, 10% for mainnet
+                // Use 50% of maxFee as priority fee for Sepolia, 10% for mainnet chains
                 if let maxFee = Double(effectiveMaxFeePerGas) {
                     let priorityMultiplier = chainId == 11155111 ? 0.5 : 0.1
                     let priorityFee = max(2.5, maxFee * priorityMultiplier)
@@ -3277,7 +3304,7 @@ struct SendView: View {
             #endif
         }
         
-        let chainKeyForNonce = (chainId == 11155111) ? "ethereum-sepolia" : (chainId == 1 ? "ethereum" : String(chainId))
+        let chainKeyForNonce = selectedChain.chainId
         do {
             #if DEBUG
             print("[ETH TX] Calling Rust FFI to sign transaction...")
@@ -3347,14 +3374,32 @@ struct SendView: View {
                     let walletId = try await TransactionStore.shared.ensureActiveWalletRecord()
 
                     let chainKey: String
-                    if chainId == 1 {
-                        chainKey = "ethereum"
-                    } else if chainId == 11155111 {
-                        chainKey = "ethereum-sepolia"
-                    } else if chainId == 56 {
-                        chainKey = "bnb"
-                    } else {
-                        chainKey = "evm-\(chainId)"
+                    let assetSymbol: String
+                    switch chainId {
+                    case 1:
+                        chainKey = "ethereum"; assetSymbol = "ETH"
+                    case 11155111:
+                        chainKey = "ethereum-sepolia"; assetSymbol = "ETH"
+                    case 56:
+                        chainKey = "bnb"; assetSymbol = "BNB"
+                    case 137:
+                        chainKey = "polygon"; assetSymbol = "POL"
+                    case 42161:
+                        chainKey = "arbitrum"; assetSymbol = "ETH"
+                    case 10:
+                        chainKey = "optimism"; assetSymbol = "ETH"
+                    case 8453:
+                        chainKey = "base"; assetSymbol = "ETH"
+                    case 43114:
+                        chainKey = "avalanche"; assetSymbol = "AVAX"
+                    case 250:
+                        chainKey = "fantom"; assetSymbol = "FTM"
+                    case 100:
+                        chainKey = "gnosis"; assetSymbol = "xDAI"
+                    case 534352:
+                        chainKey = "scroll"; assetSymbol = "ETH"
+                    default:
+                        chainKey = "evm-\(chainId)"; assetSymbol = "ETH"
                     }
 
                     // Create/update the tx record.
@@ -3367,7 +3412,7 @@ struct SendView: View {
                         toAddress: recipient,
                         amount: amountWei,
                         fee: nil,
-                        asset: chainKey == "bnb" ? "BNB" : "ETH",
+                        asset: assetSymbol,
                         timestamp: Date(),
                         status: .pending
                     )
@@ -3415,7 +3460,7 @@ struct SendView: View {
         let recipient = recipientAddress
         let senderSeed = keys.xrp.privateHex
         let senderAddress = keys.xrp.classicAddress
-        let tag = destinationTag.isEmpty ? nil : UInt32(destinationTag)
+        let tag = try validatedDestinationTag()
         
         // Fetch sequence number from XRP Ledger
         let sequenceVal = try await TransactionBroadcaster.shared.getXRPSequence(address: senderAddress, isTestnet: isTestnet)
@@ -3429,6 +3474,23 @@ struct SendView: View {
         )
         
         return try await TransactionBroadcaster.shared.broadcastXRP(rawTxHex: signedHex, isTestnet: isTestnet)
+    }
+
+    private var normalizedDestinationTag: String? {
+        let trimmed = destinationTag.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func validatedDestinationTag() throws -> UInt32? {
+        let trimmed = destinationTag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard trimmed.allSatisfy(\.isNumber) else {
+            throw NSError(domain: "App", code: 4001, userInfo: [NSLocalizedDescriptionKey: "Destination tag must contain only numbers"])
+        }
+        guard let tag = UInt32(trimmed) else {
+            throw NSError(domain: "App", code: 4002, userInfo: [NSLocalizedDescriptionKey: "Destination tag must fit in 32 bits"])
+        }
+        return tag
     }
 }
 

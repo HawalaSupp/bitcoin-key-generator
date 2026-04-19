@@ -19,87 +19,45 @@ struct WatchOnlyView: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Watch-Only Wallets")
-                        .font(.title2.bold())
-                    Text("Track addresses without private keys")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                
-                Spacer()
-                
-                Button {
-                    Task {
-                        await manager.refreshAllBalances()
-                    }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.title3)
-                }
-                .buttonStyle(.plain)
-                .disabled(manager.isLoading)
-                
-                Button {
-                    showAddSheet = true
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title2)
-                }
-                .buttonStyle(.plain)
-                
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding()
-            
-            Divider()
-            
+        HawalaSheetShell(title: "Watch-Only Wallets", width: 600, height: 560) {
             // Portfolio summary
             if !manager.wallets.isEmpty {
                 HStack {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("Portfolio Value")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.35))
                         Text("$\(manager.totalPortfolioValue, specifier: "%.2f")")
-                            .font(.title.bold())
+                            .font(.system(size: 24, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.9))
                     }
-                    
                     Spacer()
-                    
-                    VStack(alignment: .trailing, spacing: 4) {
+                    VStack(alignment: .trailing, spacing: 2) {
                         Text("Addresses")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.35))
                         Text("\(manager.wallets.count)")
-                            .font(.title2.bold())
+                            .font(.system(size: 20, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.7))
                     }
                 }
-                .padding()
-                .background(Color.accentColor.opacity(0.1))
+                .hawalaSectionCard()
             }
             
             // Search and filter
-            HStack {
-                HStack {
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.25))
                     TextField("Search wallets...", text: $searchText)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.85))
                         .textFieldStyle(.plain)
                 }
                 .padding(8)
-                .background(Color.primary.opacity(0.05))
-                .cornerRadius(8)
+                .background(Color.white.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
                 
                 Picker("Chain", selection: $selectedChainFilter) {
                     Text("All Chains").tag(nil as WatchOnlyChain?)
@@ -108,49 +66,62 @@ struct WatchOnlyView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(width: 150)
+                .frame(width: 130)
+
+                Button {
+                    Task { await manager.refreshAllBalances() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.35))
+                }
+                .buttonStyle(.plain)
+                .disabled(manager.isLoading)
+
+                Button { showAddSheet = true } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(Color.white.opacity(0.5))
+                }
+                .buttonStyle(.plain)
             }
-            .padding()
             
             // Wallet list
             if filteredWallets.isEmpty {
-                VStack(spacing: 16) {
+                VStack(spacing: 12) {
                     Image(systemName: "eye.slash")
-                        .font(.system(size: 48))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 32))
+                        .foregroundColor(.white.opacity(0.15))
                     Text("No Watch-Only Wallets")
-                        .font(.headline)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.5))
                     Text("Add addresses to track balances without importing private keys")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.3))
                         .multilineTextAlignment(.center)
-                    Button("Add Address") {
+                    HawalaActionButton(icon: "plus.circle", label: "Add Address", style: .primary) {
                         showAddSheet = true
                     }
-                    .buttonStyle(.borderedProminent)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 12) {
+                    LazyVStack(spacing: 8) {
                         ForEach(filteredWallets) { wallet in
                             WatchOnlyWalletRow(wallet: wallet) {
                                 selectedWallet = wallet
                                 showEditSheet = true
                             } onRefresh: {
-                                Task {
-                                    await manager.refreshBalance(for: wallet.id)
-                                }
+                                Task { await manager.refreshBalance(for: wallet.id) }
                             } onDelete: {
                                 manager.removeWallet(wallet)
                             }
                         }
                     }
-                    .padding()
                 }
             }
         }
-        .frame(minWidth: 600, minHeight: 500)
         .sheet(isPresented: $showAddSheet) {
             AddWatchOnlyView()
         }
@@ -162,9 +133,9 @@ struct WatchOnlyView: View {
         .overlay {
             if manager.isLoading {
                 ProgressView()
-                    .scaleEffect(1.5)
+                    .scaleEffect(1.2)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.black.opacity(0.2))
+                    .background(Color.black.opacity(0.3))
             }
         }
     }
@@ -182,28 +153,29 @@ struct WatchOnlyWalletRow: View {
     @State private var showDeleteConfirm = false
     
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             // Chain icon
             Image(systemName: wallet.chain.iconName)
-                .font(.title)
+                .font(.system(size: 16))
                 .foregroundStyle(chainColor)
-                .frame(width: 40, height: 40)
-                .background(chainColor.opacity(0.15))
+                .frame(width: 32, height: 32)
+                .background(chainColor.opacity(0.1))
                 .clipShape(Circle())
             
             // Info
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(wallet.label)
-                    .font(.headline)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.85))
                 
                 Text(truncatedAddress)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.3))
                 
                 if let notes = wallet.notes, !notes.isEmpty {
                     Text(notes)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 9))
+                        .foregroundColor(.white.opacity(0.2))
                         .lineLimit(1)
                 }
             }
@@ -211,54 +183,60 @@ struct WatchOnlyWalletRow: View {
             Spacer()
             
             // Balance
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: .trailing, spacing: 2) {
                 Text(wallet.formattedBalance)
-                    .font(.headline.monospaced())
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.8))
                 
                 if let updated = wallet.lastBalanceUpdate {
                     Text(updated, style: .relative)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 9))
+                        .foregroundColor(.white.opacity(0.25))
                 }
             }
             
             // Actions
             if isHovered {
-                HStack(spacing: 8) {
-                    Button {
-                        onRefresh()
-                    } label: {
+                HStack(spacing: 6) {
+                    Button { onRefresh() } label: {
                         Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.4))
                     }
                     .buttonStyle(.plain)
                     
-                    Button {
-                        ClipboardHelper.copySensitive(wallet.address, timeout: 60)
-                    } label: {
+                    Button { ClipboardHelper.copySensitive(wallet.address, timeout: 60) } label: {
                         Image(systemName: "doc.on.doc")
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.4))
                     }
                     .buttonStyle(.plain)
                     
-                    Button {
-                        onEdit()
-                    } label: {
+                    Button { onEdit() } label: {
                         Image(systemName: "pencil")
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.4))
                     }
                     .buttonStyle(.plain)
                     
-                    Button {
-                        showDeleteConfirm = true
-                    } label: {
+                    Button { showDeleteConfirm = true } label: {
                         Image(systemName: "trash")
-                            .foregroundStyle(.red)
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
                     }
                     .buttonStyle(.plain)
                 }
             }
         }
-        .padding()
-        .background(isHovered ? Color.primary.opacity(0.05) : Color.clear)
-        .cornerRadius(12)
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(isHovered ? Color.white.opacity(0.06) : Color.white.opacity(0.03))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(.white.opacity(0.04), lineWidth: 1)
+                )
+        )
         .onHover { isHovered = $0 }
         .alert("Remove Wallet?", isPresented: $showDeleteConfirm) {
             Button("Cancel", role: .cancel) {}
@@ -283,8 +261,8 @@ struct WatchOnlyWalletRow: View {
         case .bitcoin: return .orange
         case .ethereum: return .purple
         case .litecoin: return .gray
-        case .solana: return .green
-        case .bnb: return .yellow
+        case .solana: return Color(red: 0.20, green: 0.84, blue: 0.29)
+        case .bnb: return Color(red: 1, green: 0.84, blue: 0.04)
         case .xrp: return .blue
         case .monero: return .orange
         }
@@ -305,21 +283,9 @@ struct AddWatchOnlyView: View {
     @State private var isValidAddress = false
     
     var body: some View {
-        VStack(spacing: 20) {
-            HStack {
-                Text("Add Watch-Only Address")
-                    .font(.title2.bold())
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            
-            Form {
+        HawalaSheetShell(title: "Add Watch-Only Address", width: 450, height: 380) {
+            VStack(alignment: .leading, spacing: 8) {
+                HawalaOverlaySectionHeader(icon: "link", title: "Blockchain")
                 Picker("Blockchain", selection: $selectedChain) {
                     ForEach(WatchOnlyChain.allCases, id: \.self) { chain in
                         HStack {
@@ -330,55 +296,63 @@ struct AddWatchOnlyView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                
+            }
+            .hawalaSectionCard()
+
+            VStack(alignment: .leading, spacing: 8) {
+                HawalaOverlaySectionHeader(icon: "textformat", title: "Details")
                 TextField("Label", text: $label, prompt: Text("e.g., Cold Storage"))
-                
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.85))
+                    .textFieldStyle(.plain)
+                    .padding(8)
+                    .background(Color.white.opacity(0.04))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
                 VStack(alignment: .leading, spacing: 4) {
                     TextField("Address", text: $address, prompt: Text("Paste \(selectedChain.displayName) address"))
-                        .font(.system(.body, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.85))
+                        .textFieldStyle(.plain)
+                        .padding(8)
+                        .background(Color.white.opacity(0.04))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                         .onChange(of: address) { new in
                             validateAddress(new)
                         }
-                    
+
                     if !address.isEmpty {
-                        HStack {
+                        HStack(spacing: 4) {
                             Image(systemName: isValidAddress ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .foregroundStyle(isValidAddress ? .green : .red)
+                                .font(.system(size: 10))
+                                .foregroundColor(isValidAddress ? Color(red: 0.20, green: 0.84, blue: 0.29) : Color(red: 1, green: 0.27, blue: 0.23))
                             Text(isValidAddress ? "Valid \(selectedChain.displayName) address" : "Invalid address format")
-                                .font(.caption)
-                                .foregroundStyle(isValidAddress ? .green : .red)
+                                .font(.system(size: 10))
+                                .foregroundColor(isValidAddress ? Color(red: 0.20, green: 0.84, blue: 0.29) : Color(red: 1, green: 0.27, blue: 0.23))
                         }
                     }
                 }
-                
+
                 TextField("Notes (optional)", text: $notes, prompt: Text("Add any notes"))
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.85))
+                    .textFieldStyle(.plain)
+                    .padding(8)
+                    .background(Color.white.opacity(0.04))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-            .formStyle(.grouped)
-            
+            .hawalaSectionCard()
+
             if let error = error {
                 Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(.system(size: 10))
+                    .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
             }
-            
-            HStack {
-                Button("Cancel") {
-                    dismiss()
-                }
-                .keyboardShortcut(.escape)
-                
-                Spacer()
-                
-                Button("Add Address") {
-                    addWallet()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(label.isEmpty || !isValidAddress)
-                .keyboardShortcut(.return)
+
+            HawalaActionButton(icon: "plus.circle", label: "Add Address", style: .primary) {
+                addWallet()
             }
         }
-        .padding()
-        .frame(width: 450, height: 350)
         .onChange(of: selectedChain) { _ in
             validateAddress(address)
         }
@@ -420,61 +394,63 @@ struct EditWatchOnlyView: View {
     }
     
     var body: some View {
-        VStack(spacing: 20) {
-            HStack {
-                Text("Edit Watch-Only Wallet")
-                    .font(.title2.bold())
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            
-            Form {
-                LabeledContent("Chain") {
-                    HStack {
+        HawalaSheetShell(title: "Edit Watch-Only Wallet", width: 450, height: 340) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Chain")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.35))
+                    Spacer()
+                    HStack(spacing: 4) {
                         Image(systemName: wallet.chain.iconName)
+                            .font(.system(size: 10))
                         Text(wallet.chain.displayName)
+                            .font(.system(size: 11, weight: .medium))
                     }
+                    .foregroundColor(.white.opacity(0.6))
                 }
-                
-                LabeledContent("Address") {
+                HStack {
+                    Text("Address")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.35))
+                    Spacer()
                     Text(wallet.address)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.5))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                         .textSelection(.enabled)
                 }
-                
-                TextField("Label", text: $label)
-                
-                TextField("Notes", text: $notes, prompt: Text("Add any notes"), axis: .vertical)
-                    .lineLimit(3...5)
             }
-            .formStyle(.grouped)
-            
-            HStack {
-                Button("Cancel") {
-                    dismiss()
-                }
-                .keyboardShortcut(.escape)
-                
-                Spacer()
-                
-                Button("Save") {
-                    manager.updateWalletLabel(wallet.id, newLabel: label)
-                    manager.updateWalletNotes(wallet.id, notes: notes.isEmpty ? nil : notes)
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(label.isEmpty)
-                .keyboardShortcut(.return)
+            .hawalaSectionCard()
+
+            VStack(alignment: .leading, spacing: 8) {
+                HawalaOverlaySectionHeader(icon: "pencil", title: "Edit")
+                TextField("Label", text: $label)
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.85))
+                    .textFieldStyle(.plain)
+                    .padding(8)
+                    .background(Color.white.opacity(0.04))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                TextField("Notes", text: $notes, prompt: Text("Add any notes"), axis: .vertical)
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.85))
+                    .textFieldStyle(.plain)
+                    .lineLimit(3...5)
+                    .padding(8)
+                    .background(Color.white.opacity(0.04))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .hawalaSectionCard()
+
+            HawalaActionButton(icon: "checkmark.circle", label: "Save", style: .primary) {
+                manager.updateWalletLabel(wallet.id, newLabel: label)
+                manager.updateWalletNotes(wallet.id, notes: notes.isEmpty ? nil : notes)
+                dismiss()
             }
         }
-        .padding()
-        .frame(width: 450, height: 320)
     }
 }
 

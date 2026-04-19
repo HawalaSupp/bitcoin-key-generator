@@ -36,10 +36,10 @@ struct HawalaTheme {
             AdaptiveColor(dark: Color(hex: "8E8E8E"), light: Color(hex: "6B6B70")).color
         }
         
-        // Accent colors - same across themes (used for large text/buttons, 3:1 acceptable)
-        static let accent = Color(hex: "14B8A6")               // Teal accent
-        static let accentHover = Color(hex: "2DD4BF")
-        static let accentSubtle = Color(hex: "14B8A6").opacity(0.15)
+        // Accent colors - monochrome white system (no teal)
+        static let accent = Color.white
+        static let accentHover = Color.white.opacity(0.85)
+        static let accentSubtle = Color.white.opacity(0.08)
         
         // Status colors - adaptive for WCAG AA compliance (4.5:1 contrast)
         static var success: Color {

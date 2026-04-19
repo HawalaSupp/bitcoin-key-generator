@@ -63,11 +63,22 @@ struct TransactionCancellationSheet: View {
     @State private var estimatedTime: String = "—"
     
     private var isBitcoinLike: Bool {
-        ["bitcoin", "bitcoin-testnet", "litecoin"].contains(pendingTx.chainId)
+        ["bitcoin", "bitcoin-mainnet", "bitcoin-testnet", "litecoin"].contains(pendingTx.chainId)
     }
     
     private var isEthereumLike: Bool {
-        ["ethereum", "ethereum-sepolia", "bnb"].contains(pendingTx.chainId)
+        [
+            "ethereum", "ethereum-mainnet", "ethereum-sepolia",
+            "bnb", "bsc-mainnet",
+            "polygon", "polygon-mainnet",
+            "arbitrum", "arbitrum-mainnet",
+            "optimism", "optimism-mainnet",
+            "base", "base-mainnet",
+            "avalanche", "avalanche-mainnet",
+            "fantom", "fantom-mainnet",
+            "gnosis", "gnosis-mainnet",
+            "scroll", "scroll-mainnet"
+        ].contains(pendingTx.chainId)
     }
     
     private var feeUnit: String {
@@ -76,61 +87,41 @@ struct TransactionCancellationSheet: View {
     
     private var chainColor: Color {
         switch pendingTx.chainId {
-        case "bitcoin", "bitcoin-testnet": return .orange
+        case "bitcoin", "bitcoin-mainnet", "bitcoin-testnet": return .orange
         case "litecoin": return .gray
-        case "ethereum", "ethereum-sepolia": return .blue
-        case "bnb": return .yellow
+        case "ethereum", "ethereum-mainnet", "ethereum-sepolia",
+             "arbitrum", "arbitrum-mainnet",
+             "optimism", "optimism-mainnet",
+             "base", "base-mainnet",
+             "scroll", "scroll-mainnet": return .blue
+        case "bnb", "bsc-mainnet": return .yellow
+        case "polygon", "polygon-mainnet": return .purple
+        case "avalanche", "avalanche-mainnet": return .red
+        case "fantom", "fantom-mainnet": return .cyan
+        case "gnosis", "gnosis-mainnet": return .green
         default: return .purple
         }
     }
     
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Transaction Info Card
-                    transactionCard
-                    
-                    // Mode Selector
-                    modeSelector
-                    
-                    // Mempool Status
-                    if let info = mempoolInfo {
-                        mempoolStatusCard(info)
-                    }
-                    
-                    // Fee Slider
-                    feeSection
-                    
-                    // Cost & Time Estimate
-                    estimatesSection
-                    
-                    // Warning
-                    warningSection
-                    
-                    // Error
-                    if let error = errorMessage {
-                        errorBanner(error)
-                    }
-                    
-                    Spacer(minLength: 20)
-                    
-                    // Action Button
-                    actionButton
-                }
-                .padding(24)
+        HawalaSheetShell(title: mode == .cancel ? "Cancel Transaction" : "Speed Up Transaction", width: 480, height: 680) {
+            transactionCard
+            modeSelector
+
+            if let info = mempoolInfo {
+                mempoolStatusCard(info)
             }
-            .navigationTitle(mode == .cancel ? "Cancel Transaction" : "Speed Up Transaction")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
-                        onDismiss()
-                        dismiss()
-                    }
-                }
+
+            feeSection
+            estimatesSection
+            warningSection
+
+            if let error = errorMessage {
+                errorBanner(error)
             }
+
+            actionButton
         }
-        .frame(width: 480, height: 680)
         .task {
             mode = initialMode
             await loadFeeData()
@@ -141,79 +132,79 @@ struct TransactionCancellationSheet: View {
     
     private var transactionCard: some View {
         VStack(spacing: 0) {
-            // Header
             HStack {
-                // Chain icon
                 Circle()
-                    .fill(chainColor.opacity(0.2))
-                    .frame(width: 44, height: 44)
+                    .fill(chainColor.opacity(0.15))
+                    .frame(width: 40, height: 40)
                     .overlay(
                         Image(systemName: chainIcon)
-                            .font(.system(size: 20))
-                            .foregroundStyle(chainColor)
+                            .font(.system(size: 18))
+                            .foregroundColor(chainColor)
                     )
-                
-                VStack(alignment: .leading, spacing: 4) {
+
+                VStack(alignment: .leading, spacing: 3) {
                     Text(pendingTx.chainName)
-                        .font(.headline)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.85))
                     Text(pendingTx.amount)
-                        .font(.title3)
-                        .fontWeight(.semibold)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.7))
                 }
-                
+
                 Spacer()
-                
-                // Status badge
+
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(.orange)
-                        .frame(width: 8, height: 8)
+                        .fill(Color(red: 1, green: 0.84, blue: 0.04))
+                        .frame(width: 6, height: 6)
                     Text("Pending")
-                        .font(.caption)
-                        .fontWeight(.medium)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04))
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.orange.opacity(0.15))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color(red: 1, green: 0.84, blue: 0.04).opacity(0.1))
                 .clipShape(Capsule())
             }
-            .padding()
-            
-            Divider()
-            
-            // Details
-            VStack(spacing: 12) {
+            .padding(14)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.04))
+                .frame(height: 1)
+
+            VStack(spacing: 10) {
                 detailRow(label: "To", value: truncate(pendingTx.recipient))
                 detailRow(label: "Transaction", value: truncate(pendingTx.id))
-                
+
                 if let feeRate = pendingTx.originalFeeRate {
                     detailRow(label: "Current Fee", value: "\(feeRate) \(feeUnit)")
                 }
-                
+
                 if let nonce = pendingTx.nonce {
                     detailRow(label: "Nonce", value: "\(nonce)")
                 }
-                
+
                 detailRow(label: "Sent", value: formatTimestamp(pendingTx.timestamp))
             }
-            .padding()
+            .padding(14)
         }
-        .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.primary.opacity(0.03))
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-            }
-        )
+        .hawalaSectionCard()
     }
     
     private var chainIcon: String {
         switch pendingTx.chainId {
-        case "bitcoin", "bitcoin-testnet": return "bitcoinsign.circle.fill"
+        case "bitcoin", "bitcoin-mainnet", "bitcoin-testnet": return "bitcoinsign.circle.fill"
         case "litecoin": return "l.circle.fill"
-        case "ethereum", "ethereum-sepolia": return "diamond.fill"
-        case "bnb": return "b.circle.fill"
+        case "ethereum", "ethereum-mainnet", "ethereum-sepolia",
+             "arbitrum", "arbitrum-mainnet",
+             "optimism", "optimism-mainnet",
+             "base", "base-mainnet",
+             "scroll", "scroll-mainnet": return "diamond.fill"
+        case "bnb", "bsc-mainnet": return "b.circle.fill"
+        case "polygon", "polygon-mainnet": return "p.circle.fill"
+        case "avalanche", "avalanche-mainnet": return "a.circle.fill"
+        case "fantom", "fantom-mainnet": return "f.circle.fill"
+        case "gnosis", "gnosis-mainnet": return "g.circle.fill"
         default: return "circle.fill"
         }
     }
@@ -221,48 +212,47 @@ struct TransactionCancellationSheet: View {
     private func detailRow(label: String, value: String) -> some View {
         HStack {
             Text(label)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.35))
             Spacer()
             Text(value)
-                .font(.system(.subheadline, design: .monospaced))
+                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .foregroundColor(.white.opacity(0.6))
         }
     }
-    
+
     // MARK: - Mode Selector
-    
+
     private var modeSelector: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             ForEach(CancellationMode.allCases, id: \.self) { m in
                 Button {
-                    withAnimation(.spring(response: 0.3)) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                         mode = m
                         updateEstimates()
                     }
                 } label: {
-                    VStack(spacing: 8) {
+                    VStack(spacing: 6) {
                         Image(systemName: m.icon)
-                            .font(.title2)
+                            .font(.system(size: 18))
                         Text(m.rawValue)
-                            .font(.headline)
+                            .font(.system(size: 13, weight: .semibold))
                         Text(m.description)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.35))
                             .multilineTextAlignment(.center)
                     }
+                    .foregroundColor(mode == m ? m.color : .white.opacity(0.5))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(mode == m ? m.color.opacity(0.15) : Color.primary.opacity(0.03))
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(mode == m ? m.color : Color.clear, lineWidth: 2)
-                        }
+                    .padding(.vertical, 14)
+                    .background(mode == m ? m.color.opacity(0.1) : Color.white.opacity(0.02))
+                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(mode == m ? m.color.opacity(0.4) : Color.white.opacity(0.06), lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(mode == m ? m.color : .primary)
             }
         }
     }
@@ -270,53 +260,54 @@ struct TransactionCancellationSheet: View {
     // MARK: - Mempool Status
     
     private func mempoolStatusCard(_ info: TransactionCancellationManager.MempoolInfo) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: "chart.bar.fill")
-                    .foregroundStyle(.blue)
+                    .font(.system(size: 12))
+                    .foregroundColor(Color.white.opacity(0.5))
                 Text("Network Status")
-                    .font(.headline)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.7))
                 Spacer()
                 if info.isStale {
-                    Label("Stale", systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 9))
+                        Text("Stale")
+                            .font(.system(size: 9, weight: .medium))
+                    }
+                    .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04))
                 }
             }
-            
+
             HStack(spacing: 16) {
-                feeIndicator(label: "Fast", value: info.fastestFee, color: .green)
-                feeIndicator(label: "Normal", value: info.halfHourFee, color: .blue)
-                feeIndicator(label: "Slow", value: info.hourFee, color: .orange)
+                feeIndicator(label: "Fast", value: info.fastestFee, color: Color(red: 0.20, green: 0.84, blue: 0.29))
+                feeIndicator(label: "Normal", value: info.halfHourFee, color: Color.white.opacity(0.5))
+                feeIndicator(label: "Slow", value: info.hourFee, color: Color(red: 1, green: 0.84, blue: 0.04))
             }
-            
+
             if let size = info.mempoolSize {
                 HStack {
                     Text("Mempool:")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.3))
                     Text("\(size.formatted()) unconfirmed txs")
-                        .font(.caption)
-                        .fontWeight(.medium)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
                 }
             }
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.blue.opacity(0.05))
-        )
+        .hawalaSectionCard()
     }
-    
+
     private func feeIndicator(label: String, value: Int, color: Color) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 3) {
             Text("\(value)")
-                .font(.system(.title3, design: .monospaced))
-                .fontWeight(.semibold)
-                .foregroundStyle(color)
+                .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                .foregroundColor(color)
             Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 9))
+                .foregroundColor(.white.opacity(0.3))
         }
         .frame(maxWidth: .infinity)
     }
@@ -331,45 +322,41 @@ struct TransactionCancellationSheet: View {
     }
     
     private var feeSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("New Fee Rate")
-                    .font(.headline)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.7))
                 Spacer()
                 Text("\(Int(newFeeRate)) \(feeUnit)")
-                    .font(.system(.title3, design: .monospaced))
-                    .fontWeight(.bold)
-                    .foregroundStyle(mode.color)
+                    .font(.system(size: 16, weight: .bold, design: .monospaced))
+                    .foregroundColor(mode.color)
             }
-            
-            // Slider - use safe range to prevent crash when max <= min
+
             Slider(value: $newFeeRate, in: safeSliderRange, step: 1)
                 .tint(mode.color)
-                .disabled(maxFeeRate <= minFeeRate) // Disable if range invalid
+                .disabled(maxFeeRate <= minFeeRate)
                 .onChange(of: newFeeRate) { _ in
                     updateEstimates()
                 }
-            
-            // Labels
+
             HStack {
                 Text("Min: \(Int(minFeeRate))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.25))
                 Spacer()
                 Button("Recommended") {
-                    withAnimation {
-                        newFeeRate = recommendedFeeRate
-                    }
+                    withAnimation { newFeeRate = recommendedFeeRate }
                 }
-                .font(.caption)
-                .foregroundStyle(mode.color)
+                .font(.system(size: 10))
+                .foregroundColor(mode.color)
+                .buttonStyle(.plain)
                 Spacer()
                 Text("Max: \(Int(maxFeeRate))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.25))
             }
-            
-            // Quick select buttons
+
             HStack(spacing: 8) {
                 feePresetButton("1.1x", multiplier: 1.1)
                 feePresetButton("1.5x", multiplier: 1.5)
@@ -377,13 +364,9 @@ struct TransactionCancellationSheet: View {
                 feePresetButton("3x", multiplier: 3.0)
             }
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.primary.opacity(0.03))
-        )
+        .hawalaSectionCard()
     }
-    
+
     private func feePresetButton(_ label: String, multiplier: Double) -> some View {
         Button {
             withAnimation {
@@ -391,126 +374,116 @@ struct TransactionCancellationSheet: View {
             }
         } label: {
             Text(label)
-                .font(.caption)
-                .fontWeight(.medium)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.primary.opacity(0.05))
-                )
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.white.opacity(0.5))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.04))
+                .cornerRadius(6)
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
-    
+
     // MARK: - Estimates Section
-    
+
     private var estimatesSection: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Additional Cost")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.3))
                 Text(estimatedCost)
-                    .font(.headline)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.8))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(mode.color.opacity(0.1))
-            )
-            
+            .padding(12)
+            .background(mode.color.opacity(0.08))
+            .cornerRadius(10)
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(mode.color.opacity(0.12), lineWidth: 1))
+
             VStack(alignment: .leading, spacing: 4) {
                 Text("Est. Confirmation")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.3))
                 Text(estimatedTime)
-                    .font(.headline)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.8))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.green.opacity(0.1))
-            )
+            .padding(12)
+            .background(Color(red: 0.20, green: 0.84, blue: 0.29).opacity(0.08))
+            .cornerRadius(10)
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(red: 0.20, green: 0.84, blue: 0.29).opacity(0.12), lineWidth: 1))
         }
     }
-    
+
     // MARK: - Warning Section
-    
+
     private var warningSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04))
                 Text("Important")
-                    .font(.headline)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.7))
             }
-            
+
             if mode == .cancel {
                 Text("This will send all funds from the original transaction back to your wallet. The original recipient will NOT receive any funds.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
             } else {
                 Text("This will replace the original transaction with a higher fee. The recipient and amount remain the same.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
             }
-            
+
             if isBitcoinLike {
-                Text("⚠️ RBF replacement may take a few minutes to propagate through the network.")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+                Text("RBF replacement may take a few minutes to propagate through the network.")
+                    .font(.system(size: 10))
+                    .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04).opacity(0.7))
             }
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.orange.opacity(0.1))
-        )
+        .padding(12)
+        .background(Color(red: 1, green: 0.84, blue: 0.04).opacity(0.06))
+        .cornerRadius(10)
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(red: 1, green: 0.84, blue: 0.04).opacity(0.1), lineWidth: 1))
     }
-    
+
     // MARK: - Error Banner
-    
+
     private func errorBanner(_ message: String) -> some View {
-        HStack {
+        HStack(spacing: 8) {
             Image(systemName: "exclamationmark.circle.fill")
-                .foregroundStyle(.red)
+                .font(.system(size: 12))
+                .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
             Text(message)
-                .font(.subheadline)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.5))
             Spacer()
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.red.opacity(0.1))
-        )
+        .padding(12)
+        .background(Color(red: 1, green: 0.27, blue: 0.23).opacity(0.08))
+        .cornerRadius(10)
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(red: 1, green: 0.27, blue: 0.23).opacity(0.12), lineWidth: 1))
     }
-    
+
     // MARK: - Action Button
-    
+
     private var actionButton: some View {
-        Button {
+        HawalaActionButton(
+            icon: isLoading ? "hourglass" : (mode == .cancel ? "xmark.circle.fill" : "bolt.fill"),
+            label: mode == .cancel ? "Cancel Transaction" : "Speed Up Transaction",
+            style: .primary
+        ) {
             Task { await executeAction() }
-        } label: {
-            HStack(spacing: 8) {
-                if isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.white)
-                } else {
-                    Image(systemName: mode == .cancel ? "xmark.circle.fill" : "bolt.fill")
-                }
-                Text(mode == .cancel ? "Cancel Transaction" : "Speed Up Transaction")
-                    .fontWeight(.semibold)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(mode.color)
         .disabled(isLoading || newFeeRate <= minFeeRate)
+        .opacity(isLoading || newFeeRate <= minFeeRate ? 0.5 : 1)
     }
     
     // MARK: - Actions
@@ -591,7 +564,7 @@ struct TransactionCancellationSheet: View {
                 let returnAddress: String
                 
                 switch pendingTx.chainId {
-                case "bitcoin":
+                case "bitcoin", "bitcoin-mainnet":
                     wif = keys.bitcoin.privateWif
                     returnAddress = keys.bitcoin.address
                 case "bitcoin-testnet":
@@ -619,8 +592,9 @@ struct TransactionCancellationSheet: View {
                     )
                 }
             } else {
-                let privateKey = keys.ethereum.privateHex
-                let senderAddress = keys.ethereum.address
+                let useSepoliaKeys = pendingTx.chainId == "ethereum-sepolia"
+                let privateKey = useSepoliaKeys ? keys.ethereumSepolia.privateHex : keys.ethereum.privateHex
+                let senderAddress = useSepoliaKeys ? keys.ethereumSepolia.address : keys.ethereum.address
                 let gasWei = UInt64(newFeeRate * 1_000_000_000)
                 
                 if mode == .cancel {
@@ -677,26 +651,25 @@ struct PendingTransactionsDashboard: View {
     @Binding var pendingTransactions: [PendingTransactionManager.PendingTransaction]
     let keys: AllKeys
     let onRefresh: () async -> Void
-    
+
     @State private var selectedTx: PendingTransactionManager.PendingTransaction?
     @State private var showCancellationSheet = false
     @State private var isRefreshing = false
-    
+
     var body: some View {
         VStack(spacing: 0) {
-            // Header
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text("Pending Transactions")
-                        .font(.title2)
-                        .fontWeight(.bold)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.white.opacity(0.85))
                     Text("\(pendingCount) transaction\(pendingCount == 1 ? "" : "s") waiting for confirmation")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.35))
                 }
-                
+
                 Spacer()
-                
+
                 Button {
                     Task {
                         isRefreshing = true
@@ -705,20 +678,28 @@ struct PendingTransactionsDashboard: View {
                     }
                 } label: {
                     Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .frame(width: 30, height: 30)
+                        .background(Color.white.opacity(0.04))
+                        .clipShape(Circle())
+                        .overlay(Circle().strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
                         .rotationEffect(.degrees(isRefreshing ? 360 : 0))
                         .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
             }
-            .padding()
-            
-            Divider()
-            
+            .padding(16)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.04))
+                .frame(height: 1)
+
             if pendingTransactions.isEmpty {
                 emptyState
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 12) {
+                    LazyVStack(spacing: 10) {
                         ForEach(pendingTransactions.filter { $0.status == .pending }) { tx in
                             PendingTxCard(
                                 transaction: tx,
@@ -733,7 +714,7 @@ struct PendingTransactionsDashboard: View {
                             )
                         }
                     }
-                    .padding()
+                    .padding(16)
                 }
             }
         }
@@ -755,22 +736,22 @@ struct PendingTransactionsDashboard: View {
             }
         }
     }
-    
+
     private var pendingCount: Int {
         pendingTransactions.filter { $0.status == .pending }.count
     }
-    
+
     private var emptyState: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 48))
-                .foregroundStyle(.green)
+                .font(.system(size: 40))
+                .foregroundColor(Color(red: 0.20, green: 0.84, blue: 0.29))
             Text("All Clear!")
-                .font(.title3)
-                .fontWeight(.semibold)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white.opacity(0.7))
             Text("No pending transactions")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.35))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(40)
@@ -783,120 +764,147 @@ struct PendingTxCard: View {
     let transaction: PendingTransactionManager.PendingTransaction
     let onCancel: () -> Void
     let onSpeedUp: () -> Void
-    
+
     @State private var isHovered = false
-    
+
     private var chainColor: Color {
         switch transaction.chainId {
-        case "bitcoin", "bitcoin-testnet": return .orange
+        case "bitcoin", "bitcoin-mainnet", "bitcoin-testnet": return .orange
         case "litecoin": return .gray
-        case "ethereum", "ethereum-sepolia": return .blue
-        case "bnb": return .yellow
+        case "ethereum", "ethereum-mainnet", "ethereum-sepolia",
+             "arbitrum", "arbitrum-mainnet",
+             "optimism", "optimism-mainnet",
+             "base", "base-mainnet",
+             "scroll", "scroll-mainnet": return Color.white.opacity(0.5)
+        case "bnb", "bsc-mainnet": return .yellow
+        case "polygon", "polygon-mainnet": return .purple
+        case "avalanche", "avalanche-mainnet": return Color(red: 1, green: 0.27, blue: 0.23)
+        case "fantom", "fantom-mainnet": return .cyan
+        case "gnosis", "gnosis-mainnet": return Color(red: 0.20, green: 0.84, blue: 0.29)
         default: return .purple
         }
     }
-    
+
     var body: some View {
-        HStack(spacing: 16) {
-            // Chain indicator
+        HStack(spacing: 14) {
             Circle()
-                .fill(chainColor.opacity(0.2))
-                .frame(width: 44, height: 44)
+                .fill(chainColor.opacity(0.12))
+                .frame(width: 40, height: 40)
                 .overlay(
                     Image(systemName: chainIcon)
-                        .font(.system(size: 18))
-                        .foregroundStyle(chainColor)
+                        .font(.system(size: 16))
+                        .foregroundColor(chainColor)
                 )
-            
-            // Transaction info
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
                     Text(transaction.amount)
-                        .font(.headline)
-                    
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.85))
+
                     if transaction.confirmations > 0 {
                         Text("\(transaction.confirmations) conf")
-                            .font(.caption2)
-                            .padding(.horizontal, 6)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(Color(red: 0.20, green: 0.84, blue: 0.29))
+                            .padding(.horizontal, 5)
                             .padding(.vertical, 2)
-                            .background(Color.green.opacity(0.2))
+                            .background(Color(red: 0.20, green: 0.84, blue: 0.29).opacity(0.12))
                             .clipShape(Capsule())
                     }
                 }
-                
+
                 Text("To: \(truncate(transaction.recipient))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                
-                HStack(spacing: 8) {
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.35))
+
+                HStack(spacing: 6) {
                     if let fee = transaction.originalFeeRate {
                         Text("\(fee) \(feeUnit)")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 9))
+                            .foregroundColor(.white.opacity(0.2))
                     }
-                    
-                    Text("•")
-                        .foregroundStyle(.tertiary)
-                    
+                    Circle()
+                        .fill(.white.opacity(0.15))
+                        .frame(width: 2, height: 2)
                     Text(timeAgo)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 9))
+                        .foregroundColor(.white.opacity(0.2))
                 }
             }
-            
+
             Spacer()
-            
-            // Actions
+
             if isHovered && transaction.canSpeedUp {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Button {
                         onSpeedUp()
                     } label: {
-                        Label("Speed Up", systemImage: "bolt.fill")
-                            .font(.caption)
+                        HStack(spacing: 4) {
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 9))
+                            Text("Speed Up")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Color(red: 1, green: 0.84, blue: 0.04).opacity(0.1))
+                        .cornerRadius(6)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.orange)
-                    
+                    .buttonStyle(.plain)
+
                     Button {
                         onCancel()
                     } label: {
-                        Label("Cancel", systemImage: "xmark")
-                            .font(.caption)
+                        HStack(spacing: 4) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9))
+                            Text("Cancel")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Color(red: 1, green: 0.27, blue: 0.23).opacity(0.1))
+                        .cornerRadius(6)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.red)
+                    .buttonStyle(.plain)
                 }
             } else {
-                // Spinning indicator
                 ProgressView()
                     .controlSize(.small)
             }
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.primary.opacity(isHovered ? 0.06 : 0.03))
-        )
+        .padding(12)
+        .background(Color.white.opacity(isHovered ? 0.04 : 0.02))
+        .cornerRadius(12)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
         )
         .onHover { isHovered = $0 }
     }
     
     private var chainIcon: String {
         switch transaction.chainId {
-        case "bitcoin", "bitcoin-testnet": return "bitcoinsign.circle.fill"
+        case "bitcoin", "bitcoin-mainnet", "bitcoin-testnet": return "bitcoinsign.circle.fill"
         case "litecoin": return "l.circle.fill"
-        case "ethereum", "ethereum-sepolia": return "diamond.fill"
-        case "bnb": return "b.circle.fill"
+        case "ethereum", "ethereum-mainnet", "ethereum-sepolia",
+             "arbitrum", "arbitrum-mainnet",
+             "optimism", "optimism-mainnet",
+             "base", "base-mainnet",
+             "scroll", "scroll-mainnet": return "diamond.fill"
+        case "bnb", "bsc-mainnet": return "b.circle.fill"
+        case "polygon", "polygon-mainnet": return "p.circle.fill"
+        case "avalanche", "avalanche-mainnet": return "a.circle.fill"
+        case "fantom", "fantom-mainnet": return "f.circle.fill"
+        case "gnosis", "gnosis-mainnet": return "g.circle.fill"
         default: return "circle.fill"
         }
     }
     
     private var feeUnit: String {
-        ["bitcoin", "bitcoin-testnet", "litecoin"].contains(transaction.chainId) ? "sat/vB" : "gwei"
+        ["bitcoin", "bitcoin-mainnet", "bitcoin-testnet", "litecoin"].contains(transaction.chainId) ? "sat/vB" : "gwei"
     }
     
     private var timeAgo: String {

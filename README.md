@@ -12,7 +12,7 @@ Hawala combines Rust cryptographic primitives with a native SwiftUI front-end to
 
 **Major Chains:**
 - Bitcoin (BTC) - SegWit, Taproot, RBF
-- Ethereum (ETH) - EIP-1559, ERC-20, NFTs
+- Ethereum (ETH) - EIP-1559, ERC-20
 - Solana (SOL) - SPL tokens, staking
 - Polygon, Arbitrum, Optimism, Base - L2 support
 

@@ -16,7 +16,8 @@ import CoreImage.CIFilterBuiltins
 struct AirGapSigningView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: AirGapSigningViewModel
-    
+    @State private var contentOpacity: Double = 0
+
     init(
         request: AirGapRequest,
         onComplete: @escaping (Data) -> Void,
@@ -28,31 +29,74 @@ struct AirGapSigningView: View {
             onCancel: onCancel
         ))
     }
-    
+
     var body: some View {
-        NavigationStack {
-            VStack {
-                switch viewModel.step {
-                case .displayRequest:
-                    DisplayQRView(viewModel: viewModel)
-                case .scanSignature:
-                    ScanQRView(viewModel: viewModel)
-                case .processing:
-                    AirGapProcessingView()
-                case .complete:
-                    AirGapCompleteView(dismiss: dismiss)
-                case .error:
-                    AirGapErrorView(viewModel: viewModel, dismiss: dismiss)
-                }
-            }
-            .navigationTitle("Air-Gapped Signing")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        viewModel.cancel()
-                        dismiss()
+        ZStack {
+            Color(red: 0.05, green: 0.05, blue: 0.06).ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Header
+                ZStack {
+                    Text("Air-Gapped Signing")
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+
+                    HStack {
+                        Button {
+                            viewModel.cancel()
+                            dismiss()
+                        } label: {
+                            Circle()
+                                .fill(Color.white.opacity(0.08))
+                                .frame(width: 28, height: 28)
+                                .overlay(
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.white.opacity(0.5))
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        Spacer()
                     }
                 }
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+                .padding(.bottom, 16)
+
+                // Content
+                Group {
+                    switch viewModel.step {
+                    case .displayRequest:
+                        DisplayQRView(viewModel: viewModel)
+                    case .scanSignature:
+                        ScanQRView(viewModel: viewModel)
+                    case .processing:
+                        AirGapProcessingView()
+                    case .complete:
+                        AirGapCompleteView(dismiss: dismiss)
+                    case .error:
+                        AirGapErrorView(viewModel: viewModel, dismiss: dismiss)
+                    }
+                }
+                .opacity(contentOpacity)
+            }
+        }
+        .frame(width: 520, height: 600)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.1), Color.white.opacity(0.03)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ), lineWidth: 1
+                )
+        )
+        .shadow(color: .black.opacity(0.5), radius: 50, x: 0, y: 25)
+        .onAppear {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                contentOpacity = 1
             }
         }
     }
@@ -256,71 +300,76 @@ private struct MultiPartFrame: Codable {
 
 private struct DisplayQRView: View {
     @ObservedObject var viewModel: AirGapSigningViewModel
-    
+
     var body: some View {
-        VStack(spacing: 24) {
-            // Instructions
+        VStack(spacing: 20) {
             VStack(spacing: 8) {
                 Image(systemName: "qrcode")
-                    .font(.system(size: 40))
-                    .foregroundColor(.accentColor)
-                
+                    .font(.system(size: 36, weight: .thin))
+                    .foregroundColor(.white.opacity(0.5))
+
                 Text("Scan with Offline Device")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.white)
+
                 Text("Display this QR code to your air-gapped signing device")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.4))
                     .multilineTextAlignment(.center)
             }
-            
-            // QR Code
+
             AirGapQRCodeView(data: viewModel.currentQRData)
-                .frame(width: 280, height: 280)
-            
-            // Animation indicator for multi-part
+                .frame(width: 260, height: 260)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
             if viewModel.qrFrames.count > 1 {
                 VStack(spacing: 8) {
-                    Text("Animated QR Code")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    HStack {
+                    Text("ANIMATED QR")
+                        .font(.system(size: 9, weight: .semibold))
+                        .tracking(1)
+                        .foregroundColor(.white.opacity(0.3))
+
+                    HStack(spacing: 4) {
                         ForEach(0..<min(viewModel.qrFrames.count, 10), id: \.self) { index in
                             Circle()
-                                .fill(index == viewModel.currentFrameIndex ? Color.accentColor : Color.gray.opacity(0.3))
-                                .frame(width: 8, height: 8)
+                                .fill(index == viewModel.currentFrameIndex
+                                      ? Color.white
+                                      : Color.white.opacity(0.15))
+                                .frame(width: 6, height: 6)
                         }
                         if viewModel.qrFrames.count > 10 {
                             Text("+\(viewModel.qrFrames.count - 10)")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
+                                .font(.system(size: 9))
+                                .foregroundColor(.white.opacity(0.3))
                         }
                     }
-                    
+
                     Text("Frame \(viewModel.currentFrameIndex + 1) of \(viewModel.qrFrames.count)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.25))
                 }
             }
-            
+
             Spacer()
-            
-            // Next button
+
             Button {
                 viewModel.proceedToScan()
             } label: {
                 Text("I've Scanned It")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.accentColor)
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color.white.opacity(0.12))
                     .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                    )
             }
+            .buttonStyle(.plain)
         }
-        .padding()
+        .padding(24)
     }
 }
 
@@ -329,26 +378,24 @@ private struct DisplayQRView: View {
 private struct ScanQRView: View {
     @ObservedObject var viewModel: AirGapSigningViewModel
     @State private var isScanning = true
-    
+
     var body: some View {
-        VStack(spacing: 24) {
-            // Instructions
+        VStack(spacing: 20) {
             VStack(spacing: 8) {
                 Image(systemName: "camera.viewfinder")
-                    .font(.system(size: 40))
-                    .foregroundColor(.accentColor)
-                
+                    .font(.system(size: 36, weight: .thin))
+                    .foregroundColor(.white.opacity(0.5))
+
                 Text("Scan Signature")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.white)
+
                 Text("Scan the signature QR code from your air-gapped device")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.4))
                     .multilineTextAlignment(.center)
             }
             
-            // Camera scanner
             QRScannerView(
                 isScanning: $isScanning,
                 onScan: { code in
@@ -358,35 +405,57 @@ private struct ScanQRView: View {
                     viewModel.updateProgress(progress)
                 }
             )
-            .frame(height: 300)
-            .cornerRadius(12)
-            
-            // Progress for multi-part
+            .frame(height: 280)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
             if viewModel.scanProgress > 0 && viewModel.scanProgress < 1 {
-                VStack(spacing: 4) {
-                    ProgressView(value: viewModel.scanProgress)
+                VStack(spacing: 6) {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color.white.opacity(0.08))
+                                .frame(height: 4)
+                            Capsule()
+                                .fill(Color.white.opacity(0.6))
+                                .frame(width: geo.size.width * viewModel.scanProgress, height: 4)
+                        }
+                    }
+                    .frame(height: 4)
                     Text("\(Int(viewModel.scanProgress * 100))% complete")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.3))
                 }
             }
-            
+
             Spacer()
         }
-        .padding()
+        .padding(24)
     }
 }
 
 // MARK: - Processing View
 
 private struct AirGapProcessingView: View {
+    @State private var rotation: Double = 0
+
     var body: some View {
         VStack(spacing: 20) {
-            ProgressView()
-                .scaleEffect(1.5)
-            
+            Spacer()
+            Circle()
+                .trim(from: 0, to: 0.7)
+                .stroke(Color.white.opacity(0.4), lineWidth: 3)
+                .frame(width: 40, height: 40)
+                .rotationEffect(.degrees(rotation))
+                .onAppear {
+                    withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) {
+                        rotation = 360
+                    }
+                }
+
             Text("Processing Signature...")
-                .font(.headline)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(.white)
+            Spacer()
         }
     }
 }
@@ -395,34 +464,53 @@ private struct AirGapProcessingView: View {
 
 private struct AirGapCompleteView: View {
     let dismiss: DismissAction
-    
+    @State private var checkScale: CGFloat = 0
+
     var body: some View {
         VStack(spacing: 24) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 80))
-                .foregroundColor(.green)
-            
+            Spacer()
+
+            Circle()
+                .fill(Color(red: 0.20, green: 0.84, blue: 0.29).opacity(0.12))
+                .frame(width: 80, height: 80)
+                .overlay(
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 32, weight: .semibold))
+                        .foregroundColor(Color(red: 0.20, green: 0.84, blue: 0.29))
+                        .scaleEffect(checkScale)
+                )
+                .onAppear {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
+                        checkScale = 1
+                    }
+                }
+
             Text("Signature Applied!")
-                .font(.title)
-                .fontWeight(.bold)
-            
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(.white)
+
             Text("Your transaction has been signed securely")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            
-            Button {
-                dismiss()
-            } label: {
+                .font(.system(size: 13))
+                .foregroundColor(.white.opacity(0.4))
+
+            Spacer()
+
+            Button { dismiss() } label: {
                 Text("Done")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.accentColor)
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color.white.opacity(0.12))
                     .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                    )
             }
+            .buttonStyle(.plain)
         }
-        .padding()
+        .padding(24)
     }
 }
 
@@ -431,49 +519,62 @@ private struct AirGapCompleteView: View {
 private struct AirGapErrorView: View {
     @ObservedObject var viewModel: AirGapSigningViewModel
     let dismiss: DismissAction
-    
+
     var body: some View {
         VStack(spacing: 24) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 60))
-                .foregroundColor(.orange)
-            
+            Spacer()
+
+            Circle()
+                .fill(Color(red: 1, green: 0.84, blue: 0.04).opacity(0.12))
+                .frame(width: 70, height: 70)
+                .overlay(
+                    Image(systemName: "exclamationmark")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04))
+                )
+
             Text("Error")
-                .font(.title)
-                .fontWeight(.bold)
-            
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(.white)
+
             Text(viewModel.errorMessage ?? "An error occurred")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+                .font(.system(size: 13))
+                .foregroundColor(.white.opacity(0.4))
                 .multilineTextAlignment(.center)
-            
-            HStack(spacing: 16) {
+
+            Spacer()
+
+            HStack(spacing: 12) {
                 Button {
                     viewModel.retry()
                 } label: {
                     Text("Retry")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.accentColor)
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
-                        .cornerRadius(12)
-                }
-                
-                Button {
-                    dismiss()
-                } label: {
-                    Text("Cancel")
-                        .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.gray.opacity(0.2))
-                        .foregroundColor(.primary)
+                        .padding(.vertical, 14)
+                        .background(Color.white.opacity(0.12))
+                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+
+                Button { dismiss() } label: {
+                    Text("Cancel")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.5))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.white.opacity(0.05))
                         .cornerRadius(12)
                 }
+                .buttonStyle(.plain)
             }
         }
-        .padding()
+        .padding(24)
     }
 }
 
@@ -481,14 +582,13 @@ private struct AirGapErrorView: View {
 
 struct AirGapQRCodeView: View {
     let data: String
-    
     @State private var qrImage: Image?
-    
+
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.white)
-            
+
             if let image = qrImage {
                 image
                     .interpolation(.none)
@@ -496,7 +596,11 @@ struct AirGapQRCodeView: View {
                     .scaledToFit()
                     .padding(16)
             } else {
-                ProgressView()
+                Circle()
+                    .trim(from: 0, to: 0.7)
+                    .stroke(Color.black.opacity(0.2), lineWidth: 2)
+                    .frame(width: 24, height: 24)
+                    .rotationEffect(.degrees(qrImage == nil ? 360 : 0))
             }
         }
         .onAppear {
@@ -538,24 +642,22 @@ struct QRScannerView: View {
     @Binding var isScanning: Bool
     let onScan: (String) -> Void
     let onProgress: (Double) -> Void
-    
+
     var body: some View {
         ZStack {
-            // Use existing QRCameraScannerView or implement camera access
             Rectangle()
-                .fill(Color.black.opacity(0.8))
-            
-            VStack {
+                .fill(Color.black.opacity(0.9))
+
+            VStack(spacing: 12) {
                 Image(systemName: "viewfinder")
-                    .font(.system(size: 100))
-                    .foregroundColor(.white.opacity(0.5))
-                
+                    .font(.system(size: 80, weight: .ultraLight))
+                    .foregroundColor(.white.opacity(0.3))
+
                 Text("Point camera at QR code")
-                    .foregroundColor(.white)
-                    .padding(.top)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.4))
             }
-            
-            // Scanning frame overlay
+
             ScannerOverlay()
         }
     }
@@ -565,24 +667,22 @@ private struct ScannerOverlay: View {
     var body: some View {
         GeometryReader { geo in
             let size = min(geo.size.width, geo.size.height) * 0.7
-            
+
             ZStack {
-                // Darkened corners
                 Rectangle()
                     .fill(Color.black.opacity(0.5))
                     .mask(
                         Rectangle()
                             .overlay(
-                                RoundedRectangle(cornerRadius: 12)
+                                RoundedRectangle(cornerRadius: 14)
                                     .frame(width: size, height: size)
                                     .blendMode(.destinationOut)
                             )
                             .compositingGroup()
                     )
-                
-                // Corner brackets
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.accentColor, lineWidth: 3)
+
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(Color.white.opacity(0.4), lineWidth: 2)
                     .frame(width: size, height: size)
             }
         }

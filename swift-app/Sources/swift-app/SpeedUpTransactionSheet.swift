@@ -18,66 +18,41 @@ struct SpeedUpTransactionSheet: View {
     @State private var feeEstimates: BitcoinFeeEstimates?
     
     private var isBitcoinLike: Bool {
-        ["bitcoin", "bitcoin-testnet", "litecoin"].contains(pendingTx.chainId)
+        ["bitcoin", "bitcoin-mainnet", "bitcoin-testnet", "litecoin"].contains(pendingTx.chainId)
     }
     
     private var isEthereumLike: Bool {
-        ["ethereum", "ethereum-sepolia", "bnb"].contains(pendingTx.chainId)
+        ["ethereum", "ethereum-mainnet", "ethereum-sepolia",
+         "bnb", "bsc-mainnet",
+         "polygon-mainnet", "arbitrum-mainnet", "optimism-mainnet",
+         "base-mainnet", "avalanche-mainnet", "fantom-mainnet",
+         "gnosis-mainnet", "scroll-mainnet"].contains(pendingTx.chainId)
     }
     
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-                // Transaction info
-                transactionInfoCard
-                
-                // Fee slider
-                feeSliderSection
-                
-                // Cost estimate
-                costEstimateSection
-                
-                Spacer()
-                
-                // Error message
-                if let error = errorMessage {
+        HawalaSheetShell(title: "Speed Up Transaction", width: 420, height: 500) {
+            transactionInfoCard
+            feeSliderSection
+            costEstimateSection
+
+            if let error = errorMessage {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color(red: 1, green: 0.27, blue: 0.23))
                     Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.5))
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
-                
-                // Speed up button
-                Button {
-                    Task { await speedUpTransaction() }
-                } label: {
-                    HStack {
-                        if isLoading {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        Text("Speed Up Transaction")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.orange)
-                .disabled(isLoading || newFeeRate <= minFeeRate)
-            }
-            .padding(24)
-            .navigationTitle("Speed Up Transaction")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        onDismiss()
-                        dismiss()
-                    }
                 }
             }
+
+            HawalaActionButton(icon: isLoading ? "hourglass" : "bolt.fill", label: isLoading ? "Processing..." : "Speed Up Transaction", style: .primary) {
+                Task { await speedUpTransaction() }
+            }
+            .disabled(isLoading || newFeeRate <= minFeeRate)
+            .opacity(isLoading || newFeeRate <= minFeeRate ? 0.5 : 1)
         }
-        .frame(width: 420, height: 500)
         .task {
             await loadFeeEstimates()
         }
@@ -88,80 +63,82 @@ struct SpeedUpTransactionSheet: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(pendingTx.chainName)
-                        .font(.headline)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.85))
                     Text(pendingTx.amount)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.45))
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 4) {
                     Text("Stuck")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.orange)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04))
                     if let rate = pendingTx.originalFeeRate {
                         Text("\(rate) \(isBitcoinLike ? "sat/vB" : "gwei")")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.3))
                     }
                 }
             }
-            
-            Divider()
-            
+
+            Rectangle()
+                .fill(Color.white.opacity(0.04))
+                .frame(height: 1)
+
             HStack {
                 Text("To:")
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.35))
                 Text(truncateAddress(pendingTx.recipient))
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.6))
             }
-            
+
             HStack {
                 Text("TX:")
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.35))
                 Text(truncateAddress(pendingTx.id))
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.6))
             }
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.primary.opacity(0.05))
-        )
+        .hawalaSectionCard()
     }
     
     private var feeSliderSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("New Fee Rate")
-                    .font(.headline)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.7))
                 Spacer()
                 Text("\(Int(newFeeRate)) \(isBitcoinLike ? "sat/vB" : "gwei")")
-                    .font(.system(.body, design: .monospaced))
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.orange)
+                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .foregroundColor(Color.white.opacity(0.5))
             }
             
             Slider(value: $newFeeRate, in: minFeeRate...maxFeeRate, step: 1)
-                .tint(.orange)
+                .tint(Color.white)
             
             HStack {
                 Text("Min: \(Int(minFeeRate))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.25))
                 Spacer()
                 Button("Recommended") {
                     newFeeRate = recommendedFeeRate
                 }
-                .font(.caption)
-                .buttonStyle(.link)
+                .font(.system(size: 10))
+                .foregroundColor(Color.white.opacity(0.5))
+                .buttonStyle(.plain)
                 Spacer()
                 Text("Max: \(Int(maxFeeRate))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.25))
             }
             
-            // Fee tier indicators
             HStack(spacing: 8) {
                 feeButton(label: "Economy", multiplier: 1.1)
                 feeButton(label: "Normal", multiplier: 1.5)
@@ -169,6 +146,7 @@ struct SpeedUpTransactionSheet: View {
                 feeButton(label: "Urgent", multiplier: 3.0)
             }
         }
+        .hawalaSectionCard()
     }
     
     private func feeButton(label: String, multiplier: Double) -> some View {
@@ -176,26 +154,28 @@ struct SpeedUpTransactionSheet: View {
             newFeeRate = min(maxFeeRate, minFeeRate * multiplier)
         } label: {
             Text(label)
-                .font(.caption2)
-                .fontWeight(.medium)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.white.opacity(0.5))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.04))
+                .cornerRadius(6)
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        .buttonStyle(.plain)
     }
     
     private var costEstimateSection: some View {
         HStack {
             Text("Estimated Additional Cost")
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.4))
             Spacer()
             Text(estimatedCost)
-                .fontWeight(.semibold)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(Color.white.opacity(0.5))
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.orange.opacity(0.1))
-        )
+        .hawalaSectionCard()
     }
     
     private func truncateAddress(_ address: String) -> String {
@@ -266,9 +246,17 @@ struct SpeedUpTransactionSheet: View {
     private func fetchCurrentGasPrice() async throws -> Double {
         let rpcURL: String
         switch pendingTx.chainId {
-        case "ethereum": rpcURL = "https://eth.llamarpc.com"
+        case "ethereum", "ethereum-mainnet": rpcURL = "https://eth.llamarpc.com"
         case "ethereum-sepolia": rpcURL = "https://ethereum-sepolia-rpc.publicnode.com"
-        case "bnb": rpcURL = "https://bsc-dataseed.binance.org/"
+        case "bnb", "bsc-mainnet": rpcURL = "https://bsc-dataseed.binance.org/"
+        case "polygon-mainnet": rpcURL = "https://polygon-rpc.com"
+        case "arbitrum-mainnet": rpcURL = "https://arb1.arbitrum.io/rpc"
+        case "optimism-mainnet": rpcURL = "https://mainnet.optimism.io"
+        case "base-mainnet": rpcURL = "https://mainnet.base.org"
+        case "avalanche-mainnet": rpcURL = "https://api.avax.network/ext/bc/C/rpc"
+        case "fantom-mainnet": rpcURL = "https://rpcapi.fantom.network"
+        case "gnosis-mainnet": rpcURL = "https://rpc.gnosischain.com"
+        case "scroll-mainnet": rpcURL = "https://rpc.scroll.io"
         default: throw SpeedUpError.unsupportedChain
         }
         
@@ -352,7 +340,7 @@ struct SpeedUpTransactionSheet: View {
             privateWIF = keys.litecoin.privateWif
         case "bitcoin-testnet":
             privateWIF = keys.bitcoinTestnet.privateWif
-        default: // "bitcoin"
+        default: // "bitcoin" / "bitcoin-mainnet"
             privateWIF = keys.bitcoin.privateWif
         }
         
@@ -381,7 +369,7 @@ struct SpeedUpTransactionSheet: View {
         let isTestnet: Bool
         
         switch pendingTx.chainId {
-        case "ethereum":
+        case "ethereum", "ethereum-mainnet":
             rpcURL = "https://eth.llamarpc.com"
             chainId = 1
             isTestnet = false
@@ -389,9 +377,41 @@ struct SpeedUpTransactionSheet: View {
             rpcURL = "https://ethereum-sepolia-rpc.publicnode.com"
             chainId = 11155111
             isTestnet = true
-        case "bnb":
+        case "bnb", "bsc-mainnet":
             rpcURL = "https://bsc-dataseed.binance.org/"
             chainId = 56
+            isTestnet = false
+        case "polygon-mainnet":
+            rpcURL = "https://polygon-rpc.com"
+            chainId = 137
+            isTestnet = false
+        case "arbitrum-mainnet":
+            rpcURL = "https://arb1.arbitrum.io/rpc"
+            chainId = 42161
+            isTestnet = false
+        case "optimism-mainnet":
+            rpcURL = "https://mainnet.optimism.io"
+            chainId = 10
+            isTestnet = false
+        case "base-mainnet":
+            rpcURL = "https://mainnet.base.org"
+            chainId = 8453
+            isTestnet = false
+        case "avalanche-mainnet":
+            rpcURL = "https://api.avax.network/ext/bc/C/rpc"
+            chainId = 43114
+            isTestnet = false
+        case "fantom-mainnet":
+            rpcURL = "https://rpcapi.fantom.network"
+            chainId = 250
+            isTestnet = false
+        case "gnosis-mainnet":
+            rpcURL = "https://rpc.gnosischain.com"
+            chainId = 100
+            isTestnet = false
+        case "scroll-mainnet":
+            rpcURL = "https://rpc.scroll.io"
+            chainId = 534352
             isTestnet = false
         default:
             throw SpeedUpError.unsupportedChain
@@ -413,10 +433,11 @@ struct SpeedUpTransactionSheet: View {
         }
         let weiAmount = UInt64(amountDouble * 1e18)
         
-        // Use EIP-1559 for post-London chains (Ethereum mainnet, Sepolia)
-        // BSC still uses legacy transactions
+        // Use EIP-1559 for post-London chains
+        // BSC (56) and Fantom (250) use legacy transactions
+        let legacyChains: Set<Int> = [56, 250]
         let signedTx: String
-        if chainId == 1 || chainId == 11155111 {
+        if !legacyChains.contains(chainId) {
             // EIP-1559 transaction (Type 2)
             signedTx = try EthereumTransaction.buildAndSignEIP1559(
                 to: pendingTx.recipient,

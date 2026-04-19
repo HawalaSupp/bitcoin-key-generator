@@ -530,7 +530,7 @@ swift-app/Tests/swift-appTests/
 
 After successful v1.0 launch:
 1. WalletConnect v2 integration
-2. NFT support
+2. Token-management polish
 3. Hardware wallet integration
 4. Multi-language support
 5. iOS version

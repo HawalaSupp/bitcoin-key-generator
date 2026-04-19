@@ -16,95 +16,80 @@ struct GaslessTxView: View {
     let providers = ["Pimlico", "Alchemy", "Stackup", "ZeroDev"]
     
     var body: some View {
-        NavigationView {
-            List {
-                statusSection
-                
-                if isEnabled {
-                    sponsorshipsSection
-                    recentTransactionsSection
-                    providerSection
-                }
-                
-                howItWorksSection
+        HawalaSheetShell(title: "Gasless Transactions", width: 480, height: 600) {
+            statusSection
+
+            if isEnabled {
+                sponsorshipsSection
+                recentTransactionsSection
+                providerSection
             }
-            .navigationTitle("Gasless Transactions")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-            .sheet(isPresented: $showingProviderSettings) {
-                PaymasterProviderSettings(selectedProvider: $selectedProvider)
-            }
-            .onAppear(perform: loadData)
+
+            howItWorksSection
         }
-        .preferredColorScheme(.dark)
+        .sheet(isPresented: $showingProviderSettings) {
+            PaymasterProviderSettings(selectedProvider: $selectedProvider)
+        }
+        .onAppear(perform: loadData)
     }
     
     private var statusSection: some View {
-        Section {
-            VStack(spacing: 16) {
-                ZStack {
-                    Circle()
-                        .fill(sponsorshipAvailable ? Color.green.opacity(0.1) : Color.gray.opacity(0.1))
-                        .frame(width: 80, height: 80)
-                    
-                    Image(systemName: sponsorshipAvailable ? "checkmark.seal.fill" : "xmark.seal.fill")
-                        .font(.system(size: 40))
-                        .foregroundColor(sponsorshipAvailable ? .green : .gray)
-                }
-                
-                Text(sponsorshipAvailable ? "Sponsorship Available" : "No Sponsorship")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                
-                Text(sponsorshipAvailable 
-                    ? "Your next transaction can be gasless!"
-                    : "Enable gasless transactions to get started")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                
-                Toggle("Enable Gasless Transactions", isOn: $isEnabled)
-                    .padding(.top)
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(sponsorshipAvailable ? Color(red: 0.20, green: 0.84, blue: 0.29).opacity(0.1) : Color.white.opacity(0.04))
+                    .frame(width: 64, height: 64)
+                Image(systemName: sponsorshipAvailable ? "checkmark.seal.fill" : "xmark.seal.fill")
+                    .font(.system(size: 32))
+                    .foregroundColor(sponsorshipAvailable ? Color(red: 0.20, green: 0.84, blue: 0.29) : .white.opacity(0.3))
             }
-            .padding()
+
+            Text(sponsorshipAvailable ? "Sponsorship Available" : "No Sponsorship")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.white.opacity(0.85))
+
+            Text(sponsorshipAvailable ? "Your next transaction can be gasless!" : "Enable gasless transactions to get started")
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.4))
+                .multilineTextAlignment(.center)
+
+            HawalaToggleRow(icon: "bolt.circle.fill", label: "Enable Gasless", isOn: $isEnabled)
         }
+        .hawalaSectionCard()
     }
     
     private var sponsorshipsSection: some View {
-        Section("Active Sponsorships") {
+        VStack(alignment: .leading, spacing: 8) {
+            HawalaOverlaySectionHeader(icon: "gift.fill", title: "Active Sponsorships")
             if sponsorships.isEmpty {
-                HStack {
+                HStack(spacing: 6) {
                     Image(systemName: "gift")
-                        .foregroundColor(.orange)
+                        .font(.system(size: 12))
+                        .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04))
                     Text("No active sponsorships")
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.35))
                 }
             } else {
                 ForEach(sponsorships) { sponsorship in
                     SponsorshipRow(sponsorship: sponsorship)
                 }
             }
-            
-            NavigationLink(destination: FindSponsorshipsView()) {
-                Label("Find Sponsorships", systemImage: "magnifyingglass")
-            }
         }
+        .hawalaSectionCard()
     }
     
     private var recentTransactionsSection: some View {
-        Section("Recent Gasless Transactions") {
+        VStack(alignment: .leading, spacing: 8) {
+            HawalaOverlaySectionHeader(icon: "clock.fill", title: "Recent Gasless")
             if recentGasless.isEmpty {
-                HStack {
+                HStack(spacing: 6) {
                     Image(systemName: "clock")
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.25))
                     Text("No gasless transactions yet")
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.35))
                 }
             } else {
                 ForEach(recentGasless) { tx in
@@ -112,63 +97,50 @@ struct GaslessTxView: View {
                 }
             }
         }
+        .hawalaSectionCard()
     }
     
     private var providerSection: some View {
-        Section("Paymaster Provider") {
+        VStack(alignment: .leading, spacing: 8) {
+            HawalaOverlaySectionHeader(icon: "server.rack", title: "Paymaster Provider")
             HStack {
-                Image(systemName: "server.rack")
-                    .foregroundColor(.blue)
                 Text(selectedProvider)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
                 Spacer()
-                Button("Change") {
-                    showingProviderSettings = true
-                }
+                Button("Change") { showingProviderSettings = true }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.5))
+                    .buttonStyle(.plain)
             }
-            
             HStack {
                 Text("API Status")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.35))
                 Spacer()
                 HStack(spacing: 4) {
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 8, height: 8)
+                    Circle().fill(Color(red: 0.20, green: 0.84, blue: 0.29)).frame(width: 6, height: 6)
                     Text("Connected")
-                        .foregroundColor(.green)
-                        .font(.caption)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color(red: 0.20, green: 0.84, blue: 0.29))
                 }
             }
         }
+        .hawalaSectionCard()
     }
     
     private var howItWorksSection: some View {
-        Section("How Gasless Transactions Work") {
-            VStack(alignment: .leading, spacing: 16) {
-                StepRow(
-                    number: 1,
-                    title: "Create Transaction",
-                    description: "Build your transaction as usual"
-                )
-                
-                StepRow(
-                    number: 2,
-                    title: "Check Sponsorship",
-                    description: "We check if a paymaster will cover gas"
-                )
-                
-                StepRow(
-                    number: 3,
-                    title: "Sign & Submit",
-                    description: "Sign with your key, paymaster pays gas"
-                )
-                
-                Text("You only sign once. The paymaster covers all gas fees.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.top, 8)
-            }
-            .padding(.vertical, 8)
+        VStack(alignment: .leading, spacing: 10) {
+            HawalaOverlaySectionHeader(icon: "questionmark.circle", title: "How It Works")
+            StepRow(number: 1, title: "Create Transaction", description: "Build your transaction as usual")
+            StepRow(number: 2, title: "Check Sponsorship", description: "We check if a paymaster will cover gas")
+            StepRow(number: 3, title: "Sign & Submit", description: "Sign with your key, paymaster pays gas")
+            Text("You only sign once. The paymaster covers all gas fees.")
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.3))
+                .padding(.top, 4)
         }
+        .hawalaSectionCard()
     }
     
     private func loadData() {
@@ -213,34 +185,35 @@ struct SponsorshipRow: View {
     let sponsorship: SponsorshipInfo
     
     var body: some View {
-        HStack {
+        HStack(spacing: 10) {
             Image(systemName: "gift.fill")
-                .font(.title2)
-                .foregroundColor(.orange)
-                .frame(width: 44, height: 44)
-                .background(Color.orange.opacity(0.1))
-                .cornerRadius(10)
+                .font(.system(size: 16))
+                .foregroundColor(Color(red: 1, green: 0.84, blue: 0.04))
+                .frame(width: 32, height: 32)
+                .background(Color(red: 1, green: 0.84, blue: 0.04).opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(sponsorship.name)
-                    .font(.headline)
-                
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.85))
                 Text("\(sponsorship.remaining) transactions left")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.35))
             }
             
             Spacer()
             
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: .trailing, spacing: 2) {
                 Text("Expires")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                
+                    .font(.system(size: 9))
+                    .foregroundColor(.white.opacity(0.25))
                 Text(sponsorship.expiresAt, style: .date)
-                    .font(.caption)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.4))
             }
         }
+        .padding(.vertical, 4)
     }
 }
 
@@ -248,40 +221,39 @@ struct GaslessTxRow: View {
     let tx: GaslessTxRecord
     
     var body: some View {
-        HStack {
+        HStack(spacing: 10) {
             Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.green)
+                .font(.system(size: 14))
+                .foregroundColor(Color(red: 0.20, green: 0.84, blue: 0.29))
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(tx.action)
-                    .font(.subheadline)
-                
-                HStack {
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
+                HStack(spacing: 4) {
                     Text(tx.chain)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    Text("•")
-                        .foregroundColor(.secondary)
-                    
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.35))
+                    Text("·")
+                        .foregroundColor(.white.opacity(0.2))
                     Text(tx.timestamp, style: .relative)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.35))
                 }
             }
             
             Spacer()
             
-            VStack(alignment: .trailing) {
+            VStack(alignment: .trailing, spacing: 2) {
                 Text("Saved")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                
+                    .font(.system(size: 9))
+                    .foregroundColor(.white.opacity(0.25))
                 Text(tx.gasSaved)
-                    .font(.subheadline)
-                    .foregroundColor(.green)
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundColor(Color(red: 0.20, green: 0.84, blue: 0.29))
             }
         }
+        .padding(.vertical, 4)
     }
 }
 
@@ -291,22 +263,20 @@ struct StepRow: View {
     let description: String
     
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 10) {
             Text("\(number)")
-                .font(.caption)
-                .fontWeight(.bold)
+                .font(.system(size: 10, weight: .bold))
                 .foregroundColor(.white)
-                .frame(width: 24, height: 24)
-                .background(Circle().fill(Color.blue))
+                .frame(width: 20, height: 20)
+                .background(Circle().fill(Color.white.opacity(0.12)))
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
                 Text(description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.35))
             }
         }
     }
@@ -324,93 +294,116 @@ struct PaymasterProviderSettings: View {
     ]
     
     var body: some View {
-        NavigationView {
-            List {
-                Section("Select Provider") {
-                    ForEach(providers, id: \.0) { provider, description in
+        HawalaSheetShell(title: "Paymaster Provider", width: 400, height: 400) {
+            VStack(alignment: .leading, spacing: 8) {
+                HawalaOverlaySectionHeader(icon: "checkmark.circle", title: "Select Provider")
+                ForEach(providers, id: \.0) { provider, description in
+                    Button {
+                        selectedProvider = provider
+                    } label: {
                         HStack {
-                            VStack(alignment: .leading) {
+                            VStack(alignment: .leading, spacing: 2) {
                                 Text(provider)
-                                    .font(.headline)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.85))
                                 Text(description)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.white.opacity(0.35))
                             }
-                            
                             Spacer()
-                            
                             if selectedProvider == provider {
                                 Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.blue)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Color.white.opacity(0.5))
                             }
                         }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            selectedProvider = provider
-                        }
+                        .padding(.vertical, 4)
                     }
-                }
-                
-                Section("API Key") {
-                    SecureField("Enter API Key", text: .constant(""))
-                    
-                    Link(destination: URL(string: "https://pimlico.io")!) {
-                        Label("Get API Key", systemImage: "arrow.up.right.square")
-                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .navigationTitle("Paymaster Provider")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+            .hawalaSectionCard()
+
+            VStack(alignment: .leading, spacing: 8) {
+                HawalaOverlaySectionHeader(icon: "key.fill", title: "API Key")
+                HawalaSecureField(placeholder: "Enter API Key", text: .constant(""))
+                Link(destination: URL(string: "https://pimlico.io")!) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.system(size: 10))
+                        Text("Get API Key")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundColor(Color.white.opacity(0.5))
                 }
             }
+            .hawalaSectionCard()
         }
     }
 }
 
 struct FindSponsorshipsView: View {
     var body: some View {
-        List {
-            Section {
+        HawalaSheetShell(title: "Find Sponsorships", width: 420, height: 400) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Sponsorships are offered by protocols and dApps to encourage usage. Check back often for new offers!")
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
+                    .lineSpacing(2)
             }
-            
-            Section("Available Sponsorships") {
-                HStack {
+            .hawalaSectionCard()
+
+            VStack(alignment: .leading, spacing: 10) {
+                HawalaOverlaySectionHeader(icon: "sparkles", title: "Available Sponsorships")
+
+                HStack(spacing: 10) {
                     Image(systemName: "arrow.left.arrow.right")
+                        .font(.system(size: 14))
                         .foregroundColor(.pink)
-                    VStack(alignment: .leading) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("Uniswap")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.85))
                         Text("Free swaps this week")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.35))
                     }
                     Spacer()
                     Button("Claim") {}
-                        .buttonStyle(.borderedProminent)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(Capsule())
+                        .buttonStyle(.plain)
                 }
-                
-                HStack {
+
+                HStack(spacing: 10) {
                     Image(systemName: "circle.hexagongrid")
+                        .font(.system(size: 14))
                         .foregroundColor(.purple)
-                    VStack(alignment: .leading) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("Polygon")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.85))
                         Text("10 free transactions")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.35))
                     }
                     Spacer()
                     Button("Claim") {}
-                        .buttonStyle(.borderedProminent)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(Capsule())
+                        .buttonStyle(.plain)
                 }
             }
+            .hawalaSectionCard()
         }
-        .navigationTitle("Find Sponsorships")
     }
 }
 

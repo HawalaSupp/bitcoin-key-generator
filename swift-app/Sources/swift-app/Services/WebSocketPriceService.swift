@@ -121,7 +121,10 @@ class WebSocketPriceService: NSObject, ObservableObject {
     /// Start the WebSocket connection
     func connect() {
         guard connectionState != .connected && connectionState != .connecting else { return }
-        
+
+        // Respect privacy mode — do not connect when prices are paused
+        if PrivacyManager.shared.shouldPausePrices { return }
+
         connectionState = .connecting
         reconnectAttempts = 0
         

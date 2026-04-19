@@ -445,11 +445,11 @@ struct ReceiveViewModern: View {
             Button(action: { copyAddress(address) }) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(formatAddress(address).prefix)
+                        Text(PrivacyManager.shared.redactAddress(formatAddress(address).prefix))
                             .font(.system(size: 13, weight: .medium, design: .monospaced))
                             .foregroundColor(.white)
                         
-                        Text(formatAddress(address).suffix)
+                        Text(PrivacyManager.shared.redactAddress(formatAddress(address).suffix))
                             .font(.system(size: 13, weight: .medium, design: .monospaced))
                             .foregroundColor(Color.white.opacity(0.5))
                     }

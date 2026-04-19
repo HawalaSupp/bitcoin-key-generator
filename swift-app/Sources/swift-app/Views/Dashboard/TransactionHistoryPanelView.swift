@@ -149,7 +149,9 @@ struct TransactionHistoryPanelView: View {
     // MARK: - History Content
     @ViewBuilder
     private var historyContent: some View {
-        if let historyError {
+        if PrivacyManager.shared.shouldHideTransactions {
+            transactionHiddenPlaceholder
+        } else if let historyError {
             errorPlaceholder(historyError)
         } else if isHistoryLoading && historyEntries.isEmpty {
             loadingPlaceholder
@@ -224,6 +226,22 @@ struct TransactionHistoryPanelView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+    }
+
+    private var transactionHiddenPlaceholder: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "eye.slash")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary.opacity(0.5))
+            Text("History hidden")
+                .font(.subheadline)
+                .fontWeight(.medium)
+            Text("Privacy mode is active.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
@@ -335,6 +353,7 @@ struct TransactionHistoryPanelView: View {
             Button("Received") { historyFilterType = "Received" }
             Button("Sent") { historyFilterType = "Sent" }
             Button("Swap") { historyFilterType = "Swap" }
+            Button("Bridge") { historyFilterType = "Bridge" }
             Button("Approve") { historyFilterType = "Approve" }
             Button("Contract") { historyFilterType = "Contract" }
         } label: {

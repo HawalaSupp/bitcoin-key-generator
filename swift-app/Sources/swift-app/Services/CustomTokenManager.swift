@@ -653,10 +653,15 @@ enum TokenError: LocalizedError {
 
 // MARK: - Add Token Sheet View
 
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MARK: – Add Custom Token Sheet (monochrome)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 struct AddCustomTokenSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var tokenManager = CustomTokenManager.shared
-    
+
     @State private var contractAddress = ""
     @State private var symbol = ""
     @State private var name = ""
@@ -666,102 +671,97 @@ struct AddCustomTokenSheet: View {
     @State private var error: String?
     @State private var fetchedToken: CustomToken?
     @State private var manualEntry = false
-    
+    @State private var closeHovered = false
+
     var body: some View {
         VStack(spacing: 0) {
-            // Header
             header
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-            
-            // Content
+            Divider().background(.white.opacity(0.06))
+
             ScrollView {
-                VStack(spacing: HawalaTheme.Spacing.xl) {
+                VStack(spacing: 16) {
                     chainSelector
                     addressInput
-                    
+
                     if let token = fetchedToken {
                         tokenPreview(token)
                     } else if manualEntry {
                         manualEntryFields
                     }
-                    
+
                     if let error = error {
                         errorView(error)
                     }
                 }
-                .padding(HawalaTheme.Spacing.xl)
+                .padding(20)
             }
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-            
-            // Footer
+
+            Divider().background(.white.opacity(0.06))
             footer
         }
         .frame(width: 450, height: 550)
-        .background(HawalaTheme.Colors.background)
+        .background(Color(red: 0.10, green: 0.10, blue: 0.12))
     }
-    
+
     private var header: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Add Custom Token")
-                    .font(HawalaTheme.Typography.h3)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
-                
-                Text("Import any ERC-20, BEP-20, or SPL token")
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("ADD CUSTOM TOKEN")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .tracking(1)
+                    .foregroundColor(.white.opacity(0.55))
+
+                Text("Import ERC-20, BEP-20, or SPL token")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.25))
             }
-            
+
             Spacer()
-            
-            Button {
-                dismiss()
-            } label: {
+
+            Button { dismiss() } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(closeHovered ? 0.8 : 0.35))
                     .frame(width: 28, height: 28)
-                    .background(HawalaTheme.Colors.backgroundTertiary)
-                    .clipShape(Circle())
+                    .background(Circle().fill(.white.opacity(closeHovered ? 0.10 : 0.05)))
             }
             .buttonStyle(.plain)
+            .onHover { closeHovered = $0 }
         }
-        .padding(HawalaTheme.Spacing.lg)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
     }
-    
+
     private var chainSelector: some View {
-        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
-            Text("Network")
-                .font(HawalaTheme.Typography.caption)
-                .foregroundColor(HawalaTheme.Colors.textSecondary)
-            
-            HStack(spacing: HawalaTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("NETWORK")
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .tracking(0.5)
+                .foregroundColor(.white.opacity(0.30))
+
+            HStack(spacing: 6) {
                 ForEach(TokenChain.allCases) { chain in
+                    let sel = selectedChain == chain
                     Button {
-                        withAnimation(.spring(response: 0.3)) {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
                             selectedChain = chain
                             fetchedToken = nil
                             error = nil
                         }
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 5) {
                             Image(systemName: chain.icon)
-                                .font(.system(size: 12))
+                                .font(.system(size: 10))
                             Text(chain == .ethereum ? "ETH" : chain == .bsc ? "BSC" : "SOL")
-                                .font(HawalaTheme.Typography.caption)
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .tracking(0.5)
                         }
-                        .padding(.horizontal, HawalaTheme.Spacing.md)
-                        .padding(.vertical, HawalaTheme.Spacing.sm)
-                        .background(selectedChain == chain ? chain.color.opacity(0.2) : HawalaTheme.Colors.backgroundTertiary)
-                        .foregroundColor(selectedChain == chain ? chain.color : HawalaTheme.Colors.textSecondary)
-                        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm)
-                                .strokeBorder(selectedChain == chain ? chain.color : Color.clear, lineWidth: 1)
+                        .foregroundColor(.white.opacity(sel ? 0.65 : 0.25))
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(.white.opacity(sel ? 0.08 : 0.02))
+                                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(sel ? 0.12 : 0.04)))
                         )
                     }
                     .buttonStyle(.plain)
@@ -769,229 +769,212 @@ struct AddCustomTokenSheet: View {
             }
         }
     }
-    
+
     private var addressInput: some View {
-        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
-            Text("Contract Address")
-                .font(HawalaTheme.Typography.caption)
-                .foregroundColor(HawalaTheme.Colors.textSecondary)
-            
-            HStack(spacing: HawalaTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("CONTRACT ADDRESS")
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .tracking(0.5)
+                .foregroundColor(.white.opacity(0.30))
+
+            HStack(spacing: 8) {
                 TextField(selectedChain.addressPlaceholder, text: $contractAddress)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.55))
                     .textFieldStyle(.plain)
-                    .font(HawalaTheme.Typography.mono)
-                    .padding(HawalaTheme.Spacing.md)
-                    .background(HawalaTheme.Colors.backgroundTertiary)
-                    .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm))
+                    .padding(.horizontal, 10).padding(.vertical, 9)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.04))
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.06)))
+                    )
                     .onChange(of: contractAddress) { _ in
                         fetchedToken = nil
                         error = nil
                     }
-                
+
                 Button {
                     Task { await fetchTokenInfo() }
                 } label: {
                     if isLoading {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                            .frame(width: 80, height: 36)
+                        ProgressView().scaleEffect(0.6).tint(.white.opacity(0.3))
+                            .frame(width: 70, height: 32)
                     } else {
-                        Text("Fetch")
-                            .font(HawalaTheme.Typography.body)
-                            .frame(width: 80, height: 36)
+                        Text("FETCH")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .tracking(0.5)
+                            .foregroundColor(.white.opacity(canFetch ? 0.55 : 0.18))
+                            .frame(width: 70, height: 32)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(canFetch ? 0.06 : 0.02)))
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(HawalaTheme.Colors.accent)
+                .buttonStyle(.plain)
                 .disabled(contractAddress.isEmpty || isLoading || !tokenManager.validateContractAddress(contractAddress, chain: selectedChain))
             }
-            
+
             if !tokenManager.validateContractAddress(contractAddress, chain: selectedChain) && !contractAddress.isEmpty {
                 Text("Invalid \(selectedChain.displayName) address format")
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.error)
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.30))
             }
         }
     }
-    
+
+    private var canFetch: Bool {
+        !contractAddress.isEmpty && tokenManager.validateContractAddress(contractAddress, chain: selectedChain) && !isLoading
+    }
+
     private func tokenPreview(_ token: CustomToken) -> some View {
-        VStack(spacing: HawalaTheme.Spacing.md) {
+        VStack(spacing: 10) {
             HStack {
-                Text("Token Found")
-                    .font(HawalaTheme.Typography.captionBold)
-                    .foregroundColor(HawalaTheme.Colors.success)
-                
+                Text("TOKEN FOUND")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(.white.opacity(0.40))
                 Spacer()
-                
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(HawalaTheme.Colors.success)
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.35))
             }
-            
-            HStack(spacing: HawalaTheme.Spacing.md) {
-                // Token icon placeholder
+
+            HStack(spacing: 12) {
                 ZStack {
-                    Circle()
-                        .fill(selectedChain.color.opacity(0.2))
-                        .frame(width: 48, height: 48)
-                    
-                    Text(String(token.symbol.prefix(2)))
-                        .font(HawalaTheme.Typography.h4)
-                        .foregroundColor(selectedChain.color)
+                    Circle().fill(.white.opacity(0.06)).frame(width: 40, height: 40)
+                    Text(String(token.symbol.prefix(2)).uppercased())
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.40))
                 }
-                
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(token.name)
-                        .font(HawalaTheme.Typography.body)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    
-                    Text("\(token.symbol) • \(token.decimals) decimals")
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.55))
+                    Text("\(token.symbol) \u{2022} \(token.decimals) decimals")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.30))
                 }
-                
                 Spacer()
             }
         }
-        .padding(HawalaTheme.Spacing.md)
-        .background(HawalaTheme.Colors.success.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
-                .strokeBorder(HawalaTheme.Colors.success.opacity(0.3), lineWidth: 1)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.03))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.06)))
         )
     }
-    
+
     private var manualEntryFields: some View {
-        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
-            Text("Enter Token Details Manually")
-                .font(HawalaTheme.Typography.captionBold)
-                .foregroundColor(HawalaTheme.Colors.textSecondary)
-            
-            VStack(spacing: HawalaTheme.Spacing.sm) {
-                HStack {
-                    Text("Symbol")
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
-                        .frame(width: 80, alignment: .leading)
-                    
-                    TextField("e.g. USDT", text: $symbol)
-                        .textFieldStyle(.plain)
-                        .padding(HawalaTheme.Spacing.sm)
-                        .background(HawalaTheme.Colors.backgroundTertiary)
-                        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm))
-                }
-                
-                HStack {
-                    Text("Name")
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
-                        .frame(width: 80, alignment: .leading)
-                    
-                    TextField("e.g. Tether USD", text: $name)
-                        .textFieldStyle(.plain)
-                        .padding(HawalaTheme.Spacing.sm)
-                        .background(HawalaTheme.Colors.backgroundTertiary)
-                        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm))
-                }
-                
-                HStack {
-                    Text("Decimals")
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
-                        .frame(width: 80, alignment: .leading)
-                    
-                    TextField("18", text: $decimals)
-                        .textFieldStyle(.plain)
-                        .padding(HawalaTheme.Spacing.sm)
-                        .background(HawalaTheme.Colors.backgroundTertiary)
-                        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm))
-                        .frame(width: 80)
-                    
-                    Spacer()
-                }
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            Text("MANUAL ENTRY")
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .tracking(0.5)
+                .foregroundColor(.white.opacity(0.30))
+
+            ctmField(label: "SYMBOL", placeholder: "e.g. USDT", text: $symbol)
+            ctmField(label: "NAME", placeholder: "e.g. Tether USD", text: $name)
+            ctmField(label: "DECIMALS", placeholder: "18", text: $decimals)
         }
-        .padding(HawalaTheme.Spacing.md)
-        .background(HawalaTheme.Colors.backgroundSecondary)
-        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.02))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.04)))
+        )
     }
-    
+
+    private func ctmField(label: String, placeholder: String, text: Binding<String>) -> some View {
+        HStack(spacing: 10) {
+            Text(label)
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .tracking(0.3)
+                .foregroundColor(.white.opacity(0.25))
+                .frame(width: 65, alignment: .trailing)
+
+            TextField(placeholder, text: text)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.white.opacity(0.55))
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 8).padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.04))
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.white.opacity(0.06)))
+                )
+        }
+    }
+
     private func errorView(_ message: String) -> some View {
-        VStack(spacing: HawalaTheme.Spacing.sm) {
-            HStack {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(HawalaTheme.Colors.warning)
-                
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 10))
                 Text(message)
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
-                
+                    .font(.system(size: 9, design: .monospaced))
                 Spacer()
             }
-            
+            .foregroundColor(.white.opacity(0.35))
+
             Button("Enter details manually") {
                 manualEntry = true
                 error = nil
             }
-            .font(HawalaTheme.Typography.caption)
-            .foregroundColor(HawalaTheme.Colors.accent)
+            .font(.system(size: 9, design: .monospaced))
+            .foregroundColor(.white.opacity(0.40))
+            .buttonStyle(.plain)
         }
-        .padding(HawalaTheme.Spacing.md)
-        .background(HawalaTheme.Colors.warning.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.03))
+        )
     }
-    
+
     private var footer: some View {
         HStack {
-            Button("Cancel") {
-                dismiss()
+            Button("Cancel") { dismiss() }
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(.white.opacity(0.30))
+                .buttonStyle(.plain)
+
+            Spacer()
+
+            Button { addToken() } label: {
+                Text("ADD TOKEN")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(.white.opacity(canAddToken ? 0.55 : 0.18))
+                    .padding(.horizontal, 20).padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(.white.opacity(canAddToken ? 0.06 : 0.02))
+                    )
             }
             .buttonStyle(.plain)
-            .foregroundColor(HawalaTheme.Colors.textSecondary)
-            
-            Spacer()
-            
-            Button {
-                addToken()
-            } label: {
-                Text("Add Token")
-                    .font(HawalaTheme.Typography.body)
-                    .padding(.horizontal, HawalaTheme.Spacing.xl)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(HawalaTheme.Colors.accent)
             .disabled(!canAddToken)
         }
-        .padding(HawalaTheme.Spacing.lg)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
     }
-    
+
     private var canAddToken: Bool {
-        if let _ = fetchedToken {
-            return true
-        }
-        if manualEntry && !symbol.isEmpty && !name.isEmpty && !contractAddress.isEmpty {
-            return true
-        }
+        if fetchedToken != nil { return true }
+        if manualEntry && !symbol.isEmpty && !name.isEmpty && !contractAddress.isEmpty { return true }
         return false
     }
-    
+
     private func fetchTokenInfo() async {
         isLoading = true
         error = nil
-        
+
         do {
             let token = try await tokenManager.fetchTokenInfo(contractAddress: contractAddress, chain: selectedChain)
             fetchedToken = token
         } catch {
             self.error = error.localizedDescription
         }
-        
+
         isLoading = false
     }
-    
+
     private func addToken() {
         let token: CustomToken
-        
+
         if let fetched = fetchedToken {
             token = fetched
         } else {
@@ -1003,7 +986,7 @@ struct AddCustomTokenSheet: View {
                 chain: selectedChain
             )
         }
-        
+
         do {
             try tokenManager.addToken(token)
             dismiss()
@@ -1013,270 +996,249 @@ struct AddCustomTokenSheet: View {
     }
 }
 
-// MARK: - Custom Tokens List View
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MARK: – Custom Tokens List View (monochrome)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 struct CustomTokensListView: View {
     @ObservedObject private var tokenManager = CustomTokenManager.shared
     @State private var showAddSheet = false
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
-            // Header
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Custom Tokens")
-                        .font(HawalaTheme.Typography.h4)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    
+                    Text("CUSTOM TOKENS")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .tracking(0.5)
+                        .foregroundColor(.white.opacity(0.50))
                     Text("\(tokenManager.tokens.count) tokens added")
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.25))
                 }
-                
+
                 Spacer()
-                
-                Button {
-                    showAddSheet = true
-                } label: {
+
+                Button { showAddSheet = true } label: {
                     HStack(spacing: 4) {
-                        Image(systemName: "plus")
-                        Text("Add Token")
+                        Image(systemName: "plus").font(.system(size: 9))
+                        Text("ADD")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .tracking(0.3)
                     }
-                    .font(HawalaTheme.Typography.caption)
-                    .padding(.horizontal, HawalaTheme.Spacing.md)
-                    .padding(.vertical, HawalaTheme.Spacing.sm)
-                    .background(HawalaTheme.Colors.accent.opacity(0.15))
-                    .foregroundColor(HawalaTheme.Colors.accent)
-                    .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm))
+                    .foregroundColor(.white.opacity(0.40))
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.05))
+                    )
                 }
                 .buttonStyle(.plain)
             }
-            
+
             if tokenManager.tokens.isEmpty {
-                emptyState
+                VStack(spacing: 10) {
+                    Image(systemName: "circle.hexagongrid")
+                        .font(.system(size: 28))
+                        .foregroundColor(.white.opacity(0.10))
+                    Text("No custom tokens")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.20))
+                    Text("Add tokens by their contract address")
+                        .font(.system(size: 8, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.15))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
             } else {
-                tokensList
+                VStack(spacing: 2) {
+                    ForEach(tokenManager.tokens) { token in
+                        CustomTokenRow(token: token)
+                    }
+                }
             }
         }
         .sheet(isPresented: $showAddSheet) {
             AddCustomTokenSheet()
         }
     }
-    
-    private var emptyState: some View {
-        VStack(spacing: HawalaTheme.Spacing.md) {
-            Image(systemName: "circle.hexagongrid")
-                .font(.system(size: 40))
-                .foregroundColor(HawalaTheme.Colors.textTertiary)
-            
-            Text("No custom tokens")
-                .font(HawalaTheme.Typography.body)
-                .foregroundColor(HawalaTheme.Colors.textSecondary)
-            
-            Text("Add ERC-20, BEP-20, or SPL tokens by their contract address")
-                .font(HawalaTheme.Typography.caption)
-                .foregroundColor(HawalaTheme.Colors.textTertiary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(HawalaTheme.Spacing.xxl)
-    }
-    
-    private var tokensList: some View {
-        VStack(spacing: HawalaTheme.Spacing.sm) {
-            ForEach(tokenManager.tokens) { token in
-                CustomTokenRow(token: token)
-            }
-        }
-    }
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MARK: – Custom Token Row (monochrome)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 struct CustomTokenRow: View {
     let token: CustomToken
     @ObservedObject private var tokenManager = CustomTokenManager.shared
     @State private var isHovered = false
-    
+
     var body: some View {
-        HStack(spacing: HawalaTheme.Spacing.md) {
-            // Token icon
+        HStack(spacing: 10) {
             ZStack {
-                Circle()
-                    .fill(token.chain.color.opacity(0.2))
-                    .frame(width: 36, height: 36)
-                
-                Text(String(token.symbol.prefix(2)))
-                    .font(HawalaTheme.Typography.captionBold)
-                    .foregroundColor(token.chain.color)
+                Circle().fill(.white.opacity(0.06)).frame(width: 32, height: 32)
+                Text(String(token.symbol.prefix(2)).uppercased())
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.35))
             }
-            
-            // Token info
+
             VStack(alignment: .leading, spacing: 2) {
-                Text(token.symbol)
-                    .font(HawalaTheme.Typography.body)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
-                
+                Text(token.symbol.uppercased())
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.50))
                 Text(token.name)
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.25))
             }
-            
+
             Spacer()
-            
-            // Chain badge
+
             Text(token.chain == .ethereum ? "ERC-20" : token.chain == .bsc ? "BEP-20" : "SPL")
-                .font(HawalaTheme.Typography.label)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(token.chain.color.opacity(0.15))
-                .foregroundColor(token.chain.color)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-            
-            // Actions
+                .font(.system(size: 7, weight: .bold, design: .monospaced))
+                .tracking(0.3)
+                .foregroundColor(.white.opacity(0.20))
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(RoundedRectangle(cornerRadius: 3).fill(.white.opacity(0.04)))
+
             if isHovered {
                 Button {
                     tokenManager.removeToken(token)
                 } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 12))
-                        .foregroundColor(HawalaTheme.Colors.error)
-                        .frame(width: 28, height: 28)
-                        .background(HawalaTheme.Colors.error.opacity(0.1))
-                        .clipShape(Circle())
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.35))
+                        .frame(width: 24, height: 24)
+                        .background(Circle().fill(.white.opacity(0.06)))
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(HawalaTheme.Spacing.md)
-        .background(isHovered ? HawalaTheme.Colors.backgroundHover : HawalaTheme.Colors.backgroundSecondary)
-        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(isHovered ? .white.opacity(0.04) : .white.opacity(0.02))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
         .onHover { isHovered = $0 }
     }
 }
 
-// MARK: - Custom Tokens Sheet (Settings Integration)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MARK: – Custom Tokens Sheet — Settings Integration (monochrome)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 struct CustomTokensSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var tokenManager = CustomTokenManager.shared
     @State private var showAddSheet = false
     @State private var showAutoDetectSheet = false
-    
+    @State private var closeHovered = false
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Custom Tokens")
-                        .font(HawalaTheme.Typography.h3)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("CUSTOM TOKENS")
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .tracking(1)
+                        .foregroundColor(.white.opacity(0.55))
                     Text("\(tokenManager.tokens.count) tokens added")
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.25))
                 }
-                
+
                 Spacer()
-                
-                Button {
-                    showAutoDetectSheet = true
-                } label: {
+
+                Button { showAutoDetectSheet = true } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "sparkle.magnifyingglass")
-                        Text("Auto-Detect")
+                            .font(.system(size: 9))
+                        Text("DETECT")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .tracking(0.3)
                     }
-                    .font(HawalaTheme.Typography.caption)
-                    .padding(.horizontal, HawalaTheme.Spacing.md)
-                    .padding(.vertical, HawalaTheme.Spacing.sm)
-                    .background(HawalaTheme.Colors.success.opacity(0.15))
-                    .foregroundColor(HawalaTheme.Colors.success)
-                    .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm))
+                    .foregroundColor(.white.opacity(0.35))
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.04)))
                 }
                 .buttonStyle(.plain)
-                
-                Button {
-                    showAddSheet = true
-                } label: {
+
+                Button { showAddSheet = true } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "plus")
-                        Text("Add Token")
+                            .font(.system(size: 9))
+                        Text("ADD")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .tracking(0.3)
                     }
-                    .font(HawalaTheme.Typography.caption)
-                    .padding(.horizontal, HawalaTheme.Spacing.md)
-                    .padding(.vertical, HawalaTheme.Spacing.sm)
-                    .background(HawalaTheme.Colors.accent)
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm))
+                    .foregroundColor(.white.opacity(0.45))
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.06)))
                 }
                 .buttonStyle(.plain)
-                
-                Button {
-                    dismiss()
-                } label: {
+
+                Button { dismiss() } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .background(HawalaTheme.Colors.backgroundTertiary)
-                        .clipShape(Circle())
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white.opacity(closeHovered ? 0.8 : 0.35))
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(.white.opacity(closeHovered ? 0.10 : 0.05)))
                 }
                 .buttonStyle(.plain)
+                .onHover { closeHovered = $0 }
             }
-            .padding(HawalaTheme.Spacing.lg)
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-            
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            Divider().background(.white.opacity(0.06))
+
             // Content
             if tokenManager.tokens.isEmpty {
-                VStack(spacing: HawalaTheme.Spacing.md) {
+                VStack(spacing: 12) {
                     Spacer()
-                    
                     Image(systemName: "circle.hexagongrid")
-                        .font(.system(size: 48))
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
-                    
-                    Text("No custom tokens")
-                        .font(HawalaTheme.Typography.h4)
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
-                    
+                        .font(.system(size: 32))
+                        .foregroundColor(.white.opacity(0.10))
+                    Text("NO CUSTOM TOKENS")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .tracking(0.5)
+                        .foregroundColor(.white.opacity(0.25))
                     Text("Add ERC-20, BEP-20, or SPL tokens\nby their contract address")
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.18))
                         .multilineTextAlignment(.center)
-                    
-                    Button {
-                        showAddSheet = true
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "plus.circle.fill")
-                            Text("Add Your First Token")
+                        .lineSpacing(3)
+
+                    Button { showAddSheet = true } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "plus.circle")
+                                .font(.system(size: 10))
+                            Text("ADD YOUR FIRST TOKEN")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .tracking(0.5)
                         }
-                        .font(HawalaTheme.Typography.body)
-                        .padding(.horizontal, HawalaTheme.Spacing.xl)
-                        .padding(.vertical, HawalaTheme.Spacing.md)
-                        .background(HawalaTheme.Colors.accent)
-                        .foregroundColor(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
+                        .foregroundColor(.white.opacity(0.40))
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.05))
+                                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.08)))
+                        )
                     }
                     .buttonStyle(.plain)
-                    .padding(.top, HawalaTheme.Spacing.md)
-                    
+                    .padding(.top, 8)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
             } else {
                 ScrollView {
-                    VStack(spacing: HawalaTheme.Spacing.sm) {
+                    VStack(spacing: 2) {
                         ForEach(tokenManager.tokens) { token in
                             CustomTokenRow(token: token)
                         }
                     }
-                    .padding(HawalaTheme.Spacing.lg)
+                    .padding(16)
                 }
             }
         }
         .frame(width: 500, height: 450)
-        .background(HawalaTheme.Colors.background)
+        .background(Color(red: 0.10, green: 0.10, blue: 0.12))
         .sheet(isPresented: $showAddSheet) {
             AddCustomTokenSheet()
         }
@@ -1286,55 +1248,54 @@ struct CustomTokensSheet: View {
     }
 }
 
-// MARK: - Auto-Detect Tokens Sheet
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MARK: – Auto-Detect Tokens Sheet (monochrome)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 struct AutoDetectTokensSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var tokenManager = CustomTokenManager.shared
-    
+
     @State private var isScanning = false
     @State private var detectedTokens: [CustomToken] = []
     @State private var selectedTokens: Set<UUID> = []
     @State private var error: String?
     @State private var scanComplete = false
-    
-    // You would get these from the wallet manager
-    @State private var ethAddress: String = ""
-    @State private var solAddress: String = ""
-    
+    @State private var closeHovered = false
+
+    // Pull addresses from active wallet
+    @State private var ethAddress: String = WalletManager.shared.activeHDWallet?.accounts.first(where: { $0.chainId == .ethereum })?.address ?? ""
+    @State private var solAddress: String = WalletManager.shared.activeHDWallet?.accounts.first(where: { $0.chainId == .solana })?.address ?? ""
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Auto-Detect Tokens")
-                        .font(HawalaTheme.Typography.h3)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    
-                    Text("Scan your wallets for tokens")
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.textTertiary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("AUTO-DETECT TOKENS")
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .tracking(1)
+                        .foregroundColor(.white.opacity(0.55))
+                    Text("Scan wallets for tokens")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.25))
                 }
-                
                 Spacer()
-                
-                Button {
-                    dismiss()
-                } label: {
+                Button { dismiss() } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .background(HawalaTheme.Colors.backgroundTertiary)
-                        .clipShape(Circle())
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white.opacity(closeHovered ? 0.8 : 0.35))
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(.white.opacity(closeHovered ? 0.10 : 0.05)))
                 }
                 .buttonStyle(.plain)
+                .onHover { closeHovered = $0 }
             }
-            .padding(HawalaTheme.Spacing.lg)
-            
-            Divider()
-                .background(HawalaTheme.Colors.border)
-            
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            Divider().background(.white.opacity(0.06))
+
             // Content
             if isScanning {
                 scanningView
@@ -1345,175 +1306,177 @@ struct AutoDetectTokensSheet: View {
             } else {
                 startScanView
             }
-            
+
+            Divider().background(.white.opacity(0.06))
+
             // Footer
-            Divider()
-                .background(HawalaTheme.Colors.border)
-            
             HStack {
-                Button("Cancel") {
-                    dismiss()
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(HawalaTheme.Colors.textSecondary)
-                
+                Button("Cancel") { dismiss() }
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.30))
+                    .buttonStyle(.plain)
+
                 Spacer()
-                
+
                 if !detectedTokens.isEmpty {
-                    Button {
-                        addSelectedTokens()
-                    } label: {
-                        Text("Add \(selectedTokens.count) Tokens")
-                            .font(HawalaTheme.Typography.body)
-                            .padding(.horizontal, HawalaTheme.Spacing.xl)
+                    Button { addSelectedTokens() } label: {
+                        Text("ADD \(selectedTokens.count) TOKENS")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .tracking(0.5)
+                            .foregroundColor(.white.opacity(selectedTokens.isEmpty ? 0.18 : 0.55))
+                            .padding(.horizontal, 16).padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(.white.opacity(selectedTokens.isEmpty ? 0.02 : 0.06))
+                            )
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(HawalaTheme.Colors.accent)
+                    .buttonStyle(.plain)
                     .disabled(selectedTokens.isEmpty)
                 }
             }
-            .padding(HawalaTheme.Spacing.lg)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
         .frame(width: 500, height: 500)
-        .background(HawalaTheme.Colors.background)
+        .background(Color(red: 0.10, green: 0.10, blue: 0.12))
     }
-    
+
     private var startScanView: some View {
-        VStack(spacing: HawalaTheme.Spacing.xl) {
+        VStack(spacing: 16) {
             Spacer()
-            
+
             Image(systemName: "sparkle.magnifyingglass")
-                .font(.system(size: 48))
-                .foregroundColor(HawalaTheme.Colors.accent)
-            
-            VStack(spacing: HawalaTheme.Spacing.sm) {
-                Text("Scan for Tokens")
-                    .font(HawalaTheme.Typography.h4)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
-                
-                Text("Automatically detect ERC-20 and SPL tokens\nin your wallets with non-zero balances")
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                .font(.system(size: 32))
+                .foregroundColor(.white.opacity(0.12))
+
+            VStack(spacing: 6) {
+                Text("SCAN FOR TOKENS")
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(.white.opacity(0.40))
+                Text("Detect ERC-20 and SPL tokens\nwith non-zero balances")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.22))
                     .multilineTextAlignment(.center)
+                    .lineSpacing(3)
             }
-            
+
             // Address inputs
-            VStack(spacing: HawalaTheme.Spacing.md) {
-                HStack {
-                    Image(systemName: "diamond")
-                        .foregroundColor(.blue)
-                        .frame(width: 24)
-                    
-                    TextField("Ethereum Address (0x...)", text: $ethAddress)
-                        .textFieldStyle(.plain)
-                        .font(HawalaTheme.Typography.mono)
-                        .padding(HawalaTheme.Spacing.sm)
-                        .background(HawalaTheme.Colors.backgroundTertiary)
-                        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm))
-                }
-                
-                HStack {
-                    Image(systemName: "sparkles")
-                        .foregroundColor(.purple)
-                        .frame(width: 24)
-                    
-                    TextField("Solana Address", text: $solAddress)
-                        .textFieldStyle(.plain)
-                        .font(HawalaTheme.Typography.mono)
-                        .padding(HawalaTheme.Spacing.sm)
-                        .background(HawalaTheme.Colors.backgroundTertiary)
-                        .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm))
-                }
+            VStack(spacing: 8) {
+                addrRow(icon: "diamond", label: "ETH", text: $ethAddress, placeholder: "Ethereum address (0x...)")
+                addrRow(icon: "sparkles", label: "SOL", text: $solAddress, placeholder: "Solana address")
             }
-            .padding(.horizontal, HawalaTheme.Spacing.xl)
-            
+            .padding(.horizontal, 30)
+
             Button {
                 Task { await startScan() }
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     Image(systemName: "magnifyingglass")
-                    Text("Start Scan")
+                        .font(.system(size: 9))
+                    Text("START SCAN")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .tracking(0.5)
                 }
-                .font(HawalaTheme.Typography.body)
-                .padding(.horizontal, HawalaTheme.Spacing.xl)
-                .padding(.vertical, HawalaTheme.Spacing.md)
-                .background(HawalaTheme.Colors.accent)
-                .foregroundColor(.white)
-                .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
+                .foregroundColor(.white.opacity(ethAddress.isEmpty && solAddress.isEmpty ? 0.18 : 0.50))
+                .padding(.horizontal, 24).padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(.white.opacity(ethAddress.isEmpty && solAddress.isEmpty ? 0.02 : 0.06))
+                )
             }
             .buttonStyle(.plain)
             .disabled(ethAddress.isEmpty && solAddress.isEmpty)
-            
+
             Spacer()
         }
         .frame(maxWidth: .infinity)
     }
-    
+
+    private func addrRow(icon: String, label: String, text: Binding<String>, placeholder: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.18))
+                .frame(width: 20)
+
+            Text(label)
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .tracking(0.3)
+                .foregroundColor(.white.opacity(0.25))
+                .frame(width: 28)
+
+            TextField(placeholder, text: text)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.white.opacity(0.50))
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 8).padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.04))
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.white.opacity(0.06)))
+                )
+        }
+    }
+
     private var scanningView: some View {
-        VStack(spacing: HawalaTheme.Spacing.xl) {
+        VStack(spacing: 16) {
             Spacer()
-            
-            ProgressView()
-                .scaleEffect(1.5)
-            
-            VStack(spacing: HawalaTheme.Spacing.sm) {
-                Text("Scanning Wallets...")
-                    .font(HawalaTheme.Typography.h4)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
-                
+            ProgressView().scaleEffect(0.8).tint(.white.opacity(0.25))
+            VStack(spacing: 4) {
+                Text("SCANNING WALLETS...")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(.white.opacity(0.35))
                 Text("Looking for tokens with non-zero balances")
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.22))
             }
-            
             Spacer()
         }
         .frame(maxWidth: .infinity)
     }
-    
+
     private var noTokensFoundView: some View {
-        VStack(spacing: HawalaTheme.Spacing.xl) {
+        VStack(spacing: 14) {
             Spacer()
-            
             Image(systemName: "checkmark.circle")
-                .font(.system(size: 48))
-                .foregroundColor(HawalaTheme.Colors.success)
-            
-            VStack(spacing: HawalaTheme.Spacing.sm) {
-                Text("Scan Complete")
-                    .font(HawalaTheme.Typography.h4)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
-                
-                Text("No new tokens found in your wallets.\nAll detected tokens are already added.")
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                .font(.system(size: 28))
+                .foregroundColor(.white.opacity(0.15))
+            VStack(spacing: 4) {
+                Text("SCAN COMPLETE")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(.white.opacity(0.40))
+                Text("No new tokens found.\nAll detected tokens are already added.")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.22))
                     .multilineTextAlignment(.center)
+                    .lineSpacing(3)
             }
-            
-            Button {
-                dismiss()
-            } label: {
-                Text("Done")
-                    .font(HawalaTheme.Typography.body)
-                    .padding(.horizontal, HawalaTheme.Spacing.xxl)
+            Button { dismiss() } label: {
+                Text("DONE")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(.white.opacity(0.45))
+                    .padding(.horizontal, 24).padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.06)))
             }
-            .buttonStyle(.borderedProminent)
-            .tint(HawalaTheme.Colors.accent)
-            
+            .buttonStyle(.plain)
             Spacer()
         }
         .frame(maxWidth: .infinity)
     }
-    
+
     private var detectedTokensView: some View {
-        VStack(spacing: HawalaTheme.Spacing.md) {
+        VStack(spacing: 10) {
             HStack {
-                Text("Found \(detectedTokens.count) tokens")
-                    .font(HawalaTheme.Typography.captionBold)
-                    .foregroundColor(HawalaTheme.Colors.success)
-                
+                Text("FOUND \(detectedTokens.count) TOKENS")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundColor(.white.opacity(0.40))
+
                 Spacer()
-                
+
                 Button {
                     if selectedTokens.count == detectedTokens.count {
                         selectedTokens.removeAll()
@@ -1521,17 +1484,17 @@ struct AutoDetectTokensSheet: View {
                         selectedTokens = Set(detectedTokens.map { $0.id })
                     }
                 } label: {
-                    Text(selectedTokens.count == detectedTokens.count ? "Deselect All" : "Select All")
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.accent)
+                    Text(selectedTokens.count == detectedTokens.count ? "DESELECT ALL" : "SELECT ALL")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .tracking(0.3)
+                        .foregroundColor(.white.opacity(0.35))
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, HawalaTheme.Spacing.lg)
-            .padding(.top, HawalaTheme.Spacing.md)
-            
+            .padding(.horizontal, 16).padding(.top, 10)
+
             ScrollView {
-                VStack(spacing: HawalaTheme.Spacing.sm) {
+                VStack(spacing: 2) {
                     ForEach(detectedTokens) { token in
                         DetectedTokenRow(
                             token: token,
@@ -1546,41 +1509,39 @@ struct AutoDetectTokensSheet: View {
                         )
                     }
                 }
-                .padding(.horizontal, HawalaTheme.Spacing.lg)
+                .padding(.horizontal, 16)
             }
         }
     }
-    
+
     private func startScan() async {
         isScanning = true
         error = nil
         detectedTokens = []
-        
+
         do {
             var allTokens: [CustomToken] = []
-            
-            // Scan Ethereum if address provided
+
             if !ethAddress.isEmpty {
                 let ethTokens = try await tokenManager.detectERC20Tokens(walletAddress: ethAddress)
                 allTokens.append(contentsOf: ethTokens)
             }
-            
-            // Scan Solana if address provided
+
             if !solAddress.isEmpty {
                 let solTokens = try await tokenManager.detectSPLTokens(walletAddress: solAddress)
                 allTokens.append(contentsOf: solTokens)
             }
-            
+
             detectedTokens = allTokens
-            selectedTokens = Set(allTokens.map { $0.id }) // Select all by default
+            selectedTokens = Set(allTokens.map { $0.id })
             scanComplete = true
         } catch {
             self.error = error.localizedDescription
         }
-        
+
         isScanning = false
     }
-    
+
     private func addSelectedTokens() {
         let tokensToAdd = detectedTokens.filter { selectedTokens.contains($0.id) }
         tokenManager.addDetectedTokens(tokensToAdd)
@@ -1588,60 +1549,53 @@ struct AutoDetectTokensSheet: View {
     }
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MARK: – Detected Token Row (monochrome)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 struct DetectedTokenRow: View {
     let token: CustomToken
     let isSelected: Bool
     let onToggle: () -> Void
-    
+
     var body: some View {
-        Button {
-            onToggle()
-        } label: {
-            HStack(spacing: HawalaTheme.Spacing.md) {
-                // Checkbox
+        Button { onToggle() } label: {
+            HStack(spacing: 10) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 20))
-                    .foregroundColor(isSelected ? HawalaTheme.Colors.accent : HawalaTheme.Colors.textTertiary)
-                
-                // Token icon
+                    .font(.system(size: 16))
+                    .foregroundColor(.white.opacity(isSelected ? 0.50 : 0.15))
+
                 ZStack {
-                    Circle()
-                        .fill(token.chain.color.opacity(0.2))
-                        .frame(width: 36, height: 36)
-                    
-                    Text(String(token.symbol.prefix(2)))
-                        .font(HawalaTheme.Typography.captionBold)
-                        .foregroundColor(token.chain.color)
+                    Circle().fill(.white.opacity(0.06)).frame(width: 30, height: 30)
+                    Text(String(token.symbol.prefix(2)).uppercased())
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.35))
                 }
-                
-                // Token info
+
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(token.symbol)
-                        .font(HawalaTheme.Typography.body)
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
-                    
+                    Text(token.symbol.uppercased())
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.50))
                     Text(token.name)
-                        .font(HawalaTheme.Typography.caption)
-                        .foregroundColor(HawalaTheme.Colors.textSecondary)
+                        .font(.system(size: 8, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.25))
                 }
-                
+
                 Spacer()
-                
-                // Chain badge
+
                 Text(token.chain == .ethereum ? "ERC-20" : token.chain == .bsc ? "BEP-20" : "SPL")
-                    .font(HawalaTheme.Typography.label)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(token.chain.color.opacity(0.15))
-                    .foregroundColor(token.chain.color)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                    .tracking(0.3)
+                    .foregroundColor(.white.opacity(0.20))
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(RoundedRectangle(cornerRadius: 3).fill(.white.opacity(0.04)))
             }
-            .padding(HawalaTheme.Spacing.md)
-            .background(isSelected ? HawalaTheme.Colors.accent.opacity(0.1) : HawalaTheme.Colors.backgroundSecondary)
-            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(isSelected ? .white.opacity(0.04) : .white.opacity(0.02))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(
-                RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
-                    .strokeBorder(isSelected ? HawalaTheme.Colors.accent : Color.clear, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(.white.opacity(isSelected ? 0.08 : 0.0), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
