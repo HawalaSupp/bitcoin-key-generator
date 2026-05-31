@@ -52,44 +52,65 @@ struct BuySellView: View {
     
     var body: some View {
         ZStack {
-            // ── No local background — global silk shows through ──
-            
-            // ── Floating content ──
+            // ── Floating content in frosted glass card ──
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    Spacer().frame(height: max(16, 36 * rs))
+                    Spacer().frame(height: 12)
                     
-                    // Minimal step indicator
-                    stepIndicator
-                        .padding(.horizontal, max(16, 40 * rs))
-                    
-                    Spacer().frame(height: max(20, 48 * rs))
-                    
-                    // Step content
-                    ZStack {
-                        Group {
-                            switch currentStep {
-                            case 0: step0_CryptoSelect
-                            case 1: step1_Amount
-                            case 2: step2_Provider
-                            case 3: step3_Review
-                            default: EmptyView()
+                    // ── Premium glass card container ──
+                    VStack(spacing: 0) {
+                        // Step indicator
+                        stepIndicator
+                            .padding(.horizontal, 24)
+                            .padding(.top, 20)
+                        
+                        Spacer().frame(height: max(12, 24 * rs))
+                        
+                        // Step content
+                        ZStack {
+                            Group {
+                                switch currentStep {
+                                case 0: step0_CryptoSelect
+                                case 1: step1_Amount
+                                case 2: step2_Provider
+                                case 3: step3_Review
+                                default: EmptyView()
+                                }
                             }
+                            .transition(slideTransition)
                         }
-                        .transition(slideTransition)
+                        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: currentStep)
+                        .padding(.horizontal, 24)
+                        
+                        Spacer().frame(height: max(12, 20 * rs))
+                        
+                        // Navigation
+                        navigationControls
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 20)
                     }
-                    .animation(.spring(response: 0.45, dampingFraction: 0.85), value: currentStep)
-                    .padding(.horizontal, max(16, 40 * rs))
+                    .background(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(Color(white: 0.11, opacity: 0.92))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.14), Color.white.opacity(0.05)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .shadow(color: .black.opacity(0.35), radius: 30, y: 15)
+                    .padding(.horizontal, 12)
                     
-                    Spacer().frame(height: max(16, 40 * rs))
-                    
-                    // Navigation
-                    navigationControls
-                        .padding(.horizontal, max(16, 40 * rs))
-                    
-                    Spacer().frame(height: max(24, 60 * rs))
+                    Spacer().frame(height: 16)
                 }
-                .frame(maxWidth: max(300, min(700, containerWidth * 0.88)))
+                .frame(maxWidth: max(300, min(700, containerWidth * 0.96)))
                 .frame(maxWidth: .infinity)
             }
             
@@ -112,11 +133,11 @@ struct BuySellView: View {
     private var stepIndicator: some View {
         HStack(spacing: 6) {
             ForEach(0..<totalSteps, id: \.self) { step in
-                Rectangle()
+                Capsule()
                     .fill(step <= currentStep
-                          ? Color.white.opacity(0.45)
-                          : Color.white.opacity(0.06))
-                    .frame(height: 1.5)
+                          ? Color.white.opacity(0.9)
+                          : Color.white.opacity(0.15))
+                    .frame(height: step <= currentStep ? 3 : 2)
                     .animation(.easeOut(duration: 0.3), value: currentStep)
             }
         }
@@ -143,63 +164,72 @@ struct BuySellView: View {
                 .lineLimit(1)
                 .padding(.bottom, 12)
             
-            // Mode toggle — minimal
+            // Pill-style mode toggle
             modeToggle
-                .padding(.bottom, max(16, 40 * rs))
+                .padding(.bottom, max(12, 20 * rs))
             
-            // Token label
-            Text("SELECT ASSET")
-                .font(.system(size: 10, weight: .bold))
-                .tracking(3)
-                .foregroundColor(.white.opacity(0.22))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 12)
-            
-            // Token grid (replaces dropdown list)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 6)], spacing: 6) {
-                ForEach(CryptoAsset.allCases) { crypto in
-                    Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            selectedCrypto = crypto
+            // Section card for token selection
+            VStack(alignment: .leading, spacing: 12) {
+                Text("SELECT ASSET")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(3)
+                    .foregroundColor(.white.opacity(0.6))
+                
+                // Token grid
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 6)], spacing: 6) {
+                    ForEach(CryptoAsset.allCases) { crypto in
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                selectedCrypto = crypto
+                            }
+                        } label: {
+                            VStack(spacing: 4) {
+                                Text(crypto.symbol)
+                                    .font(.system(size: 13, weight: selectedCrypto == crypto ? .bold : .medium, design: .monospaced))
+                                    .foregroundColor(selectedCrypto == crypto ? .white : .white.opacity(0.7))
+                                
+                                Text(crypto.name)
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(.white.opacity(selectedCrypto == crypto ? 0.6 : 0.4))
+                                    .lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(selectedCrypto == crypto
+                                          ? Color.white.opacity(0.18)
+                                          : Color.white.opacity(0.06))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(
+                                        selectedCrypto == crypto
+                                            ? crypto.color.opacity(0.5)
+                                            : Color.white.opacity(0.08),
+                                        lineWidth: selectedCrypto == crypto ? 1.5 : 1
+                                    )
+                            )
+                            .contentShape(Rectangle())
                         }
-                    } label: {
-                        VStack(spacing: 4) {
-                            Text(crypto.symbol)
-                                .font(.system(size: 13, weight: selectedCrypto == crypto ? .bold : .medium, design: .monospaced))
-                                .foregroundColor(selectedCrypto == crypto ? .white : .white.opacity(0.30))
-                            
-                            Text(crypto.name)
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundColor(.white.opacity(selectedCrypto == crypto ? 0.40 : 0.12))
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(selectedCrypto == crypto
-                                      ? Color.white.opacity(0.10)
-                                      : Color.white.opacity(0.02))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .strokeBorder(
-                                    selectedCrypto == crypto
-                                        ? Color.white.opacity(0.18)
-                                        : Color.white.opacity(0.04),
-                                    lineWidth: 1
-                                )
-                        )
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+            )
         }
     }
     
     private var modeToggle: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 0) {
             ForEach(TransactionMode.allCases, id: \.self) { txMode in
                 Button {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -207,73 +237,95 @@ struct BuySellView: View {
                     }
                 } label: {
                     Text(txMode.rawValue.uppercased())
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .tracking(2)
-                        .foregroundColor(mode == txMode
-                                         ? .white.opacity(0.55)
-                                         : .white.opacity(0.12))
-                        .contentShape(Rectangle())
+                        .foregroundColor(mode == txMode ? .white : .white.opacity(0.4))
+                        .frame(width: 80, height: 34)
+                        .background(
+                            Capsule()
+                                .fill(mode == txMode
+                                      ? Color.white.opacity(0.15)
+                                      : Color.clear)
+                        )
+                        .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
             }
         }
+        .padding(3)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.06))
+        )
+        .overlay(
+            Capsule()
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
+        )
     }
     
     // MARK: - Step 1: Amount
     
     private var step1_Amount: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 16) {
             // Context badge
             HStack(spacing: 6) {
                 Text(mode == .buy ? "BUYING" : "SELLING")
                     .font(.system(size: 10, weight: .bold))
                     .tracking(2)
-                    .foregroundColor(.white.opacity(0.22))
+                    .foregroundColor(.white.opacity(0.5))
                 Text(selectedCrypto.symbol)
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.40))
-            }
-            .padding(.bottom, max(16, 40 * rs))
-            
-            // Monumental amount
-            HStack(alignment: .firstTextBaseline, spacing: 0) {
-                Text(selectedFiat.symbol)
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(.white.opacity(0.22))
-                
-                TextField("0", text: $fiatAmount)
-                    .font(.clashGroteskBold(size: max(36, 72 * rs)))
                     .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .textFieldStyle(.plain)
-                    .minimumScaleFactor(0.5)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 20)
             
-            // Quick amount chips
-            HStack(spacing: 8) {
-                ForEach(["50", "100", "250", "500", "1000"], id: \.self) { amount in
-                    BuySellQuickChip(
-                        label: "\(selectedFiat.symbol)\(amount)",
-                        isSelected: fiatAmount == amount
-                    ) {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                            fiatAmount = amount
+            // Amount input card
+            VStack(spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 0) {
+                    Text(selectedFiat.symbol)
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                    
+                    TextField("0", text: $fiatAmount)
+                        .font(.clashGroteskBold(size: max(36, 64 * rs)))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .textFieldStyle(.plain)
+                        .minimumScaleFactor(0.5)
+                }
+                .frame(maxWidth: .infinity)
+                
+                // Quick amount chips
+                HStack(spacing: 6) {
+                    ForEach(["50", "100", "250", "500", "1000"], id: \.self) { amount in
+                        BuySellQuickChip(
+                            label: "\(selectedFiat.symbol)\(amount)",
+                            isSelected: fiatAmount == amount
+                        ) {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                fiatAmount = amount
+                            }
                         }
                     }
                 }
             }
-            .padding(.bottom, max(16, 32 * rs))
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+            )
             
-            // Currency & payment — inline strips (not dropdowns)
-            VStack(alignment: .leading, spacing: 16) {
+            // Currency & payment cards
+            VStack(spacing: 12) {
                 // Currency selector
                 VStack(alignment: .leading, spacing: 8) {
                     Text("CURRENCY")
                         .font(.system(size: 10, weight: .bold))
                         .tracking(2)
-                        .foregroundColor(.white.opacity(0.22))
+                        .foregroundColor(.white.opacity(0.5))
                     
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
@@ -285,21 +337,21 @@ struct BuySellView: View {
                                 } label: {
                                     Text("\(currency.symbol) \(currency.rawValue)")
                                         .font(.system(size: 12, weight: selectedFiat == currency ? .bold : .medium))
-                                        .foregroundColor(selectedFiat == currency ? .white : .white.opacity(0.25))
+                                        .foregroundColor(selectedFiat == currency ? .white : .white.opacity(0.6))
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 8)
                                         .background(
                                             Capsule()
                                                 .fill(selectedFiat == currency
-                                                      ? Color.white.opacity(0.10)
-                                                      : Color.white.opacity(0.02))
+                                                      ? Color.white.opacity(0.18)
+                                                      : Color.white.opacity(0.06))
                                         )
                                         .overlay(
                                             Capsule()
                                                 .strokeBorder(
                                                     selectedFiat == currency
-                                                        ? Color.white.opacity(0.18)
-                                                        : Color.white.opacity(0.04),
+                                                        ? Color.white.opacity(0.30)
+                                                        : Color.white.opacity(0.08),
                                                     lineWidth: 1
                                                 )
                                         )
@@ -311,12 +363,14 @@ struct BuySellView: View {
                     }
                 }
                 
+                Divider().background(Color.white.opacity(0.06))
+                
                 // Payment method selector
                 VStack(alignment: .leading, spacing: 8) {
                     Text("PAY WITH")
                         .font(.system(size: 10, weight: .bold))
                         .tracking(2)
-                        .foregroundColor(.white.opacity(0.22))
+                        .foregroundColor(.white.opacity(0.5))
                     
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
@@ -332,21 +386,21 @@ struct BuySellView: View {
                                         Text(method.rawValue)
                                             .font(.system(size: 12, weight: selectedPaymentMethod == method ? .bold : .medium))
                                     }
-                                    .foregroundColor(selectedPaymentMethod == method ? .white : .white.opacity(0.25))
+                                    .foregroundColor(selectedPaymentMethod == method ? .white : .white.opacity(0.6))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
                                     .background(
                                         Capsule()
                                             .fill(selectedPaymentMethod == method
-                                                  ? Color.white.opacity(0.10)
-                                                  : Color.white.opacity(0.02))
+                                                  ? Color.white.opacity(0.18)
+                                                  : Color.white.opacity(0.06))
                                     )
                                     .overlay(
                                         Capsule()
                                             .strokeBorder(
                                                 selectedPaymentMethod == method
-                                                    ? Color.white.opacity(0.18)
-                                                    : Color.white.opacity(0.04),
+                                                    ? Color.white.opacity(0.30)
+                                                    : Color.white.opacity(0.08),
                                                 lineWidth: 1
                                             )
                                     )
@@ -358,6 +412,15 @@ struct BuySellView: View {
                     }
                 }
             }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+            )
         }
     }
     
@@ -377,16 +440,16 @@ struct BuySellView: View {
             HStack(spacing: 6) {
                 Text(mode == .buy ? "Buying" : "Selling")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.white.opacity(0.30))
+                    .foregroundColor(.white.opacity(0.6))
                 Text(selectedCrypto.symbol)
                     .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.40))
+                    .foregroundColor(.white)
                 Text("for")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.white.opacity(0.18))
+                    .foregroundColor(.white.opacity(0.5))
                 Text("\(selectedFiat.symbol)\(fiatAmount)")
                     .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.40))
+                    .foregroundColor(.white)
             }
             .padding(.bottom, max(14, 28 * rs))
             
@@ -423,12 +486,11 @@ struct BuySellView: View {
     private var step3_Review: some View {
         VStack(spacing: 0) {
             if mode == .buy {
-                // YOU PAY
                 VStack(spacing: 4) {
                     Text("YOU PAY")
                         .font(.system(size: 10, weight: .bold))
                         .tracking(3)
-                        .foregroundColor(.white.opacity(0.18))
+                        .foregroundColor(.white.opacity(0.5))
                     
                     Text("\(selectedFiat.symbol)\(fiatAmount)")
                         .font(.clashGroteskBold(size: max(28, 48 * rs)))
@@ -440,31 +502,29 @@ struct BuySellView: View {
                 
                 Image(systemName: "arrow.down")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.white.opacity(0.10))
+                    .foregroundColor(.white.opacity(0.4))
                     .padding(.bottom, max(10, 20 * rs))
                 
-                // YOU RECEIVE
                 VStack(spacing: 4) {
                     Text("YOU RECEIVE")
                         .font(.system(size: 10, weight: .bold))
                         .tracking(3)
-                        .foregroundColor(.white.opacity(0.18))
+                        .foregroundColor(.white.opacity(0.5))
                     
                     Text(selectedCrypto.symbol)
                         .font(.clashGroteskBold(size: max(24, 42 * rs)))
-                        .foregroundColor(.white.opacity(0.60))
+                        .foregroundColor(.white.opacity(0.9))
                         .minimumScaleFactor(0.5)
                         .lineLimit(1)
                 }
             } else {
-                // YOU SELL
                 VStack(spacing: 4) {
                     Text("YOU SELL")
                         .font(.system(size: 10, weight: .bold))
                         .tracking(3)
-                        .foregroundColor(.white.opacity(0.18))
+                        .foregroundColor(.white.opacity(0.5))
                     
-                    Text(selectedCrypto.symbol)
+                    Text("\(selectedCrypto.symbol)")
                         .font(.clashGroteskBold(size: max(28, 48 * rs)))
                         .foregroundColor(.white)
                         .minimumScaleFactor(0.5)
@@ -474,19 +534,18 @@ struct BuySellView: View {
                 
                 Image(systemName: "arrow.down")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.white.opacity(0.10))
+                    .foregroundColor(.white.opacity(0.4))
                     .padding(.bottom, max(10, 20 * rs))
                 
-                // YOU RECEIVE
                 VStack(spacing: 4) {
                     Text("YOU RECEIVE")
                         .font(.system(size: 10, weight: .bold))
                         .tracking(3)
-                        .foregroundColor(.white.opacity(0.18))
+                        .foregroundColor(.white.opacity(0.5))
                     
                     Text("\(selectedFiat.symbol)\(fiatAmount)")
                         .font(.clashGroteskBold(size: max(24, 42 * rs)))
-                        .foregroundColor(.white.opacity(0.60))
+                        .foregroundColor(.white.opacity(0.9))
                         .minimumScaleFactor(0.5)
                         .lineLimit(1)
                 }
@@ -494,7 +553,7 @@ struct BuySellView: View {
             
             Spacer().frame(height: max(16, 36 * rs))
             
-            // Detail rows
+            // Detail card
             VStack(spacing: 8) {
                 if let provider = selectedProvider {
                     detailRow(label: "PROVIDER", value: provider.name)
@@ -509,12 +568,12 @@ struct BuySellView: View {
             }
             .padding(16)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.white.opacity(0.02))
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.05))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
             )
             
             Spacer().frame(height: max(16, 32 * rs))
@@ -534,11 +593,11 @@ struct BuySellView: View {
             Text(label)
                 .font(.system(size: 10, weight: .bold))
                 .tracking(1.5)
-                .foregroundColor(.white.opacity(0.18))
+                .foregroundColor(.white.opacity(0.5))
             Spacer()
             Text(value)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white.opacity(0.50))
+                .foregroundColor(.white.opacity(0.85))
         }
     }
     
@@ -560,16 +619,16 @@ struct BuySellView: View {
                             .font(.system(size: 11, weight: .bold))
                             .tracking(1.5)
                     }
-                    .foregroundColor(.white.opacity(isHoveringBack ? 0.50 : 0.22))
+                    .foregroundColor(.white.opacity(isHoveringBack ? 0.8 : 0.6))
                     .frame(height: 48)
                     .padding(.horizontal, 20)
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.white.opacity(isHoveringBack ? 0.06 : 0.02))
+                            .fill(Color.white.opacity(isHoveringBack ? 0.12 : 0.08))
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
                     )
                     .contentShape(Rectangle())
                 }
@@ -595,23 +654,23 @@ struct BuySellView: View {
                             .font(.system(size: 10, weight: .bold))
                     }
                     .foregroundColor(ctaEnabled
-                                     ? .white.opacity(isHoveringNext ? 0.80 : 0.55)
-                                     : .white.opacity(0.10))
+                                     ? .white.opacity(isHoveringNext ? 1.0 : 0.9)
+                                     : .white.opacity(0.3))
                     .frame(maxWidth: currentStep == 0 ? .infinity : nil)
                     .frame(height: 48)
                     .padding(.horizontal, 24)
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .fill(ctaEnabled
-                                  ? Color.white.opacity(isHoveringNext ? 0.10 : 0.06)
-                                  : Color.white.opacity(0.02))
+                                  ? Color.white.opacity(isHoveringNext ? 0.20 : 0.15)
+                                  : Color.white.opacity(0.06))
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .strokeBorder(
                                 ctaEnabled
-                                    ? Color.white.opacity(0.10)
-                                    : Color.white.opacity(0.03),
+                                    ? Color.white.opacity(0.25)
+                                    : Color.white.opacity(0.08),
                                 lineWidth: 1
                             )
                     )
@@ -649,36 +708,36 @@ struct BuySellView: View {
     
     private var successOverlay: some View {
         ZStack {
-            Color.black.opacity(0.7)
+            Color.black.opacity(0.75)
                 .ignoresSafeArea()
                 .onTapGesture { }
             
             VStack(spacing: 28) {
                 ZStack {
                     Circle()
-                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
                         .frame(width: 90, height: 90)
                         .scaleEffect(pulseRing ? 1.8 : 1.0)
-                        .opacity(pulseRing ? 0 : 0.3)
+                        .opacity(pulseRing ? 0 : 0.4)
                     
                     Circle()
-                        .fill(Color.white.opacity(0.05))
+                        .fill(Color.white.opacity(0.10))
                         .frame(width: 64, height: 64)
                     
                     Image(systemName: "checkmark")
                         .font(.system(size: 24, weight: .bold))
-                        .foregroundColor(.white.opacity(0.75))
+                        .foregroundColor(.white.opacity(0.9))
                 }
                 
                 VStack(spacing: 8) {
                     Text("ORDER PLACED")
                         .font(.system(size: 12, weight: .bold))
                         .tracking(3)
-                        .foregroundColor(.white.opacity(0.40))
+                        .foregroundColor(.white.opacity(0.6))
                     
                     Text("\(mode == .buy ? "Buying" : "Selling") \(selectedCrypto.symbol) for \(selectedFiat.symbol)\(fiatAmount)")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.white.opacity(0.60))
+                        .foregroundColor(.white.opacity(0.85))
                 }
                 
                 Button {
@@ -693,15 +752,15 @@ struct BuySellView: View {
                     Text("DONE")
                         .font(.system(size: 12, weight: .bold))
                         .tracking(2)
-                        .foregroundColor(.white.opacity(0.60))
+                        .foregroundColor(.white.opacity(0.85))
                         .frame(width: 140, height: 44)
                         .background(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color.white.opacity(0.06))
+                                .fill(Color.white.opacity(0.12))
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                                .strokeBorder(Color.white.opacity(0.20), lineWidth: 1)
                         )
                         .contentShape(Rectangle())
                 }
@@ -774,19 +833,19 @@ struct BuySellQuickChip: View {
         Button(action: action) {
             Text(label)
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundColor(isSelected ? .white.opacity(0.70) : .white.opacity(0.25))
+                .foregroundColor(isSelected ? .white : .white.opacity(0.6))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(isSelected
-                              ? Color.white.opacity(0.10)
-                              : (isHovered ? Color.white.opacity(0.05) : Color.white.opacity(0.02)))
+                              ? Color.white.opacity(0.18)
+                              : (isHovered ? Color.white.opacity(0.12) : Color.white.opacity(0.06)))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .strokeBorder(
-                            isSelected ? Color.white.opacity(0.18) : Color.white.opacity(0.04),
+                            isSelected ? Color.white.opacity(0.30) : Color.white.opacity(0.10),
                             lineWidth: 1
                         )
                 )
@@ -811,20 +870,20 @@ struct BuySellCryptoRow: View {
             HStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(Color.white.opacity(isSelected ? 0.08 : 0.03))
+                        .fill(Color.white.opacity(isSelected ? 0.12 : 0.06))
                         .frame(width: 36, height: 36)
                     Image(systemName: crypto.icon)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white.opacity(isSelected ? 0.60 : 0.30))
+                        .foregroundColor(.white.opacity(isSelected ? 0.75 : 0.45))
                 }
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(crypto.name)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.white.opacity(isSelected ? 0.85 : 0.55))
+                        .foregroundColor(.white.opacity(isSelected ? 0.90 : 0.65))
                     Text(crypto.symbol)
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.22))
+                        .foregroundColor(.white.opacity(0.40))
                 }
                 
                 Spacer()
@@ -832,13 +891,13 @@ struct BuySellCryptoRow: View {
                 ZStack {
                     Circle()
                         .strokeBorder(
-                            isSelected ? Color.white.opacity(0.50) : Color.white.opacity(0.08),
+                            isSelected ? Color.white.opacity(0.60) : Color.white.opacity(0.15),
                             lineWidth: isSelected ? 2 : 1
                         )
                         .frame(width: 20, height: 20)
                     if isSelected {
                         Circle()
-                            .fill(Color.white.opacity(0.60))
+                            .fill(Color.white.opacity(0.70))
                             .frame(width: 10, height: 10)
                     }
                 }
@@ -848,15 +907,15 @@ struct BuySellCryptoRow: View {
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(isSelected
-                          ? Color.white.opacity(0.06)
-                          : (isHovered ? Color.white.opacity(0.03) : Color.white.opacity(0.015)))
+                          ? Color.white.opacity(0.10)
+                          : (isHovered ? Color.white.opacity(0.07) : Color.white.opacity(0.05)))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(
                         isSelected
-                            ? Color.white.opacity(0.15)
-                            : Color.white.opacity(isHovered ? 0.06 : 0.03),
+                            ? Color.white.opacity(0.22)
+                            : Color.white.opacity(isHovered ? 0.12 : 0.08),
                         lineWidth: 1
                     )
             )
@@ -886,34 +945,34 @@ struct BuySellProviderRow: View {
                 // Monochrome icon
                 ZStack {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.white.opacity(isSelected ? 0.08 : 0.03))
+                        .fill(Color.white.opacity(isSelected ? 0.15 : 0.08))
                         .frame(width: 36, height: 36)
                     Image(systemName: provider.icon)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white.opacity(isSelected ? 0.60 : 0.30))
+                        .foregroundColor(.white.opacity(isSelected ? 0.85 : 0.55))
                 }
                 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(provider.name)
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.white.opacity(isSelected ? 0.85 : 0.55))
+                            .foregroundColor(.white.opacity(isSelected ? 0.95 : 0.75))
                         if isBest {
                             Text("BEST")
                                 .font(.system(size: 8, weight: .bold))
                                 .tracking(1)
-                                .foregroundColor(.white.opacity(0.50))
+                                .foregroundColor(.white.opacity(0.8))
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 2)
                                 .background(
                                     RoundedRectangle(cornerRadius: 3)
-                                        .fill(Color.white.opacity(0.08))
+                                        .fill(Color.white.opacity(0.15))
                                 )
                         }
                     }
                     Text("\(provider.supportedCryptos)+ cryptos · \(provider.supportedCountries)+ countries")
                         .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.22))
+                        .foregroundColor(.white.opacity(0.5))
                 }
                 
                 Spacer()
@@ -921,12 +980,12 @@ struct BuySellProviderRow: View {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text("\(provider.feePercent, specifier: "%.1f")% fee")
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.50))
+                        .foregroundColor(.white.opacity(0.8))
                     if fiatAmount > 0 {
                         let fee = fiatAmount * (provider.feePercent / 100.0)
                         Text("\(fiatSymbol)\(fee, specifier: "%.2f")")
                             .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.22))
+                            .foregroundColor(.white.opacity(0.5))
                     }
                 }
                 
@@ -934,13 +993,13 @@ struct BuySellProviderRow: View {
                 ZStack {
                     Circle()
                         .strokeBorder(
-                            isSelected ? Color.white.opacity(0.50) : Color.white.opacity(0.08),
+                            isSelected ? Color.white.opacity(0.7) : Color.white.opacity(0.2),
                             lineWidth: isSelected ? 2 : 1
                         )
                         .frame(width: 20, height: 20)
                     if isSelected {
                         Circle()
-                            .fill(Color.white.opacity(0.60))
+                            .fill(Color.white.opacity(0.8))
                             .frame(width: 10, height: 10)
                     }
                 }
@@ -950,15 +1009,15 @@ struct BuySellProviderRow: View {
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(isSelected
-                          ? Color.white.opacity(0.06)
-                          : (isHovered ? Color.white.opacity(0.03) : Color.white.opacity(0.015)))
+                          ? Color.white.opacity(0.12)
+                          : (isHovered ? Color.white.opacity(0.08) : Color.white.opacity(0.05)))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(
                         isSelected
-                            ? Color.white.opacity(0.15)
-                            : Color.white.opacity(isHovered ? 0.06 : 0.03),
+                            ? Color.white.opacity(0.25)
+                            : Color.white.opacity(isHovered ? 0.14 : 0.08),
                         lineWidth: 1
                     )
             )

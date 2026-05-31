@@ -197,12 +197,12 @@ struct SwapBridgeOverlay: View {
             Text("\(slippageTolerance, specifier: slippageTolerance < 1 ? "%.1f" : "%.0f")%")
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
         }
-        .foregroundColor(.white.opacity(showSlippage ? 0.5 : 0.3))
+        .foregroundColor(.white.opacity(showSlippage ? 0.65 : 0.45))
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(
             Capsule()
-                .fill(Color.white.opacity(showSlippage ? 0.08 : 0.04))
+                .fill(Color.white.opacity(showSlippage ? 0.12 : 0.07))
         )
     }
 
@@ -234,16 +234,16 @@ struct SwapBridgeOverlay: View {
                     .font(.system(size: 10, weight: isActive ? .bold : .medium))
                     .tracking(1.5)
             }
-            .foregroundColor(.white.opacity(isActive ? 0.6 : 0.2))
+            .foregroundColor(.white.opacity(isActive ? 0.75 : 0.35))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.white.opacity(isActive ? 0.06 : 0))
+                    .fill(Color.white.opacity(isActive ? 0.10 : 0))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(Color.white.opacity(isActive ? 0.08 : 0), lineWidth: 0.5)
+                    .strokeBorder(Color.white.opacity(isActive ? 0.14 : 0), lineWidth: 0.5)
             )
         }
         .buttonStyle(.plain)
@@ -288,7 +288,7 @@ struct SwapBridgeOverlay: View {
             Text(label)
                 .font(.system(size: 8, weight: .bold))
                 .tracking(2)
-                .foregroundColor(.white.opacity(0.2))
+                .foregroundColor(.white.opacity(0.40))
 
             HStack(spacing: 12) {
                 // Amount input
@@ -306,11 +306,11 @@ struct SwapBridgeOverlay: View {
         .padding(.vertical, 14)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.03))
+                .fill(Color.white.opacity(0.06))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.05), lineWidth: 0.5)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
         )
     }
 
@@ -320,13 +320,13 @@ struct SwapBridgeOverlay: View {
             Text(label)
                 .font(.system(size: 8, weight: .bold))
                 .tracking(2)
-                .foregroundColor(.white.opacity(0.2))
+                .foregroundColor(.white.opacity(0.40))
 
             HStack(spacing: 12) {
                 // Estimated output
                 Text(estimatedAmount > 0 ? formatOutput(estimatedAmount) : "0")
                     .font(.clashGroteskBold(size: 32))
-                    .foregroundColor(.white.opacity(estimatedAmount > 0 ? 0.7 : 0.15))
+                    .foregroundColor(.white.opacity(estimatedAmount > 0 ? 0.75 : 0.25))
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 // Token selector button
@@ -337,11 +337,11 @@ struct SwapBridgeOverlay: View {
         .padding(.vertical, 14)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.03))
+                .fill(Color.white.opacity(0.06))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.05), lineWidth: 0.5)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
         )
     }
 
@@ -350,23 +350,23 @@ struct SwapBridgeOverlay: View {
             HStack(spacing: 6) {
                 Image(systemName: asset.icon)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(.white.opacity(0.6))
                 Text(asset.symbol)
                     .font(.system(size: 14, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundColor(.white.opacity(0.75))
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .bold))
-                    .foregroundColor(.white.opacity(0.25))
+                    .foregroundColor(.white.opacity(0.35))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(
                 Capsule()
-                    .fill(Color.white.opacity(0.06))
+                    .fill(Color.white.opacity(0.10))
             )
             .overlay(
                 Capsule()
-                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+                    .strokeBorder(Color.white.opacity(0.14), lineWidth: 0.5)
             )
         }
         .buttonStyle(.plain)
@@ -391,12 +391,12 @@ struct SwapBridgeOverlay: View {
                         .frame(width: 44, height: 44)
 
                     Circle()
-                        .fill(Color.white.opacity(swapArrowHovered ? 0.10 : 0.06))
+                        .fill(Color.white.opacity(swapArrowHovered ? 0.14 : 0.10))
                         .frame(width: 38, height: 38)
 
                     Image(systemName: "arrow.up.arrow.down")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white.opacity(swapArrowHovered ? 0.6 : 0.35))
+                        .foregroundColor(.white.opacity(swapArrowHovered ? 0.7 : 0.50))
                         .rotationEffect(.degrees(swapArrowHovered ? 180 : 0))
                 }
             }
@@ -457,9 +457,9 @@ struct SwapBridgeOverlay: View {
                 .stroke(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.02),
+                            Color.white.opacity(0.05),
                             Color.white.opacity(0.08),
-                            Color.white.opacity(0.02)
+                            Color.white.opacity(0.05)
                         ],
                         startPoint: .leading,
                         endPoint: .trailing
@@ -512,7 +512,7 @@ struct SwapBridgeOverlay: View {
             Text("RATE")
                 .font(.system(size: 8, weight: .bold))
                 .tracking(2)
-                .foregroundColor(.white.opacity(0.2))
+                .foregroundColor(.white.opacity(0.40))
 
             Spacer()
 
@@ -523,7 +523,7 @@ struct SwapBridgeOverlay: View {
             } else {
                 Text("1 \(fromAsset.symbol) = \(formatRate(exchangeRate)) \(toAsset.symbol)")
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.35))
+                    .foregroundColor(.white.opacity(0.50))
             }
 
             // Price impact ripple
@@ -535,7 +535,7 @@ struct SwapBridgeOverlay: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.white.opacity(0.02))
+                .fill(Color.white.opacity(0.05))
         )
     }
 
@@ -561,20 +561,20 @@ struct SwapBridgeOverlay: View {
                 // Provider icon
                 ZStack {
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.white.opacity(0.05))
+                        .fill(Color.white.opacity(0.08))
                         .frame(width: 30, height: 30)
                     Image(systemName: activeProvider.icon)
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.35))
+                        .foregroundColor(.white.opacity(0.50))
                 }
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(activeProvider.name)
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.55))
+                        .foregroundColor(.white.opacity(0.70))
                     Text(activeProvider.estimatedTime)
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.white.opacity(0.2))
+                        .foregroundColor(.white.opacity(0.35))
                 }
 
                 Spacer()
@@ -582,21 +582,21 @@ struct SwapBridgeOverlay: View {
                 // Fee
                 Text(activeProvider.feePercent == 0 ? "No fee" : "\(activeProvider.feePercent, specifier: "%.2f")%")
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.white.opacity(0.45))
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.white.opacity(0.15))
+                    .foregroundColor(.white.opacity(0.30))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white.opacity(0.025))
+                    .fill(Color.white.opacity(0.05))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.04), lineWidth: 0.5)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
             )
         }
         .buttonStyle(.plain)
@@ -611,7 +611,7 @@ struct SwapBridgeOverlay: View {
             Text("SLIPPAGE TOLERANCE")
                 .font(.system(size: 8, weight: .bold))
                 .tracking(2)
-                .foregroundColor(.white.opacity(0.2))
+                .foregroundColor(.white.opacity(0.40))
 
             HStack(spacing: 4) {
                 ForEach([0.1, 0.5, 1.0, 3.0], id: \.self) { val in
@@ -652,21 +652,21 @@ struct SwapBridgeOverlay: View {
         HStack {
             Text("\(inputAmount) \(fromAsset.symbol)")
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.4))
+                .foregroundColor(.white.opacity(0.55))
 
             Image(systemName: "arrow.right")
                 .font(.system(size: 9, weight: .bold))
-                .foregroundColor(.white.opacity(0.15))
+                .foregroundColor(.white.opacity(0.30))
 
             Text("\(formatOutput(estimatedOutput)) \(toAsset.symbol)")
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.4))
+                .foregroundColor(.white.opacity(0.55))
 
             Spacer()
 
             Text("via \(activeProvider.shortName)")
                 .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.white.opacity(0.15))
+                .foregroundColor(.white.opacity(0.30))
         }
     }
 
@@ -675,13 +675,13 @@ struct SwapBridgeOverlay: View {
         return ZStack {
             // Track
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(isReady ? 0.04 : 0.02))
+                .fill(Color.white.opacity(isReady ? 0.07 : 0.04))
                 .frame(height: 52)
 
             // Progress fill
             GeometryReader { geo in
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
+                    .fill(Color.white.opacity(0.10))
                     .frame(width: geo.size.width * holdProgress, height: 52)
             }
             .frame(height: 52)
@@ -689,7 +689,7 @@ struct SwapBridgeOverlay: View {
 
             // Border
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.white.opacity(isReady ? 0.08 : 0.03), lineWidth: 0.5)
+                .strokeBorder(Color.white.opacity(isReady ? 0.14 : 0.06), lineWidth: 0.5)
                 .frame(height: 52)
 
             // Label
@@ -698,19 +698,19 @@ struct SwapBridgeOverlay: View {
                     // Progress ring
                     Circle()
                         .trim(from: 0, to: holdProgress)
-                        .stroke(Color.white.opacity(0.3), lineWidth: 2)
+                        .stroke(Color.white.opacity(0.45), lineWidth: 2)
                         .frame(width: 16, height: 16)
                         .rotationEffect(.degrees(-90))
                 } else {
                     Image(systemName: mode == .swap ? "arrow.triangle.2.circlepath" : "point.3.connected.trianglepath.dotted")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white.opacity(isReady ? 0.35 : 0.12))
+                        .foregroundColor(.white.opacity(isReady ? 0.50 : 0.25))
                 }
 
                 Text(holdProgress > 0 ? "HOLD TO CONFIRM" : (mode == .swap ? "HOLD TO SWAP" : "HOLD TO BRIDGE"))
                     .font(.system(size: 11, weight: .bold))
                     .tracking(2)
-                    .foregroundColor(.white.opacity(isReady ? 0.5 : 0.15))
+                    .foregroundColor(.white.opacity(isReady ? 0.65 : 0.30))
             }
         }
         .frame(height: 52)
@@ -869,11 +869,11 @@ struct SwapBridgeOverlay: View {
     private func routeNode(label: String) -> some View {
         ZStack {
             Circle()
-                .fill(Color.white.opacity(0.06))
+                .fill(Color.white.opacity(0.10))
                 .frame(width: 28, height: 28)
             Text(label)
                 .font(.system(size: 7, weight: .bold, design: .monospaced))
-                .foregroundColor(.white.opacity(0.35))
+                .foregroundColor(.white.opacity(0.50))
         }
     }
 
@@ -968,12 +968,12 @@ struct SwapBridgeOverlay: View {
                 ZStack {
                     ForEach(0..<3, id: \.self) { i in
                         Circle()
-                            .strokeBorder(Color.white.opacity(0.05 + Double(i) * 0.03), lineWidth: 0.5)
+                            .strokeBorder(Color.white.opacity(0.08 + Double(i) * 0.04), lineWidth: 0.5)
                             .frame(width: CGFloat(60 + i * 20), height: CGFloat(60 + i * 20))
                     }
                     Image(systemName: "checkmark")
                         .font(.system(size: 24, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.5))
+                        .foregroundColor(.white.opacity(0.65))
                 }
 
                 Text(mode == .swap ? "Swap Initiated" : "Bridge Transfer Started")
@@ -982,11 +982,11 @@ struct SwapBridgeOverlay: View {
 
                 Text("\(inputAmount) \(fromAsset.symbol) → \(formatOutput(estimatedOutput)) \(toAsset.symbol)")
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.white.opacity(0.50))
 
                 Text("via \(activeProvider.name) · \(activeProvider.estimatedTime)")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white.opacity(0.2))
+                    .foregroundColor(.white.opacity(0.35))
 
                 Button(action: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
@@ -998,12 +998,12 @@ struct SwapBridgeOverlay: View {
                     Text("DONE")
                         .font(.system(size: 10, weight: .bold))
                         .tracking(2)
-                        .foregroundColor(.white.opacity(0.5))
+                        .foregroundColor(.white.opacity(0.65))
                         .padding(.horizontal, 28)
                         .padding(.vertical, 10)
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color.white.opacity(0.06))
+                                .fill(Color.white.opacity(0.10))
                         )
                 }
                 .buttonStyle(.plain)
@@ -1179,21 +1179,21 @@ private struct TokenPickerRow: View {
                 // Token icon
                 ZStack {
                     Circle()
-                        .fill(Color.white.opacity(isSelected ? 0.08 : 0.04))
+                        .fill(Color.white.opacity(isSelected ? 0.12 : 0.07))
                         .frame(width: 36, height: 36)
                     Image(systemName: asset.icon)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white.opacity(isSelected ? 0.5 : 0.25))
+                        .foregroundColor(.white.opacity(isSelected ? 0.60 : 0.40))
                 }
 
                 // Name & symbol
                 VStack(alignment: .leading, spacing: 2) {
                     Text(asset.name)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.white.opacity(isSelected ? 0.8 : 0.55))
+                        .foregroundColor(.white.opacity(isSelected ? 0.85 : 0.65))
                     Text(asset.symbol)
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.25))
+                        .foregroundColor(.white.opacity(0.40))
                 }
 
                 Spacer()
@@ -1201,7 +1201,7 @@ private struct TokenPickerRow: View {
                 // Selection indicator
                 if isSelected {
                     Circle()
-                        .fill(Color.white.opacity(0.3))
+                        .fill(Color.white.opacity(0.45))
                         .frame(width: 8, height: 8)
                 }
             }
@@ -1218,8 +1218,8 @@ private struct TokenPickerRow: View {
     }
 
     private var bgOpacity: Double {
-        if isSelected { return 0.06 }
-        if isHovered { return 0.03 }
-        return 0.015
+        if isSelected { return 0.10 }
+        if isHovered { return 0.05 }
+        return 0.03
     }
 }

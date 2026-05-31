@@ -14,6 +14,9 @@ struct SellCryptoView: View {
     @State private var selectedFiat = "USD"
     @State private var selectedCountry = "US"
     @State private var selectedProvider: HawalaBridge.OffRampProvider?
+    @State private var hoveringQuote: String?
+    @State private var hoveringGetQuotes = false
+    @State private var arrowRotation: Double = 0
     
     // Data
     @State private var quotes: [HawalaBridge.OffRampQuote] = []
@@ -99,14 +102,13 @@ struct SellCryptoView: View {
             
             Spacer()
             
-            VStack(spacing: 2) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text("Sell Crypto")
-                    .font(HawalaTheme.Typography.h3)
-                    .foregroundColor(HawalaTheme.Colors.textPrimary)
-                
+                    .font(.clashGroteskMedium(size: 18))
+                    .foregroundColor(.white)
                 Text("Convert to fiat currency")
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textSecondary)
+                    .font(.system(size: 12))
+                    .foregroundColor(HawalaTheme.Colors.textTertiary)
             }
             
             Spacer()
@@ -131,16 +133,14 @@ struct SellCryptoView: View {
         VStack(spacing: HawalaTheme.Spacing.lg) {
             // Crypto selection
             VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
-                Text("YOU SELL")
-                    .font(HawalaTheme.Typography.label)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                HawalaOverlaySectionHeader(icon: "arrow.down.circle", title: "You Sell")
                 
                 HStack(spacing: HawalaTheme.Spacing.md) {
                     // Amount input
                     TextField("0.0", text: $cryptoAmount)
                         .textFieldStyle(.plain)
-                        .font(HawalaTheme.Typography.display(28))
-                        .foregroundColor(HawalaTheme.Colors.textPrimary)
+                        .font(.clashGroteskMedium(size: 36))
+                        .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                     
                     // Crypto picker
@@ -173,33 +173,40 @@ struct SellCryptoView: View {
                 }
                 .padding(HawalaTheme.Spacing.lg)
                 .background(HawalaTheme.Colors.backgroundSecondary)
-                .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg))
+                .cornerRadius(HawalaTheme.Radius.lg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                )
             }
             
             // Arrow
             Image(systemName: "arrow.down")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(HawalaTheme.Colors.textSecondary)
-                .frame(width: 40, height: 40)
-                .background(HawalaTheme.Colors.backgroundTertiary)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white.opacity(0.4))
+                .frame(width: 36, height: 36)
+                .background(Color.white.opacity(0.06))
                 .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                )
+                .rotationEffect(.degrees(arrowRotation))
             
             // Fiat selection
             VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
-                Text("YOU RECEIVE")
-                    .font(HawalaTheme.Typography.label)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                HawalaOverlaySectionHeader(icon: "arrow.up.circle", title: "You Receive")
                 
                 HStack(spacing: HawalaTheme.Spacing.md) {
                     // Estimated amount (calculated from best quote)
                     if let bestQuote = quotes.first {
                         Text(String(format: "%.2f", bestQuote.fiatAmount))
-                            .font(HawalaTheme.Typography.display(28))
+                            .font(.clashGroteskMedium(size: 36))
                             .foregroundColor(HawalaTheme.Colors.success)
                     } else {
                         Text("—")
-                            .font(HawalaTheme.Typography.display(28))
-                            .foregroundColor(HawalaTheme.Colors.textTertiary)
+                            .font(.clashGroteskMedium(size: 36))
+                            .foregroundColor(.white.opacity(0.15))
                     }
                     
                     Spacer()
@@ -234,14 +241,16 @@ struct SellCryptoView: View {
                 }
                 .padding(HawalaTheme.Spacing.lg)
                 .background(HawalaTheme.Colors.backgroundSecondary)
-                .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg))
+                .cornerRadius(HawalaTheme.Radius.lg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                )
             }
             
             // Country selector
             VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
-                Text("YOUR COUNTRY")
-                    .font(HawalaTheme.Typography.label)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                HawalaOverlaySectionHeader(icon: "globe", title: "Your Country")
                 
                 Menu {
                     ForEach(countries, id: \.0) { country in
@@ -313,25 +322,36 @@ struct SellCryptoView: View {
     // MARK: - Get Quotes Button
     
     private var getQuotesButton: some View {
-        Button(action: { Task { await getQuotes() } }) {
-            HStack {
+        Button(action: {
+            withAnimation(HawalaTheme.Animation.spring) { arrowRotation += 180 }
+            Task { await getQuotes() }
+        }) {
+            HStack(spacing: HawalaTheme.Spacing.sm) {
                 if isLoading {
                     ProgressView()
-                        .scaleEffect(0.8)
+                        .scaleEffect(0.7)
+                        .frame(width: 16, height: 16)
                 } else {
                     Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 12, weight: .semibold))
                 }
                 Text(quotes.isEmpty ? "Get Quotes" : "Refresh Quotes")
+                    .font(.system(size: 13, weight: .semibold))
             }
-            .font(HawalaTheme.Typography.captionBold)
-            .foregroundColor(.white)
+            .foregroundColor(isLoading ? .white.opacity(0.3) : .white)
             .frame(maxWidth: .infinity)
-            .padding(HawalaTheme.Spacing.md)
-            .background(HawalaTheme.Colors.accent)
-            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
+            .padding(.vertical, 14)
+            .background(hoveringGetQuotes ? Color.white.opacity(0.18) : Color.white.opacity(0.12))
+            .cornerRadius(HawalaTheme.Radius.md)
+            .overlay(
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
+                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
         .disabled(isLoading)
+        .onHover { h in hoveringGetQuotes = h }
+        .animation(HawalaTheme.Animation.fast, value: hoveringGetQuotes)
     }
     
     // MARK: - Quotes Section
@@ -339,15 +359,11 @@ struct SellCryptoView: View {
     private var quotesSection: some View {
         VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
             HStack {
-                Text("PROVIDER QUOTES")
-                    .font(HawalaTheme.Typography.label)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
-                
+                HawalaOverlaySectionHeader(icon: "list.bullet.rectangle", title: "Provider Quotes")
                 Spacer()
-                
                 Text("Best rate highlighted")
-                    .font(HawalaTheme.Typography.caption)
-                    .foregroundColor(HawalaTheme.Colors.textTertiary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.3))
             }
             
             ForEach(Array(quotes.enumerated()), id: \.1.quoteId) { index, quote in
@@ -357,7 +373,9 @@ struct SellCryptoView: View {
     }
     
     private func quoteCard(quote: HawalaBridge.OffRampQuote, isBest: Bool) -> some View {
-        Button(action: { selectedProvider = quote.provider }) {
+        let isHovering = hoveringQuote == quote.quoteId
+        
+        return Button(action: { selectedProvider = quote.provider }) {
             VStack(spacing: HawalaTheme.Spacing.md) {
                 HStack {
                     // Provider logo/name
@@ -382,8 +400,8 @@ struct SellCryptoView: View {
                     // Fiat amount
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(formatCurrency(quote.fiatAmount, currency: quote.fiatCurrency))
-                            .font(HawalaTheme.Typography.h3)
-                            .foregroundColor(isBest ? HawalaTheme.Colors.success : HawalaTheme.Colors.textPrimary)
+                            .font(.clashGroteskMedium(size: 18))
+                            .foregroundColor(isBest ? HawalaTheme.Colors.success : .white)
                         
                         Text("1 \(quote.cryptoSymbol) = \(formatCurrency(quote.exchangeRate, currency: quote.fiatCurrency))")
                             .font(HawalaTheme.Typography.caption)
@@ -404,19 +422,19 @@ struct SellCryptoView: View {
                 }
             }
             .padding(HawalaTheme.Spacing.lg)
-            .background(
-                isBest ? HawalaTheme.Colors.success.opacity(0.1) : HawalaTheme.Colors.backgroundSecondary
-            )
-            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg))
+            .background(isHovering ? Color.white.opacity(0.06) : HawalaTheme.Colors.backgroundSecondary)
+            .cornerRadius(HawalaTheme.Radius.lg)
             .overlay(
                 RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
-                    .strokeBorder(
-                        isBest ? HawalaTheme.Colors.success.opacity(0.3) : HawalaTheme.Colors.border,
+                    .stroke(
+                        isBest ? HawalaTheme.Colors.success.opacity(0.3) : Color.white.opacity(0.06),
                         lineWidth: selectedProvider == quote.provider ? 2 : 1
                     )
             )
         }
         .buttonStyle(.plain)
+        .onHover { h in hoveringQuote = h ? quote.quoteId : nil }
+        .animation(HawalaTheme.Animation.fast, value: isHovering)
     }
     
     private func providerIcon(_ provider: HawalaBridge.OffRampProvider) -> some View {
@@ -471,9 +489,7 @@ struct SellCryptoView: View {
     
     private var providerInfoSection: some View {
         VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
-            Text("ABOUT OFF-RAMP PROVIDERS")
-                .font(HawalaTheme.Typography.label)
-                .foregroundColor(HawalaTheme.Colors.textTertiary)
+            HawalaOverlaySectionHeader(icon: "building.2", title: "About Off-Ramp Providers")
             
             VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
                 infoRow(icon: "checkmark.shield", text: "All providers are licensed and regulated")
@@ -481,9 +497,13 @@ struct SellCryptoView: View {
                 infoRow(icon: "banknote", text: "Funds typically arrive within 1-3 business days")
                 infoRow(icon: "person.badge.shield.checkmark", text: "KYC verification may be required")
             }
-            .padding(HawalaTheme.Spacing.md)
+            .padding(HawalaTheme.Spacing.lg)
             .background(HawalaTheme.Colors.backgroundSecondary)
-            .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.md))
+            .cornerRadius(HawalaTheme.Radius.lg)
+            .overlay(
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
+            )
         }
     }
     

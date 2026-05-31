@@ -88,8 +88,8 @@ struct HawalaPinPad: View {
                     }
                 }
         )
-        .disabled(key == "confirm" && pin.count < maxDigits)
-        .opacity(key == "confirm" && pin.count < maxDigits ? 0.3 : 1.0)
+        .disabled(key == "confirm" && pin.count < 4)
+        .opacity(key == "confirm" && pin.count < 4 ? 0.3 : 1.0)
     }
     
     @ViewBuilder

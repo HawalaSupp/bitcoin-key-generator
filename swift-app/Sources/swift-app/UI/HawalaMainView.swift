@@ -288,25 +288,38 @@ struct HawalaMainView: View {
             // Toast notifications overlay
             ToastContainer()
             
+            // Shared dimmed backdrop — stays constant during popup↔send transitions
+            if showAssetDetailPopup || sendChainContext != nil {
+                Color.black.opacity(0.75)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .zIndex(98)
+                    .allowsHitTesting(false)
+            }
+            
             // Asset Detail Popup Overlay
             if showAssetDetailPopup, let assetInfo = selectedAssetForDetail {
                 AssetDetailPopup(
                     assetInfo: assetInfo,
                     isPresented: $showAssetDetailPopup,
                     onSend: {
-                        showAssetDetailPopup = false
-                        // Go directly to send screen for this chain
-                        if let chain = keys?.chainInfos.first(where: { $0.id == assetInfo.chain.id }) {
-                            sendChainContext = chain
+                        // Smooth cross-fade: popup scales out while send scales in simultaneously
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.9)) {
+                            if let chain = keys?.chainInfos.first(where: { $0.id == assetInfo.chain.id }) {
+                                sendChainContext = chain
+                            }
+                            showAssetDetailPopup = false
                         }
                     },
                     onReceive: {
-                        showAssetDetailPopup = false
-                        // Go directly to receive screen pre-selected to this chain
-                        if let chain = keys?.chainInfos.first(where: { $0.id == assetInfo.chain.id }) {
-                            receiveChainContext = chain
+                        // Cross-fade: show receive overlay while hiding popup in one animation
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                            if let chain = keys?.chainInfos.first(where: { $0.id == assetInfo.chain.id }) {
+                                receiveChainContext = chain
+                            }
+                            showReceiveSheet = true
+                            showAssetDetailPopup = false
                         }
-                        showReceiveSheet = true
                     }
                 )
                 .transition(.asymmetric(
@@ -319,8 +332,8 @@ struct HawalaMainView: View {
             // Send View Overlay — presented identically to AssetDetailPopup
             if sendChainContext != nil, let keys = keys {
                 ZStack {
-                    // Dimmed backdrop — same as AssetDetailPopup
-                    Color.black.opacity(0.75)
+                    // Tap-to-dismiss area (backdrop handled by shared layer)
+                    Color.black.opacity(0.001)
                         .ignoresSafeArea()
                         .onTapGesture {
                             withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
@@ -831,7 +844,7 @@ struct HawalaMainView: View {
                         initialChain: receiveChainContext,
                         onCopy: { _ in },
                         onDismiss: {
-                            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
                                 showReceiveSheet = false
                                 receiveChainContext = nil
                             }
@@ -839,8 +852,8 @@ struct HawalaMainView: View {
                     )
                 }
                 .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
-                    removal: .opacity.combined(with: .scale(scale: 0.98))
+                    insertion: .opacity.combined(with: .scale(scale: 0.92)),
+                    removal: .opacity.combined(with: .scale(scale: 0.97))
                 ))
                 .zIndex(97)
             }
@@ -1087,12 +1100,12 @@ struct HawalaMainView: View {
                 selectedTab = tab
             }
         }) {
-            HStack(spacing: tab.showLabel ? 4 : 0) {
-                Image(systemName: tab.icon)
-                    .font(.system(size: 11, weight: .medium))
-                
+            HStack(spacing: 0) {
                 if tab.showLabel {
                     Text(tab.rawValue)
+                        .font(.system(size: 11, weight: .medium))
+                } else {
+                    Image(systemName: tab.icon)
                         .font(.system(size: 11, weight: .medium))
                 }
             }
@@ -2826,9 +2839,9 @@ struct BentoAssetCard: View {
         .padding(14)
         .frame(height: 175)
         .background(
-            // Professional dark gray semi-transparent background with hover effect
+            // Solid dark card fill
             RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg, style: .continuous)
-                .fill(Color(red: 0.12, green: 0.12, blue: 0.14).opacity(isHovered ? 0.95 : 0.85))
+                .fill(isHovered ? Color(red: 0.16, green: 0.16, blue: 0.18) : Color(red: 0.13, green: 0.13, blue: 0.15))
         )
         .overlay(
             // Border with gradient - brighter on hover
@@ -3511,6 +3524,9 @@ struct AssetDetailPopup: View {
     var onSend: () -> Void
     var onReceive: () -> Void
     
+    // Transaction history
+    @ObservedObject private var historyService = TransactionHistoryService.shared
+    
     // Animation states
     @State private var contentOpacity: Double = 0
     @State private var cardScale: CGFloat = 0.92
@@ -3602,8 +3618,8 @@ struct AssetDetailPopup: View {
     
     var body: some View {
         ZStack {
-            // Dimmed backdrop
-            Color.black.opacity(0.75)
+            // Tap-to-dismiss area (backdrop handled by shared layer above)
+            Color.black.opacity(0.001)
                 .ignoresSafeArea()
                 .onTapGesture { dismissPopup() }
             
@@ -3721,7 +3737,8 @@ struct AssetDetailPopup: View {
                         MonochromeChartView(
                             data: currentChartData,
                             isPositive: isPositiveChange,
-                            progress: chartProgress
+                            progress: chartProgress,
+                            timeframeDays: selectedTimeframe.days
                         )
                         .opacity(isLoadingChart ? 0.5 : 1)
                     } else {
@@ -3765,6 +3782,19 @@ struct AssetDetailPopup: View {
                 .padding(.top, 16)
                 .opacity(contentOpacity)
                 
+                // Divider before transactions
+                Rectangle()
+                    .fill(Color.white.opacity(0.06))
+                    .frame(height: 1)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 16)
+                
+                // Recent Transactions section
+                recentTransactionsSection
+                    .padding(.top, 12)
+                    .padding(.bottom, 16)
+                    .opacity(contentOpacity)
+                
                 } // end scrollable VStack
                 } // end ScrollView
                 
@@ -3772,8 +3802,7 @@ struct AssetDetailPopup: View {
                 HStack(spacing: 12) {
                     // Send button
                     Button(action: {
-                        dismissPopup()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onSend() }
+                        onSend()
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: "arrow.up")
@@ -3800,8 +3829,7 @@ struct AssetDetailPopup: View {
                     
                     // Receive button
                     Button(action: {
-                        dismissPopup()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onReceive() }
+                        onReceive()
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: "arrow.down")
@@ -3832,7 +3860,7 @@ struct AssetDetailPopup: View {
             .frame(maxHeight: 500)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
+                    .fill(Color(red: 0.06, green: 0.06, blue: 0.07))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -3869,6 +3897,19 @@ struct AssetDetailPopup: View {
             }
             
             fetchLivePrice()
+            
+            // Fetch transaction history for this chain
+            Task {
+                await historyService.fetchAllHistory(
+                    targets: [HistoryTarget(
+                        chainId: assetInfo.chain.id,
+                        address: "",
+                        displayName: assetInfo.chain.title,
+                        symbol: assetInfo.chainSymbol
+                    )],
+                    force: false
+                )
+            }
         }
     }
     
@@ -4200,6 +4241,145 @@ struct AssetDetailPopup: View {
         }
     }
     
+    // MARK: - Recent Transactions Section
+    
+    private var filteredTransactions: [TransactionEntry] {
+        historyService.entries
+            .filter { $0.chainId == assetInfo.chain.id }
+            .prefix(10)
+            .map { $0 }
+    }
+    
+    @ViewBuilder
+    private var recentTransactionsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Recent Activity")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(Color.white.opacity(0.4))
+                .padding(.horizontal, 24)
+            
+            if historyService.isLoading && filteredTransactions.isEmpty {
+                // Loading skeletons
+                ForEach(0..<3, id: \.self) { _ in
+                    HStack(spacing: 12) {
+                        SkeletonShape(width: 32, height: 32, cornerRadius: 8)
+                        VStack(alignment: .leading, spacing: 4) {
+                            SkeletonShape(width: 100, height: 12, cornerRadius: 4)
+                            SkeletonShape(width: 60, height: 10, cornerRadius: 4)
+                        }
+                        Spacer()
+                        SkeletonShape(width: 70, height: 12, cornerRadius: 4)
+                    }
+                    .padding(.horizontal, 24)
+                }
+            } else if filteredTransactions.isEmpty {
+                // Empty state
+                HStack {
+                    Spacer()
+                    VStack(spacing: 6) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 20, weight: .light))
+                            .foregroundColor(Color.white.opacity(0.2))
+                        Text("No transactions yet")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(Color.white.opacity(0.25))
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 12)
+            } else {
+                // Transaction rows
+                ForEach(filteredTransactions) { tx in
+                    transactionRow(tx)
+                }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func transactionRow(_ tx: TransactionEntry) -> some View {
+        HStack(spacing: 12) {
+            // Type icon
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(txIconBackground(tx.type))
+                    .frame(width: 32, height: 32)
+                
+                Image(systemName: txIconName(tx.type))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(txIconColor(tx.type))
+            }
+            
+            // Details
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tx.type.rawValue.capitalized)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white)
+                
+                Text(tx.formattedTimestamp)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(Color.white.opacity(0.35))
+            }
+            
+            Spacer()
+            
+            // Amount + status
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(tx.formattedAmount)
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .foregroundColor(tx.type == .receive ? Color.green.opacity(0.8) : .white)
+                
+                txStatusBadge(tx.status)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 4)
+    }
+    
+    private func txIconName(_ type: TransactionType) -> String {
+        switch type {
+        case .send: return "arrow.up.right"
+        case .receive: return "arrow.down.left"
+        case .swap: return "arrow.triangle.2.circlepath"
+        case .stake: return "lock"
+        case .unstake: return "lock.open"
+        case .unknown: return "questionmark"
+        }
+    }
+    
+    private func txIconColor(_ type: TransactionType) -> Color {
+        switch type {
+        case .receive: return Color.green.opacity(0.8)
+        case .send: return Color.white.opacity(0.7)
+        case .swap: return Color.blue.opacity(0.8)
+        default: return Color.white.opacity(0.5)
+        }
+    }
+    
+    private func txIconBackground(_ type: TransactionType) -> Color {
+        switch type {
+        case .receive: return Color.green.opacity(0.12)
+        case .send: return Color.white.opacity(0.06)
+        case .swap: return Color.blue.opacity(0.12)
+        default: return Color.white.opacity(0.06)
+        }
+    }
+    
+    @ViewBuilder
+    private func txStatusBadge(_ status: TransactionStatus) -> some View {
+        let (label, color): (String, Color) = {
+            switch status {
+            case .confirmed: return ("Confirmed", Color.green.opacity(0.6))
+            case .pending: return ("Pending", Color.orange.opacity(0.6))
+            case .failed: return ("Failed", Color.red.opacity(0.6))
+            }
+        }()
+        
+        Text(label)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundColor(color)
+    }
+    
     private func dismissPopup() {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
             contentOpacity = 0
@@ -4218,6 +4398,11 @@ struct MonochromeChartView: View {
     let data: [Double]
     let isPositive: Bool
     let progress: CGFloat
+    var timeframeDays: Int = 1
+    
+    // Hover state
+    @State private var hoverLocation: CGPoint? = nil
+    @State private var isHovering: Bool = false
     
     var body: some View {
         GeometryReader { geometry in
@@ -4301,16 +4486,123 @@ struct MonochromeChartView: View {
                         style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
                     )
                     
-                    // End point dot
-                    if let lastPoint = points.last, progress > 0.95 {
+                    // End point dot (only when not hovering)
+                    if let lastPoint = points.last, progress > 0.95, !isHovering {
                         Circle()
                             .fill(Color.white.opacity(0.6))
                             .frame(width: 6, height: 6)
                             .position(lastPoint)
                     }
+                    
+                    // Hover crosshair + tooltip
+                    if isHovering, let loc = hoverLocation {
+                        let clampedX = min(max(loc.x, 0), width)
+                        let fraction = clampedX / width
+                        let dataIndex = min(Int(fraction * CGFloat(data.count - 1) + 0.5), data.count - 1)
+                        let hoveredPrice = data[dataIndex]
+                        let hoveredPoint = points[dataIndex]
+                        
+                        // Vertical crosshair line
+                        Path { path in
+                            path.move(to: CGPoint(x: hoveredPoint.x, y: 0))
+                            path.addLine(to: CGPoint(x: hoveredPoint.x, y: height))
+                        }
+                        .stroke(Color.white.opacity(0.2), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                        
+                        // Dot on curve
+                        Circle()
+                            .fill(Color.white.opacity(0.9))
+                            .frame(width: 8, height: 8)
+                            .shadow(color: Color.white.opacity(0.3), radius: 4)
+                            .position(hoveredPoint)
+                        
+                        // Tooltip
+                        chartTooltip(price: hoveredPrice, dataIndex: dataIndex, totalPoints: data.count)
+                            .position(
+                                x: tooltipX(hoveredPoint: hoveredPoint.x, width: width),
+                                y: max(hoveredPoint.y - 28, 14)
+                            )
+                    }
+                }
+                .contentShape(Rectangle())
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active(let location):
+                        isHovering = true
+                        hoverLocation = location
+                    case .ended:
+                        isHovering = false
+                        hoverLocation = nil
+                    }
                 }
             )
         }
+    }
+    
+    // Keep tooltip within chart bounds
+    private func tooltipX(hoveredPoint: CGFloat, width: CGFloat) -> CGFloat {
+        let tooltipWidth: CGFloat = 110
+        let halfWidth = tooltipWidth / 2
+        if hoveredPoint < halfWidth + 4 {
+            return halfWidth + 4
+        } else if hoveredPoint > width - halfWidth - 4 {
+            return width - halfWidth - 4
+        }
+        return hoveredPoint
+    }
+    
+    @ViewBuilder
+    private func chartTooltip(price: Double, dataIndex: Int, totalPoints: Int) -> some View {
+        let priceText = formatTooltipPrice(price)
+        let dateText = approximateDate(dataIndex: dataIndex, totalPoints: totalPoints)
+        
+        VStack(spacing: 2) {
+            Text(priceText)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundColor(.white)
+            Text(dateText)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(Color.white.opacity(0.5))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color(red: 0.15, green: 0.15, blue: 0.18))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.1), lineWidth: 0.5)
+        )
+    }
+    
+    private func formatTooltipPrice(_ price: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.currencySymbol = "$"
+        if price >= 10000 { formatter.maximumFractionDigits = 0 }
+        else if price >= 100 { formatter.maximumFractionDigits = 2 }
+        else if price >= 1 { formatter.maximumFractionDigits = 2 }
+        else { formatter.maximumFractionDigits = 4 }
+        return formatter.string(from: NSNumber(value: price)) ?? String(format: "$%.2f", price)
+    }
+    
+    private func approximateDate(dataIndex: Int, totalPoints: Int) -> String {
+        guard totalPoints > 1 else { return "" }
+        let fraction = Double(dataIndex) / Double(totalPoints - 1)
+        let secondsBack = Double(timeframeDays) * 86400 * (1 - fraction)
+        let date = Date().addingTimeInterval(-secondsBack)
+        
+        let formatter = DateFormatter()
+        if timeframeDays <= 1 {
+            formatter.dateFormat = "h:mm a"
+        } else if timeframeDays <= 7 {
+            formatter.dateFormat = "EEE h:mm a"
+        } else {
+            formatter.dateFormat = "MMM d"
+        }
+        return formatter.string(from: date)
     }
 }
 

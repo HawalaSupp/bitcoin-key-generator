@@ -128,20 +128,20 @@ struct PortfolioGradientText: View {
                 }
                 
                 // Portfolio percentage change - always show, even if 0
-                HStack(spacing: 4) {
+                HStack(spacing: 3) {
                     Image(systemName: portfolioChange >= 0 ? "arrow.up.right" : "arrow.down.right")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text(String(format: "%@%.2f%% (24h)", portfolioChange >= 0 ? "+" : "", portfolioChange))
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .font(.system(size: 9, weight: .medium))
+                    Text(String(format: "%@%.2f%% 24h", portfolioChange >= 0 ? "+" : "", portfolioChange))
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
                 }
-                .foregroundColor(portfolioChange >= 0 ? Color(red: 0.2, green: 0.8, blue: 0.4) : Color(red: 1.0, green: 0.4, blue: 0.4))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .foregroundColor(portfolioChange >= 0 ? Color(red: 0.2, green: 0.8, blue: 0.4).opacity(0.7) : Color(red: 1.0, green: 0.4, blue: 0.4).opacity(0.7))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
                 .background(
                     Capsule()
-                        .fill((portfolioChange >= 0 ? Color.green : Color.red).opacity(0.15))
+                        .fill((portfolioChange >= 0 ? Color.green : Color.red).opacity(0.1))
                 )
-                .padding(.top, 4)
+                .padding(.top, 2)
             } else {
                 Text("••••••")
                     .font(.clashGroteskBold(size: 72))
@@ -2588,7 +2588,7 @@ struct DraggableAssetRow: View {
         .background(
             ZStack {
                 RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous)
-                    .fill(isSelected ? HawalaTheme.Colors.accentSubtle : (isHovered ? HawalaTheme.Colors.backgroundHover : Color.clear))
+                    .fill(isSelected ? Color(red: 0.12, green: 0.12, blue: 0.14) : (isHovered ? Color(red: 0.10, green: 0.10, blue: 0.12) : Color(red: 0.08, green: 0.08, blue: 0.10)))
                 
                 // Drop target indicator
                 if isDropTarget {
@@ -2596,15 +2596,13 @@ struct DraggableAssetRow: View {
                         .strokeBorder(HawalaTheme.Colors.accent, lineWidth: 2)
                 }
                 
-                if isHovered && !isSelected && !isDropTarget {
-                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous)
-                        .strokeBorder(chainColor.opacity(0.2), lineWidth: 1)
-                }
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.md, style: .continuous)
+                    .strokeBorder(isHovered ? Color.white.opacity(0.1) : Color.white.opacity(0.06), lineWidth: 1)
             }
         )
         .opacity(isDragging ? 0.5 : 1.0)
         .scaleEffect(isDragging ? 0.95 : (isHovered ? 1.01 : 1.0))
-        .shadow(color: isHovered ? chainColor.opacity(0.15) : Color.clear, radius: 8, x: 0, y: 4)
+        .shadow(color: isHovered ? Color.black.opacity(0.2) : Color.clear, radius: 8, x: 0, y: 4)
         .contentShape(Rectangle())
         .onTapGesture {
             onSelect()

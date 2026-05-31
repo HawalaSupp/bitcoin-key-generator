@@ -4,6 +4,7 @@ import SwiftUI
 
 class CoinGeckoPriceService: ObservableObject {
     @Published var exchangeRate: Double?
+    @Published var fromUsdPrice: Double?
     @Published var isLoading = false
     @Published var lastUpdated: Date?
     
@@ -52,6 +53,7 @@ class CoinGeckoPriceService: ObservableObject {
                    let toPrice = json[to]?["usd"],
                    toPrice > 0 {
                     self.exchangeRate = fromPrice / toPrice
+                    self.fromUsdPrice = fromPrice
                     self.lastUpdated = Date()
                 }
             }
@@ -91,6 +93,10 @@ struct SwapCryptoView: View {
     @State private var fromAmount: String = ""
     @State private var selectedProvider: SwapProviderInfo? = nil
     @State private var slippageTolerance: Double = 0.5
+    @State private var amountMode: AmountInputMode = .crypto
+    
+    // Services
+    @StateObject private var balanceService = BalanceService.shared
     
     // Animation & interaction
     @State private var direction: SlideDirection = .forward
@@ -111,6 +117,11 @@ struct SwapCryptoView: View {
         case dex = "DEX"
     }
     
+    enum AmountInputMode: String, CaseIterable {
+        case crypto = "CRYPTO"
+        case fiat = "USD"
+    }
+    
     enum SlideDirection { case forward, backward }
     
     private let totalSteps = 4
@@ -119,44 +130,65 @@ struct SwapCryptoView: View {
     
     var body: some View {
         ZStack {
-            // ── No local background — global silk shows through ──
-            
-            // ── Floating content ──
+            // ── Frosted glass card container ──
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    Spacer().frame(height: max(16, 36 * rs))
+                    Spacer().frame(height: 12)
                     
-                    // Minimal step indicator — hairlines
-                    stepIndicator
-                        .padding(.horizontal, max(16, 40 * rs))
-                    
-                    Spacer().frame(height: max(20, 48 * rs))
-                    
-                    // Step content (animated, no container)
-                    ZStack {
-                        Group {
-                            switch currentStep {
-                            case 0: step0_Assets
-                            case 1: step1_Amount
-                            case 2: step2_Provider
-                            case 3: step3_Review
-                            default: EmptyView()
+                    // ── Main card ──
+                    VStack(spacing: 0) {
+                        // Step indicator
+                        stepIndicator
+                            .padding(.horizontal, 20)
+                            .padding(.top, 20)
+                        
+                        Spacer().frame(height: max(12, 24 * rs))
+                        
+                        // Step content
+                        ZStack {
+                            Group {
+                                switch currentStep {
+                                case 0: step0_Assets
+                                case 1: step1_Amount
+                                case 2: step2_Provider
+                                case 3: step3_Review
+                                default: EmptyView()
+                                }
                             }
+                            .transition(slideTransition)
                         }
-                        .transition(slideTransition)
+                        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: currentStep)
+                        .padding(.horizontal, 24)
+                        
+                        Spacer().frame(height: max(16, 24 * rs))
+                        
+                        // Navigation
+                        navigationControls
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 20)
                     }
-                    .animation(.spring(response: 0.45, dampingFraction: 0.85), value: currentStep)
-                    .padding(.horizontal, max(16, 40 * rs))
+                    .background(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(Color(white: 0.11, opacity: 0.92))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.14), Color.white.opacity(0.05)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .shadow(color: .black.opacity(0.35), radius: 30, y: 15)
+                    .padding(.horizontal, 12)
                     
-                    Spacer().frame(height: max(16, 40 * rs))
-                    
-                    // Navigation
-                    navigationControls
-                        .padding(.horizontal, max(16, 40 * rs))
-                    
-                    Spacer().frame(height: max(24, 60 * rs))
+                    Spacer().frame(height: 16)
                 }
-                .frame(maxWidth: max(300, min(700, containerWidth * 0.88)))
+                .frame(maxWidth: max(300, min(700, containerWidth * 0.96)))
                 .frame(maxWidth: .infinity)
             }
             
@@ -191,11 +223,11 @@ struct SwapCryptoView: View {
     private var stepIndicator: some View {
         HStack(spacing: 6) {
             ForEach(0..<totalSteps, id: \.self) { step in
-                Rectangle()
+                Capsule()
                     .fill(step <= currentStep
-                          ? Color.white.opacity(0.45)
-                          : Color.white.opacity(0.06))
-                    .frame(height: 1.5)
+                          ? Color.white.opacity(0.9)
+                          : Color.white.opacity(0.15))
+                    .frame(height: step <= currentStep ? 3 : 2)
                     .animation(.easeOut(duration: 0.3), value: currentStep)
             }
         }
@@ -224,58 +256,68 @@ struct SwapCryptoView: View {
                 
                 Image(systemName: "arrow.right")
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(.white.opacity(0.18))
+                    .foregroundColor(.white.opacity(0.5))
                 
                 Text(toAsset.symbol)
                     .font(.clashGroteskBold(size: max(28, 56 * rs)))
-                    .foregroundColor(.white.opacity(0.40))
+                    .foregroundColor(.white.opacity(0.8))
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
             .padding(.bottom, 12)
             
-            // Mode — minimal text toggle
+            // Mode — pill-style toggle
             modeToggle
-                .padding(.bottom, max(16, 40 * rs))
+                .padding(.bottom, max(12, 20 * rs))
             
-            // FROM token strip
-            VStack(alignment: .leading, spacing: 10) {
-                Text("FROM")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(3)
-                    .foregroundColor(.white.opacity(0.22))
+            // ── Token selection card ──
+            VStack(spacing: 16) {
+                // FROM token strip
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("FROM")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(3)
+                        .foregroundColor(.white.opacity(0.5))
+                    
+                    tokenStrip(selected: fromAsset, exclude: toAsset) { asset in
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            fromAsset = asset
+                        }
+                    }
+                }
                 
-                tokenStrip(selected: fromAsset, exclude: toAsset) { asset in
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        fromAsset = asset
+                // Swap direction
+                swapDirectionButton
+                
+                // TO token strip
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("TO")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(3)
+                        .foregroundColor(.white.opacity(0.5))
+                    
+                    tokenStrip(selected: toAsset, exclude: fromAsset) { asset in
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            toAsset = asset
+                        }
                     }
                 }
             }
-            .padding(.bottom, max(12, 24 * rs))
-            
-            // Swap direction
-            swapDirectionButton
-                .padding(.bottom, max(12, 24 * rs))
-            
-            // TO token strip
-            VStack(alignment: .leading, spacing: 10) {
-                Text("TO")
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(3)
-                    .foregroundColor(.white.opacity(0.22))
-                
-                tokenStrip(selected: toAsset, exclude: fromAsset) { asset in
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        toAsset = asset
-                    }
-                }
-            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+            )
         }
     }
     
     private var modeToggle: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 0) {
             ForEach(SwapMode.allCases, id: \.self) { mode in
                 Button {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -286,14 +328,28 @@ struct SwapCryptoView: View {
                     Text(mode.rawValue.uppercased())
                         .font(.system(size: 10, weight: .bold))
                         .tracking(2)
-                        .foregroundColor(swapMode == mode
-                                         ? .white.opacity(0.55)
-                                         : .white.opacity(0.12))
-                        .contentShape(Rectangle())
+                        .foregroundColor(swapMode == mode ? .white : .white.opacity(0.4))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(
+                            swapMode == mode
+                                ? Capsule().fill(Color.white.opacity(0.15))
+                                : Capsule().fill(Color.clear)
+                        )
+                        .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
             }
         }
+        .padding(3)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.06))
+        )
+        .overlay(
+            Capsule()
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+        )
     }
     
     private func tokenStrip(
@@ -301,37 +357,36 @@ struct SwapCryptoView: View {
         exclude: SwapAsset,
         onSelect: @escaping (SwapAsset) -> Void
     ) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(SwapAsset.allCases) { asset in
-                    if asset != exclude {
-                        Button {
-                            onSelect(asset)
-                        } label: {
-                            Text(asset.symbol)
-                                .font(.system(size: 12, weight: asset == selected ? .bold : .medium, design: .monospaced))
-                                .foregroundColor(asset == selected ? .white : .white.opacity(0.25))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 9)
-                                .background(
-                                    Capsule()
-                                        .fill(asset == selected
-                                              ? Color.white.opacity(0.10)
-                                              : Color.white.opacity(0.02))
-                                )
-                                .overlay(
-                                    Capsule()
-                                        .strokeBorder(
-                                            asset == selected
-                                                ? Color.white.opacity(0.18)
-                                                : Color.white.opacity(0.04),
-                                            lineWidth: 1
-                                        )
-                                )
-                                .contentShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
+        let columns = [GridItem(.adaptive(minimum: 60, maximum: 90), spacing: 6)]
+        return LazyVGrid(columns: columns, spacing: 6) {
+            ForEach(SwapAsset.allCases) { asset in
+                if asset != exclude {
+                    Button {
+                        onSelect(asset)
+                    } label: {
+                        Text(asset.symbol)
+                            .font(.system(size: 12, weight: asset == selected ? .bold : .medium, design: .monospaced))
+                            .foregroundColor(asset == selected ? .white : .white.opacity(0.6))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 9)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(asset == selected
+                                          ? Color.white.opacity(0.18)
+                                          : Color.white.opacity(0.06))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .strokeBorder(
+                                        asset == selected
+                                            ? asset.color.opacity(0.5)
+                                            : Color.white.opacity(0.10),
+                                        lineWidth: asset == selected ? 1.5 : 1
+                                    )
+                            )
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -349,14 +404,14 @@ struct SwapCryptoView: View {
             } label: {
                 ZStack {
                     Circle()
-                        .fill(Color.white.opacity(0.04))
+                        .fill(Color.white.opacity(0.12))
                         .frame(width: 40, height: 40)
                     Circle()
-                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                        .strokeBorder(Color.white.opacity(0.20), lineWidth: 1)
                         .frame(width: 40, height: 40)
                     Image(systemName: "arrow.up.arrow.down")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.35))
+                        .foregroundColor(.white.opacity(0.7))
                 }
                 .contentShape(Circle())
             }
@@ -369,100 +424,192 @@ struct SwapCryptoView: View {
     
     private var step1_Amount: some View {
         VStack(spacing: 0) {
-            // Pair context
+            // Pair context + amount mode toggle
             HStack(spacing: 8) {
                 Text(fromAsset.symbol)
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.35))
+                    .foregroundColor(.white.opacity(0.7))
                 Image(systemName: "arrow.right")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(.white.opacity(0.10))
+                    .foregroundColor(.white.opacity(0.4))
                 Text(toAsset.symbol)
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.35))
-            }
-            .padding(.bottom, max(16, 40 * rs))
-            
-            // Monumental amount
-            HStack(alignment: .firstTextBaseline, spacing: 0) {
-                TextField("0", text: $fromAmount)
-                    .font(.clashGroteskBold(size: max(36, 72 * rs)))
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .textFieldStyle(.plain)
-                    .minimumScaleFactor(0.5)
+                    .foregroundColor(.white.opacity(0.7))
                 
-                Text(fromAsset.symbol)
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(.white.opacity(0.18))
-                    .padding(.leading, 8)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 16)
-            
-            // Live conversion estimate (FIX 3)
-            if let amount = Double(fromAmount), amount > 0 {
-                if priceService.isLoading && priceService.exchangeRate == nil {
-                    // Loading state — first fetch
-                    HStack(spacing: 6) {
-                        ProgressView()
-                            .scaleEffect(0.6)
-                            .colorScheme(.dark)
-                        Text("Fetching rate…")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.white.opacity(0.22))
-                    }
-                    .padding(.bottom, max(16, 32 * rs))
-                } else if let rate = priceService.exchangeRate {
-                    let converted = amount * rate
-                    VStack(spacing: 6) {
-                        HStack(spacing: 4) {
-                            Text("≈")
-                                .foregroundColor(.white.opacity(0.12))
-                            Text(converted >= 1
-                                 ? String(format: "%.6f", converted)
-                                 : String(format: "%.8f", converted))
-                                .foregroundColor(.white.opacity(0.30))
-                            Text(toAsset.symbol)
-                                .foregroundColor(.white.opacity(0.12))
+                Spacer()
+                
+                // Crypto / USD toggle
+                HStack(spacing: 0) {
+                    ForEach(AmountInputMode.allCases, id: \.self) { mode in
+                        Button {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                amountMode = mode
+                                fromAmount = ""
+                            }
+                        } label: {
+                            Text(mode.rawValue)
+                                .font(.system(size: 9, weight: .bold))
+                                .tracking(1)
+                                .foregroundColor(amountMode == mode ? .white : .white.opacity(0.4))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(
+                                    amountMode == mode
+                                        ? Capsule().fill(Color.white.opacity(0.15))
+                                        : Capsule().fill(Color.clear)
+                                )
+                                .contentShape(Capsule())
                         }
-                        .font(.system(size: 14, weight: .medium, design: .monospaced))
-                        
-                        // Live rate info
-                        VStack(spacing: 2) {
-                            let rateStr = rate >= 1
-                                ? String(format: "%.2f", rate)
-                                : String(format: "%.6f", rate)
-                            Text("1 \(fromAsset.symbol) = \(rateStr) \(toAsset.symbol)")
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                .foregroundColor(.white.opacity(0.18))
-                            
-                            if let lastUpdated = priceService.lastUpdated {
-                                Text("Updated \(lastUpdated.formatted(date: .omitted, time: .standard))")
-                                    .font(.system(size: 9, weight: .medium))
-                                    .foregroundColor(.white.opacity(0.10))
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(2)
+                .background(Capsule().fill(Color.white.opacity(0.06)))
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+            }
+            .padding(.bottom, max(12, 24 * rs))
+            
+            // ── Amount input card ──
+            VStack(spacing: 12) {
+                // Monumental amount input
+                HStack(alignment: .firstTextBaseline, spacing: 0) {
+                    if amountMode == .fiat {
+                        Text("$")
+                            .font(.clashGroteskBold(size: max(28, 56 * rs)))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                    
+                    TextField("0", text: $fromAmount)
+                        .font(.clashGroteskBold(size: max(36, 72 * rs)))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .textFieldStyle(.plain)
+                        .minimumScaleFactor(0.5)
+                    
+                    Text(amountMode == .crypto ? fromAsset.symbol : "USD")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
+                        .padding(.leading, 6)
+                }
+                .frame(maxWidth: .infinity)
+                
+                // MAX button + balance display
+                HStack(spacing: 8) {
+                    if let balance = availableBalance {
+                        Text("Bal: \(balance >= 1 ? String(format: "%.4f", balance) : String(format: "%.8f", balance)) \(fromAsset.symbol)")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.4))
+                    }
+                    
+                    Spacer()
+                    
+                    Button {
+                        if let balance = availableBalance {
+                            withAnimation(.easeOut(duration: 0.15)) {
+                                if amountMode == .crypto {
+                                    fromAmount = balance >= 1
+                                        ? String(format: "%.8f", balance)
+                                        : String(format: "%.12f", balance)
+                                } else if let usdPrice = priceService.fromUsdPrice {
+                                    fromAmount = String(format: "%.2f", balance * usdPrice)
+                                }
                             }
                         }
+                    } label: {
+                        Text("MAX")
+                            .font(.system(size: 10, weight: .bold))
+                            .tracking(1.5)
+                            .foregroundColor(.white.opacity(availableBalance != nil ? 0.9 : 0.3))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Color.white.opacity(availableBalance != nil ? 0.12 : 0.04))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .strokeBorder(Color.white.opacity(availableBalance != nil ? 0.20 : 0.08), lineWidth: 1)
+                            )
                     }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                    .padding(.bottom, max(16, 32 * rs))
-                } else {
-                    // Fallback — no rate yet, show input amount
-                    HStack(spacing: 4) {
-                        Text("≈")
-                            .foregroundColor(.white.opacity(0.12))
-                        Text("\(amount, specifier: "%.6f")")
-                            .foregroundColor(.white.opacity(0.30))
-                        Text(toAsset.symbol)
-                            .foregroundColor(.white.opacity(0.12))
-                    }
-                    .font(.system(size: 14, weight: .medium, design: .monospaced))
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                    .padding(.bottom, max(16, 32 * rs))
+                    .buttonStyle(.plain)
+                    .disabled(availableBalance == nil)
                 }
-            } else {
-                Spacer().frame(height: max(16, 32 * rs))
+                
+                // Live conversion / equivalent display
+                if let amount = Double(fromAmount), amount > 0 {
+                    if priceService.isLoading && priceService.exchangeRate == nil {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                                .colorScheme(.dark)
+                            Text("Fetching rate…")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.white.opacity(0.5))
+                        }
+                    } else if let rate = priceService.exchangeRate {
+                        VStack(spacing: 4) {
+                            if amountMode == .fiat, let usdPrice = priceService.fromUsdPrice, usdPrice > 0 {
+                                // Show crypto equivalent
+                                let cryptoAmt = amount / usdPrice
+                                HStack(spacing: 4) {
+                                    Text("≈")
+                                        .foregroundColor(.white.opacity(0.4))
+                                    Text(cryptoAmt >= 1
+                                         ? String(format: "%.6f", cryptoAmt)
+                                         : String(format: "%.8f", cryptoAmt))
+                                        .foregroundColor(.white.opacity(0.7))
+                                    Text(fromAsset.symbol)
+                                        .foregroundColor(.white.opacity(0.4))
+                                }
+                                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            }
+                            
+                            // Show receive estimate
+                            if let crypto = cryptoAmount {
+                                let converted = crypto * rate
+                                HStack(spacing: 4) {
+                                    Text("→")
+                                        .foregroundColor(.white.opacity(0.4))
+                                    Text(converted >= 1
+                                         ? String(format: "%.6f", converted)
+                                         : String(format: "%.8f", converted))
+                                        .foregroundColor(.white.opacity(0.7))
+                                    Text(toAsset.symbol)
+                                        .foregroundColor(.white.opacity(0.4))
+                                }
+                                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            }
+                            
+                            // Rate info
+                            VStack(spacing: 2) {
+                                let rateStr = rate >= 1
+                                    ? String(format: "%.2f", rate)
+                                    : String(format: "%.6f", rate)
+                                Text("1 \(fromAsset.symbol) = \(rateStr) \(toAsset.symbol)")
+                                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.45))
+                                
+                                if let lastUpdated = priceService.lastUpdated {
+                                    Text("Updated \(lastUpdated.formatted(date: .omitted, time: .standard))")
+                                        .font(.system(size: 9, weight: .medium))
+                                        .foregroundColor(.white.opacity(0.3))
+                                }
+                            }
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                }
             }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+            )
+            .padding(.bottom, max(12, 20 * rs))
             
             // Slippage (DEX only)
             if swapMode == .dex {
@@ -477,11 +624,11 @@ struct SwapCryptoView: View {
                 Text("SLIPPAGE")
                     .font(.system(size: 10, weight: .bold))
                     .tracking(2)
-                    .foregroundColor(.white.opacity(0.22))
+                    .foregroundColor(.white.opacity(0.5))
                 Spacer()
                 Text("\(slippageTolerance, specifier: "%.1f")%")
                     .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.45))
+                    .foregroundColor(.white.opacity(0.8))
             }
             
             HStack(spacing: 8) {
@@ -494,6 +641,15 @@ struct SwapCryptoView: View {
                 }
             }
         }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+        )
     }
     
     // MARK: - Step 2: Provider
@@ -510,18 +666,27 @@ struct SwapCryptoView: View {
             
             // Context
             HStack(spacing: 6) {
-                Text(fromAmount.isEmpty ? "—" : fromAmount)
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.35))
+                if amountMode == .fiat {
+                    Text("$\(fromAmount.isEmpty ? "—" : fromAmount)")
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.7))
+                    Text("of")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white.opacity(0.4))
+                } else {
+                    Text(fromAmount.isEmpty ? "—" : fromAmount)
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.7))
+                }
                 Text(fromAsset.symbol)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.18))
+                    .foregroundColor(.white)
                 Image(systemName: "arrow.right")
                     .font(.system(size: 9))
-                    .foregroundColor(.white.opacity(0.10))
+                    .foregroundColor(.white.opacity(0.4))
                 Text(toAsset.symbol)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.18))
+                    .foregroundColor(.white)
             }
             .padding(.bottom, max(14, 28 * rs))
             
@@ -535,7 +700,7 @@ struct SwapCryptoView: View {
                 ForEach(Array(providers.enumerated()), id: \.element.id) { index, provider in
                     SwapProviderRow(
                         provider: provider,
-                        fromAmount: Double(fromAmount) ?? 0,
+                        fromAmount: cryptoAmount ?? 0,
                         fromSymbol: fromAsset.symbol,
                         toSymbol: toAsset.symbol,
                         exchangeRate: priceService.exchangeRate,
@@ -560,46 +725,59 @@ struct SwapCryptoView: View {
     
     private var step3_Review: some View {
         VStack(spacing: 0) {
-            // Monumental send amount
+            // Send amount
             VStack(spacing: 4) {
                 Text("SEND")
                     .font(.system(size: 10, weight: .bold))
                     .tracking(3)
-                    .foregroundColor(.white.opacity(0.18))
+                    .foregroundColor(.white.opacity(0.5))
                 
-                Text("\(fromAmount) \(fromAsset.symbol)")
-                    .font(.clashGroteskBold(size: max(28, 48 * rs)))
-                    .foregroundColor(.white)
-                    .minimumScaleFactor(0.5)
-                    .lineLimit(1)
+                if amountMode == .fiat {
+                    Text("$\(fromAmount)")
+                        .font(.clashGroteskBold(size: max(28, 48 * rs)))
+                        .foregroundColor(.white)
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
+                    if let crypto = cryptoAmount {
+                        Text("≈ \(crypto >= 1 ? String(format: "%.6f", crypto) : String(format: "%.8f", crypto)) \(fromAsset.symbol)")
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+                } else {
+                    Text("\(fromAmount) \(fromAsset.symbol)")
+                        .font(.clashGroteskBold(size: max(28, 48 * rs)))
+                        .foregroundColor(.white)
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
+                }
             }
             .padding(.bottom, max(10, 20 * rs))
             
             // Arrow
             Image(systemName: "arrow.down")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.white.opacity(0.10))
+                .foregroundColor(.white.opacity(0.4))
                 .padding(.bottom, max(10, 20 * rs))
             
-            // Receive estimate (using live rate)
-            if let amount = Double(fromAmount), let provider = selectedProvider {
+            // Receive estimate
+            if let crypto = cryptoAmount, let provider = selectedProvider {
                 let rate = priceService.exchangeRate ?? 1.0
-                let estimated = amount * rate * (1.0 - provider.feePercent / 100.0)
+                let estimated = crypto * rate * (1.0 - provider.feePercent / 100.0)
                 VStack(spacing: 4) {
                     Text("RECEIVE")
                         .font(.system(size: 10, weight: .bold))
                         .tracking(3)
-                        .foregroundColor(.white.opacity(0.18))
+                        .foregroundColor(.white.opacity(0.5))
                     
                     Text("≈ \(estimated >= 1 ? String(format: "%.6f", estimated) : String(format: "%.8f", estimated))")
                         .font(.clashGroteskBold(size: max(24, 42 * rs)))
-                        .foregroundColor(.white.opacity(0.60))
+                        .foregroundColor(.white.opacity(0.9))
                         .minimumScaleFactor(0.5)
                         .lineLimit(1)
                     
                     Text(toAsset.symbol)
                         .font(.system(size: 14, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.22))
+                        .foregroundColor(.white.opacity(0.5))
                 }
             }
             
@@ -626,11 +804,11 @@ struct SwapCryptoView: View {
             .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.white.opacity(0.02))
+                    .fill(Color.white.opacity(0.05))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
             )
             
             Spacer().frame(height: max(16, 32 * rs))
@@ -647,11 +825,11 @@ struct SwapCryptoView: View {
             Text(label)
                 .font(.system(size: 10, weight: .bold))
                 .tracking(1.5)
-                .foregroundColor(.white.opacity(0.18))
+                .foregroundColor(.white.opacity(0.5))
             Spacer()
             Text(value)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white.opacity(0.50))
+                .foregroundColor(.white.opacity(0.85))
         }
     }
     
@@ -659,7 +837,7 @@ struct SwapCryptoView: View {
     
     private var navigationControls: some View {
         HStack(spacing: 12) {
-            // Back button (hidden on step 0)
+            // Back button
             if currentStep > 0 {
                 Button {
                     direction = .backward
@@ -674,16 +852,16 @@ struct SwapCryptoView: View {
                             .font(.system(size: 11, weight: .bold))
                             .tracking(1.5)
                     }
-                    .foregroundColor(.white.opacity(isHoveringBack ? 0.50 : 0.22))
+                    .foregroundColor(.white.opacity(isHoveringBack ? 0.8 : 0.6))
                     .frame(height: 48)
                     .padding(.horizontal, 20)
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.white.opacity(isHoveringBack ? 0.06 : 0.02))
+                            .fill(Color.white.opacity(isHoveringBack ? 0.12 : 0.08))
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+                            .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
                     )
                     .contentShape(Rectangle())
                 }
@@ -693,7 +871,7 @@ struct SwapCryptoView: View {
             
             Spacer()
             
-            // Forward button (hidden on review step — hold-to-confirm replaces it)
+            // Forward button
             if currentStep < totalSteps - 1 {
                 Button {
                     guard ctaEnabled else { return }
@@ -710,23 +888,23 @@ struct SwapCryptoView: View {
                             .font(.system(size: 10, weight: .bold))
                     }
                     .foregroundColor(ctaEnabled
-                                     ? .white.opacity(isHoveringNext ? 0.80 : 0.55)
-                                     : .white.opacity(0.10))
+                                     ? .white.opacity(isHoveringNext ? 1.0 : 0.9)
+                                     : .white.opacity(0.3))
                     .frame(maxWidth: currentStep == 0 ? .infinity : nil)
                     .frame(height: 48)
                     .padding(.horizontal, 24)
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .fill(ctaEnabled
-                                  ? Color.white.opacity(isHoveringNext ? 0.10 : 0.06)
-                                  : Color.white.opacity(0.02))
+                                  ? Color.white.opacity(isHoveringNext ? 0.20 : 0.15)
+                                  : Color.white.opacity(0.06))
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .strokeBorder(
                                 ctaEnabled
-                                    ? Color.white.opacity(0.10)
-                                    : Color.white.opacity(0.03),
+                                    ? Color.white.opacity(0.25)
+                                    : Color.white.opacity(0.08),
                                 lineWidth: 1
                             )
                     )
@@ -741,6 +919,23 @@ struct SwapCryptoView: View {
     
     // MARK: - Helpers
     
+    /// The actual crypto amount to swap (converts from fiat if needed)
+    private var cryptoAmount: Double? {
+        guard let raw = Double(fromAmount), raw > 0 else { return nil }
+        if amountMode == .fiat {
+            guard let usdPrice = priceService.fromUsdPrice, usdPrice > 0 else { return nil }
+            return raw / usdPrice
+        }
+        return raw
+    }
+    
+    /// Available balance for the fromAsset (from BalanceService)
+    private var availableBalance: Double? {
+        guard let chainId = fromAsset.balanceChainId,
+              let state = balanceService.balanceStates[chainId] else { return nil }
+        return balanceService.extractNumericAmount(from: state)
+    }
+    
     private var ctaLabel: String {
         switch currentStep {
         case 0: return "CONTINUE"
@@ -753,7 +948,12 @@ struct SwapCryptoView: View {
     private var ctaEnabled: Bool {
         switch currentStep {
         case 0: return true
-        case 1: return !fromAmount.isEmpty && (Double(fromAmount) ?? 0) > 0
+        case 1:
+            if fromAmount.isEmpty { return false }
+            if amountMode == .fiat {
+                return cryptoAmount != nil && (cryptoAmount ?? 0) > 0
+            }
+            return (Double(fromAmount) ?? 0) > 0
         case 2: return selectedProvider != nil
         case 3: return true
         default: return false
@@ -764,36 +964,38 @@ struct SwapCryptoView: View {
     
     private var successOverlay: some View {
         ZStack {
-            Color.black.opacity(0.7)
+            Color.black.opacity(0.75)
                 .ignoresSafeArea()
                 .onTapGesture { }
             
             VStack(spacing: 28) {
                 ZStack {
                     Circle()
-                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
                         .frame(width: 90, height: 90)
                         .scaleEffect(pulseRing ? 1.8 : 1.0)
-                        .opacity(pulseRing ? 0 : 0.3)
+                        .opacity(pulseRing ? 0 : 0.4)
                     
                     Circle()
-                        .fill(Color.white.opacity(0.05))
+                        .fill(Color.white.opacity(0.10))
                         .frame(width: 64, height: 64)
                     
                     Image(systemName: "checkmark")
                         .font(.system(size: 24, weight: .bold))
-                        .foregroundColor(.white.opacity(0.75))
+                        .foregroundColor(.white.opacity(0.9))
                 }
                 
                 VStack(spacing: 8) {
                     Text("SWAP INITIATED")
                         .font(.system(size: 12, weight: .bold))
                         .tracking(3)
-                        .foregroundColor(.white.opacity(0.40))
+                        .foregroundColor(.white.opacity(0.6))
                     
-                    Text("\(fromAmount) \(fromAsset.symbol) → \(toAsset.symbol)")
+                    Text(amountMode == .fiat
+                         ? "$\(fromAmount) of \(fromAsset.symbol) → \(toAsset.symbol)"
+                         : "\(fromAmount) \(fromAsset.symbol) → \(toAsset.symbol)")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.white.opacity(0.60))
+                        .foregroundColor(.white.opacity(0.85))
                 }
                 
                 Button {
@@ -808,15 +1010,15 @@ struct SwapCryptoView: View {
                     Text("DONE")
                         .font(.system(size: 12, weight: .bold))
                         .tracking(2)
-                        .foregroundColor(.white.opacity(0.60))
+                        .foregroundColor(.white.opacity(0.85))
                         .frame(width: 140, height: 44)
                         .background(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color.white.opacity(0.06))
+                                .fill(Color.white.opacity(0.12))
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                                .strokeBorder(Color.white.opacity(0.20), lineWidth: 1)
                         )
                         .contentShape(Rectangle())
                 }
@@ -830,8 +1032,8 @@ struct SwapCryptoView: View {
     
     private func executeSwap() {
         guard let provider = selectedProvider,
-              let amount = Double(fromAmount),
-              amount > 0 else { return }
+              let crypto = cryptoAmount,
+              crypto > 0 else { return }
         
         if swapMode == .crossChain, let url = URL(string: provider.widgetURL) {
             #if os(macOS)
@@ -865,12 +1067,12 @@ struct HoldToConfirmButton: View {
         ZStack(alignment: .leading) {
             // Track
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.03))
+                .fill(Color.white.opacity(0.08))
             
-            // Progress fill — offset-based translateX approach (FIX 4)
+            // Progress fill
             GeometryReader { geo in
                 Rectangle()
-                    .fill(Color.white.opacity(0.10))
+                    .fill(Color.white.opacity(0.20))
                     .frame(width: geo.size.width)
                     .offset(x: geo.size.width * (progress - 1))
             }
@@ -878,7 +1080,7 @@ struct HoldToConfirmButton: View {
             // Border
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(
-                    Color.white.opacity(progress > 0.05 ? 0.18 : 0.06),
+                    Color.white.opacity(progress > 0.05 ? 0.30 : 0.15),
                     lineWidth: 1
                 )
             
@@ -886,7 +1088,7 @@ struct HoldToConfirmButton: View {
             Text(progress > 0.05 ? "HOLD…" : label)
                 .font(.system(size: 12, weight: .bold))
                 .tracking(2.5)
-                .foregroundColor(.white.opacity(progress > 0.05 ? 0.85 : 0.45))
+                .foregroundColor(.white.opacity(progress > 0.05 ? 0.95 : 0.8))
                 .frame(maxWidth: .infinity)
         }
         .frame(height: 54)
@@ -1009,6 +1211,21 @@ enum SwapAsset: String, CaseIterable, Identifiable {
         case .usdt: return "tether"
         }
     }
+    
+    /// Maps to BalanceService.balanceStates key
+    var balanceChainId: String? {
+        switch self {
+        case .bitcoin: return "bitcoin"
+        case .ethereum: return "ethereum"
+        case .litecoin: return "litecoin"
+        case .solana: return "solana"
+        case .bnb: return "bnb"
+        case .xrp: return "xrp"
+        case .usdc: return "usdc-erc20"
+        case .usdt: return "usdt-erc20"
+        case .dogecoin, .avalanche, .polygon, .cardano: return nil
+        }
+    }
 }
 
 // MARK: - Swap Provider Info
@@ -1074,34 +1291,34 @@ struct SwapProviderRow: View {
                 // Monochrome icon
                 ZStack {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.white.opacity(isSelected ? 0.08 : 0.03))
+                        .fill(Color.white.opacity(isSelected ? 0.15 : 0.08))
                         .frame(width: 36, height: 36)
                     Image(systemName: provider.icon)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white.opacity(isSelected ? 0.60 : 0.30))
+                        .foregroundColor(.white.opacity(isSelected ? 0.85 : 0.55))
                 }
                 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(provider.name)
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.white.opacity(isSelected ? 0.85 : 0.55))
+                            .foregroundColor(.white.opacity(isSelected ? 0.95 : 0.75))
                         if isBest {
                             Text("BEST")
                                 .font(.system(size: 8, weight: .bold))
                                 .tracking(1)
-                                .foregroundColor(.white.opacity(0.50))
+                                .foregroundColor(.white.opacity(0.8))
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 2)
                                 .background(
                                     RoundedRectangle(cornerRadius: 3)
-                                        .fill(Color.white.opacity(0.08))
+                                        .fill(Color.white.opacity(0.15))
                                 )
                         }
                     }
                     Text(provider.estimatedTime)
                         .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.22))
+                        .foregroundColor(.white.opacity(0.5))
                 }
                 
                 Spacer()
@@ -1112,25 +1329,25 @@ struct SwapProviderRow: View {
                         let receive = fromAmount * rate * (1.0 - provider.feePercent / 100.0)
                         Text("≈ \(receive >= 1 ? String(format: "%.4f", receive) : String(format: "%.6f", receive)) \(toSymbol)")
                             .font(.system(size: 12, weight: .medium, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.50))
+                            .foregroundColor(.white.opacity(0.8))
                             .lineLimit(1)
                     }
                     Text(provider.feePercent == 0 ? "No fee" : "\(provider.feePercent, specifier: "%.2f")% fee")
                         .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(provider.feePercent == 0 ? 0.40 : 0.22))
+                        .foregroundColor(.white.opacity(provider.feePercent == 0 ? 0.6 : 0.5))
                 }
                 
                 // Radio indicator
                 ZStack {
                     Circle()
                         .strokeBorder(
-                            isSelected ? Color.white.opacity(0.50) : Color.white.opacity(0.08),
+                            isSelected ? Color.white.opacity(0.7) : Color.white.opacity(0.2),
                             lineWidth: isSelected ? 2 : 1
                         )
                         .frame(width: 20, height: 20)
                     if isSelected {
                         Circle()
-                            .fill(Color.white.opacity(0.60))
+                            .fill(Color.white.opacity(0.8))
                             .frame(width: 10, height: 10)
                     }
                 }
@@ -1140,15 +1357,15 @@ struct SwapProviderRow: View {
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(isSelected
-                          ? Color.white.opacity(0.06)
-                          : (isHovered ? Color.white.opacity(0.03) : Color.white.opacity(0.015)))
+                          ? Color.white.opacity(0.12)
+                          : (isHovered ? Color.white.opacity(0.08) : Color.white.opacity(0.05)))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(
                         isSelected
-                            ? Color.white.opacity(0.15)
-                            : Color.white.opacity(isHovered ? 0.06 : 0.03),
+                            ? Color.white.opacity(0.25)
+                            : Color.white.opacity(isHovered ? 0.14 : 0.08),
                         lineWidth: 1
                     )
             )
@@ -1172,19 +1389,19 @@ struct SwapSlippageChip: View {
         Button(action: action) {
             Text("\(value, specifier: value < 1 ? "%.1f" : "%.0f")%")
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundColor(isSelected ? .white.opacity(0.70) : .white.opacity(0.30))
+                .foregroundColor(isSelected ? .white : .white.opacity(0.6))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(isSelected
-                              ? Color.white.opacity(0.10)
-                              : (isHovered ? Color.white.opacity(0.05) : Color.white.opacity(0.02)))
+                              ? Color.white.opacity(0.18)
+                              : (isHovered ? Color.white.opacity(0.10) : Color.white.opacity(0.06)))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .strokeBorder(
-                            isSelected ? Color.white.opacity(0.18) : Color.white.opacity(0.04),
+                            isSelected ? Color.white.opacity(0.30) : Color.white.opacity(0.10),
                             lineWidth: 1
                         )
                 )

@@ -22,11 +22,11 @@ enum BridgeRiskLevel {
     var color: Color {
         switch self {
         case .low:
-            return .green
+            return HawalaTheme.Colors.success
         case .review:
-            return .orange
+            return HawalaTheme.Colors.warning
         case .high:
-            return .red
+            return HawalaTheme.Colors.error
         }
     }
 }
@@ -83,24 +83,30 @@ struct BridgeView: View {
     // MARK: - Beta Warning Banner
     
     private var betaWarningBanner: some View {
-        VStack(spacing: 4) {
-            HStack {
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                    .font(.system(size: 12))
+                    .foregroundColor(HawalaTheme.Colors.warning)
                 Text("Preview Feature")
-                    .fontWeight(.semibold)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(HawalaTheme.Colors.warning)
                 Spacer()
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color.orange.opacity(0.15))
-            .cornerRadius(8)
+            .padding(.horizontal, HawalaTheme.Spacing.md)
+            .padding(.vertical, HawalaTheme.Spacing.sm)
+            .background(HawalaTheme.Colors.warning.opacity(0.08))
+            .cornerRadius(HawalaTheme.Radius.sm)
+            .overlay(
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm)
+                    .stroke(HawalaTheme.Colors.warning.opacity(0.2), lineWidth: 1)
+            )
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Warning: Preview Feature. Cross-chain bridging only shows live routes when the bridge backend is available.")
             
             Text("Cross-chain bridging is in preview. Hawala now requires live bridge routes and will show no quotes when the bridge backend or provider configuration is unavailable.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.4))
         }
     }
     
@@ -152,9 +158,9 @@ struct BridgeView: View {
                     }
                 }
             }
-            .padding()
+            .padding(HawalaTheme.Spacing.xl)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(HawalaTheme.Colors.background)
         .navigationTitle("Bridge")
         .toolbar {
             ToolbarItem(placement: .automatic) {
@@ -191,28 +197,24 @@ struct BridgeView: View {
     // MARK: - View Components
     
     private var headerSection: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             HStack {
-                Image(systemName: "arrow.left.arrow.right")
-                    .font(.title2)
-                    .foregroundColor(.blue)
                 Text("Cross-Chain Bridge")
-                    .font(.headline)
+                    .font(.clashGroteskBold(size: 18))
+                    .foregroundColor(.white)
                 Spacer()
             }
             
             Text("Transfer tokens between blockchains securely")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.4))
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
     
     private var sourceSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("From")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
+            HawalaOverlaySectionHeader(icon: "arrow.down.circle", title: "From")
             
             HStack {
                 chainPicker(selection: $sourceChain, label: "Source")
@@ -221,33 +223,48 @@ struct BridgeView: View {
                 
                 tokenPicker
             }
-            .padding()
-            .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(12)
+            .padding(HawalaTheme.Spacing.lg)
+            .background(HawalaTheme.Colors.backgroundSecondary)
+            .cornerRadius(HawalaTheme.Radius.lg)
+            .overlay(
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
+            )
         }
     }
     
+    @State private var hoveringSwapChains = false
+    
     private var swapChainsButton: some View {
         Button(action: swapChains) {
-            Image(systemName: "arrow.up.arrow.down.circle.fill")
-                .font(.title)
-                .foregroundColor(.blue)
+            Image(systemName: "arrow.up.arrow.down")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white.opacity(0.5))
+                .frame(width: 36, height: 36)
+                .background(hoveringSwapChains ? Color.white.opacity(0.08) : Color.white.opacity(0.04))
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.06), lineWidth: 1))
         }
+        .buttonStyle(.plain)
+        .onHover { h in hoveringSwapChains = h }
+        .animation(HawalaTheme.Animation.fast, value: hoveringSwapChains)
         .accessibilityLabel("Swap chains")
         .accessibilityHint("Swap source and destination chains")
         .accessibilityIdentifier("bridge_swap_chains_button")
     }
     
     private var destinationSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("To")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
+            HawalaOverlaySectionHeader(icon: "arrow.up.circle", title: "To")
             
             chainPicker(selection: $destinationChain, label: "Destination")
-                .padding()
-                .background(Color(nsColor: .controlBackgroundColor))
-                .cornerRadius(12)
+                .padding(HawalaTheme.Spacing.lg)
+                .background(HawalaTheme.Colors.backgroundSecondary)
+                .cornerRadius(HawalaTheme.Radius.lg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                )
         }
     }
     
@@ -265,14 +282,16 @@ struct BridgeView: View {
                 }
             }
         } label: {
-            HStack {
+            HStack(spacing: 6) {
                 Image(systemName: selection.wrappedValue.icon)
-                    .foregroundColor(.blue)
+                    .font(.system(size: 14))
+                    .foregroundColor(.white.opacity(0.5))
                 Text(selection.wrappedValue.displayName)
-                    .fontWeight(.medium)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white)
                 Image(systemName: "chevron.down")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 9))
+                    .foregroundColor(.white.opacity(0.3))
             }
         }
     }
@@ -299,21 +318,24 @@ struct BridgeView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Color.blue.opacity(0.1))
-            .cornerRadius(8)
+            .background(Color.white.opacity(0.06))
+            .cornerRadius(HawalaTheme.Radius.sm)
+            .overlay(
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
         }
     }
     
     private var amountSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Amount")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
+            HawalaOverlaySectionHeader(icon: "number", title: "Amount")
             
             HStack {
                 TextField("0.0", text: $amount)
                     .textFieldStyle(.plain)
-                    .font(.title2)
+                    .font(.clashGroteskMedium(size: 28))
+                    .foregroundColor(.white)
                     .accessibilityLabel("Bridge amount")
                     .accessibilityHint("Enter amount to bridge")
                     .accessibilityIdentifier("bridge_amount_input")
@@ -325,78 +347,98 @@ struct BridgeView: View {
                         await fetchMaxBalance()
                     }
                 }
-                .font(.caption)
-                .foregroundColor(.blue)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(.white.opacity(0.5))
                 .accessibilityLabel("Use maximum balance")
                 .accessibilityHint("Set amount to your full balance")
             }
-            .padding()
-            .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(12)
+            .padding(HawalaTheme.Spacing.lg)
+            .background(HawalaTheme.Colors.backgroundSecondary)
+            .cornerRadius(HawalaTheme.Radius.lg)
+            .overlay(
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
+            )
         }
     }
     
+    @State private var hoveringGetQuotes = false
+    
     private var getQuotesButton: some View {
         Button(action: fetchQuotes) {
-            HStack {
+            HStack(spacing: HawalaTheme.Spacing.sm) {
                 if bridgeService.isLoading {
                     ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .scaleEffect(0.7)
+                        .frame(width: 16, height: 16)
                 } else {
                     Text("Get Live Bridge Quotes")
-                        .fontWeight(.semibold)
+                        .font(.system(size: 13, weight: .semibold))
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding()
-            .background(isValidInput ? Color.blue : Color.gray)
-            .foregroundColor(.white)
-            .cornerRadius(12)
+            .padding(.vertical, 14)
+            .background(isValidInput ? (hoveringGetQuotes ? Color.white.opacity(0.18) : Color.white.opacity(0.12)) : Color.white.opacity(0.04))
+            .foregroundColor(isValidInput ? .white : .white.opacity(0.3))
+            .cornerRadius(HawalaTheme.Radius.md)
+            .overlay(
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
+                    .stroke(Color.white.opacity(isValidInput ? 0.1 : 0.04), lineWidth: 1)
+            )
         }
+        .buttonStyle(.plain)
         .disabled(!isValidInput || bridgeService.isLoading)
+        .onHover { h in hoveringGetQuotes = h }
+        .animation(HawalaTheme.Animation.fast, value: hoveringGetQuotes)
         .accessibilityLabel("Get bridge quotes")
         .accessibilityHint("Fetch quotes from bridge providers")
         .accessibilityIdentifier("bridge_get_quotes_button")
     }
 
     private func errorSection(_ error: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: HawalaTheme.Spacing.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+                .font(.system(size: 12))
+                .foregroundColor(HawalaTheme.Colors.error)
             Text(error)
-                .font(.caption)
-                .foregroundStyle(.red)
+                .font(.system(size: 12))
+                .foregroundColor(HawalaTheme.Colors.error)
             Spacer()
         }
-        .padding()
+        .padding(HawalaTheme.Spacing.lg)
         .frame(maxWidth: .infinity)
-        .background(Color.red.opacity(0.1))
-        .cornerRadius(12)
+        .background(HawalaTheme.Colors.error.opacity(0.08))
+        .cornerRadius(HawalaTheme.Radius.md)
+        .overlay(
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
+                .stroke(HawalaTheme.Colors.error.opacity(0.2), lineWidth: 1)
+        )
     }
     
     private func quotesSection(quotes: BridgeService.AggregatedQuotes) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
             HStack {
-                Text("Available Routes")
-                    .font(.headline)
+                HawalaOverlaySectionHeader(icon: "list.bullet.rectangle", title: "Available Routes")
                 Spacer()
                 
                 // ROADMAP-07 E9: Quote expiry countdown
                 if quoteTimeRemaining > 0 {
                     HStack(spacing: 4) {
                         Image(systemName: "clock")
-                            .font(.caption)
+                            .font(.system(size: 10))
                         Text(formatCountdown(quoteTimeRemaining))
-                            .font(.caption.monospacedDigit())
+                            .font(.system(size: 11, design: .monospaced))
                     }
-                    .foregroundColor(quoteTimeRemaining < 60 ? .red : .secondary)
+                    .foregroundColor(quoteTimeRemaining < 60 ? HawalaTheme.Colors.error : .white.opacity(0.4))
                     .accessibilityLabel("Quote expires in \(quoteTimeRemaining) seconds")
                 }
                 
                 Button(action: { stopQuoteTimer(); showQuotes = false }) {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 14))
+                        .foregroundColor(.white.opacity(0.3))
                 }
+                .buttonStyle(.plain)
             }
 
             routeSummarySection(quotes)
@@ -426,9 +468,11 @@ struct BridgeView: View {
             Toggle(isOn: $destinationConfirmed) {
                 HStack(spacing: 6) {
                     Image(systemName: "shield.checkered")
-                        .foregroundColor(.blue)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.5))
                     Text("I confirm I am bridging to **\(destinationChain.displayName)**")
-                        .font(.caption)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.6))
                 }
             }
             .toggleStyle(.checkbox)
@@ -439,84 +483,106 @@ struct BridgeView: View {
             if quoteTimeRemaining <= 0 && showQuotes {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
+                        .font(.system(size: 11))
+                        .foregroundColor(HawalaTheme.Colors.warning)
                     Text("Quote expired")
-                        .font(.caption)
-                        .foregroundColor(.orange)
+                        .font(.system(size: 11))
+                        .foregroundColor(HawalaTheme.Colors.warning)
                     Spacer()
                     Button("Refresh") {
                         fetchQuotes()
                     }
-                    .font(.caption)
-                    .foregroundColor(.blue)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white.opacity(0.5))
+                    .buttonStyle(.plain)
                 }
-                .padding(8)
-                .background(Color.orange.opacity(0.1))
-                .cornerRadius(8)
+                .padding(HawalaTheme.Spacing.sm)
+                .background(HawalaTheme.Colors.warning.opacity(0.08))
+                .cornerRadius(HawalaTheme.Radius.sm)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm)
+                        .stroke(HawalaTheme.Colors.warning.opacity(0.2), lineWidth: 1)
+                )
             }
             
             // Bridge button
             Button(action: { confirmBridge = true }) {
-                HStack {
+                HStack(spacing: HawalaTheme.Spacing.sm) {
                     Image(systemName: "arrow.left.arrow.right")
+                        .font(.system(size: 12, weight: .semibold))
                     Text("Bridge \(selectedQuote?.tokenSymbol ?? selectedToken)")
-                        .fontWeight(.semibold)
+                        .font(.system(size: 13, weight: .semibold))
                 }
                 .frame(maxWidth: .infinity)
-                .padding()
-                .background(canBridge ? Color.blue : Color.gray)
-                .foregroundColor(.white)
-                .cornerRadius(12)
+                .padding(.vertical, 14)
+                .background(canBridge ? HawalaTheme.Colors.success.opacity(0.15) : Color.white.opacity(0.04))
+                .foregroundColor(canBridge ? HawalaTheme.Colors.success : .white.opacity(0.3))
+                .cornerRadius(HawalaTheme.Radius.md)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
+                        .stroke(canBridge ? HawalaTheme.Colors.success.opacity(0.25) : Color.white.opacity(0.04), lineWidth: 1)
+                )
             }
+            .buttonStyle(.plain)
             .disabled(!canBridge)
         }
-        .padding()
-        .background(Color(nsColor: .textBackgroundColor))
-        .cornerRadius(16)
+        .padding(HawalaTheme.Spacing.lg)
+        .background(HawalaTheme.Colors.backgroundSecondary)
+        .cornerRadius(HawalaTheme.Radius.xl)
+        .overlay(
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.xl)
+                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+        )
     }
 
     private func routeSummarySection(_ quotes: BridgeService.AggregatedQuotes) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
             HStack {
                 Label("Live Rust bridge routing", systemImage: "checkmark.shield")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.green)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(HawalaTheme.Colors.success)
                 Spacer()
                 Text("\(quotes.quotes.count) routes")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: HawalaTheme.Spacing.sm) {
                 metricChip(title: "Best Output", value: quotes.bestQuote?.provider.displayName ?? "N/A")
                 metricChip(title: "Fastest", value: quotes.fastestQuote.map { "\($0.provider.displayName) ~\($0.estimatedTimeMinutes)m" } ?? "N/A")
                 metricChip(title: "Lowest Fee", value: quotes.cheapestQuote.map { "$\(String(format: "%.2f", $0.totalFeeUSD ?? 0))" } ?? "N/A")
             }
 
             Text("Routes shown here come from live bridge backends. Hawala does not synthesize bridge quotes when providers are unavailable.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.35))
         }
-        .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(12)
+        .padding(HawalaTheme.Spacing.lg)
+        .background(HawalaTheme.Colors.backgroundTertiary)
+        .cornerRadius(HawalaTheme.Radius.lg)
+        .overlay(
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+        )
     }
 
     private func selectedRouteReviewSection(_ quote: BridgeService.BridgeQuote) -> some View {
         let level = riskLevel(for: quote)
 
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
             HStack {
                 Text("Selected Route Review")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
                 Spacer()
                 Text(level.title)
-                    .font(.caption.weight(.semibold))
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.5)
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(level.color.opacity(0.14))
-                    .foregroundStyle(level.color)
-                    .cornerRadius(6)
+                    .padding(.vertical, 3)
+                    .background(level.color.opacity(0.12))
+                    .foregroundColor(level.color)
+                    .cornerRadius(4)
             }
 
             routeReviewRow(title: "Provider", value: quote.provider.displayName)
@@ -527,14 +593,15 @@ struct BridgeView: View {
 
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "exclamationmark.shield")
-                    .foregroundStyle(.orange)
+                    .font(.system(size: 11))
+                    .foregroundColor(HawalaTheme.Colors.warning)
                 Text(quote.provider.operationalWarning)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
             }
-            .padding(8)
-            .background(Color.orange.opacity(0.08))
-            .cornerRadius(8)
+            .padding(HawalaTheme.Spacing.sm)
+            .background(HawalaTheme.Colors.warning.opacity(0.06))
+            .cornerRadius(HawalaTheme.Radius.sm)
 
             if let dashboardURL = quote.provider.dashboardURL {
                 Button {
@@ -542,48 +609,56 @@ struct BridgeView: View {
                 } label: {
                     HStack {
                         Image(systemName: "link")
+                            .font(.system(size: 11))
                         Text("Open \(quote.provider.displayName) Dashboard")
-                            .font(.caption.weight(.medium))
+                            .font(.system(size: 11, weight: .medium))
                         Spacer()
                         Image(systemName: "arrow.up.right.square")
-                            .font(.caption)
+                            .font(.system(size: 10))
                     }
+                    .foregroundColor(.white.opacity(0.5))
                 }
                 .buttonStyle(.plain)
             }
 
             Text(riskMessage(for: quote))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.35))
         }
-        .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(12)
+        .padding(HawalaTheme.Spacing.lg)
+        .background(HawalaTheme.Colors.backgroundTertiary)
+        .cornerRadius(HawalaTheme.Radius.lg)
+        .overlay(
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+        )
     }
 
     private func metricChip(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.35))
             Text(value)
-                .font(.caption.weight(.semibold))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.white.opacity(0.7))
                 .lineLimit(2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(Color(nsColor: .textBackgroundColor))
-        .cornerRadius(10)
+        .padding(HawalaTheme.Spacing.sm)
+        .background(Color.white.opacity(0.04))
+        .cornerRadius(HawalaTheme.Radius.sm)
     }
 
     private func routeReviewRow(title: String, value: String) -> some View {
         HStack {
             Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.4))
             Spacer()
             Text(value)
-                .font(.caption.weight(.medium))
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.7))
                 .multilineTextAlignment(.trailing)
         }
     }
@@ -594,16 +669,16 @@ struct BridgeView: View {
     }
     
     private var activeTransfersSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
             HStack {
-                Text("Active Transfers")
-                    .font(.headline)
+                HawalaOverlaySectionHeader(icon: "arrow.triangle.2.circlepath", title: "Active Transfers")
                 Spacer()
                 Button("Clear Completed") {
                     bridgeService.clearCompletedTransfers()
                 }
-                .font(.caption)
-                .foregroundColor(.blue)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.5))
+                .buttonStyle(.plain)
             }
             
             ForEach(bridgeService.activeTransfers) { transfer in
@@ -619,20 +694,23 @@ struct BridgeView: View {
                 }
             }
         }
-        .padding()
-        .background(Color(nsColor: .textBackgroundColor))
-        .cornerRadius(16)
+        .padding(HawalaTheme.Spacing.lg)
+        .background(HawalaTheme.Colors.backgroundSecondary)
+        .cornerRadius(HawalaTheme.Radius.xl)
+        .overlay(
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.xl)
+                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+        )
     }
 
     private var recentTransfersSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
             HStack {
-                Text("Recent Bridge Records")
-                    .font(.headline)
+                HawalaOverlaySectionHeader(icon: "clock.arrow.circlepath", title: "Recent Bridge Records")
                 Spacer()
                 Text("\(bridgeService.recentTransfers.count)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
             }
 
             ForEach(bridgeService.recentTransfers) { transfer in
@@ -647,9 +725,13 @@ struct BridgeView: View {
                 }
             }
         }
-        .padding()
-        .background(Color(nsColor: .textBackgroundColor))
-        .cornerRadius(16)
+        .padding(HawalaTheme.Spacing.lg)
+        .background(HawalaTheme.Colors.backgroundSecondary)
+        .cornerRadius(HawalaTheme.Radius.xl)
+        .overlay(
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.xl)
+                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+        )
     }
     
     private var settingsSheet: some View {
@@ -662,12 +744,16 @@ struct BridgeView: View {
                                 slippage = value
                             } label: {
                                 Text("\(String(format: "%.1f", value))%")
-                                    .font(.caption)
+                                    .font(.system(size: 11, weight: .medium))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 6)
-                                    .background(slippage == value ? Color.blue : Color.gray.opacity(0.1))
-                                    .foregroundColor(slippage == value ? .white : .primary)
-                                    .cornerRadius(8)
+                                    .background(slippage == value ? Color.white.opacity(0.12) : Color.white.opacity(0.04))
+                                    .foregroundColor(slippage == value ? .white : .white.opacity(0.5))
+                                    .cornerRadius(HawalaTheme.Radius.sm)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm)
+                                            .stroke(slippage == value ? Color.white.opacity(0.15) : Color.white.opacity(0.06), lineWidth: 1)
+                                    )
                             }
                             .buttonStyle(.plain)
                         }
@@ -736,25 +822,25 @@ struct BridgeView: View {
     // MARK: - ROADMAP-07 E12: Zero-Slippage Warning
     
     private var zeroSlippageWarning: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: HawalaTheme.Spacing.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-                .font(.title3)
+                .foregroundColor(HawalaTheme.Colors.warning)
+                .font(.system(size: 14))
             VStack(alignment: .leading, spacing: 4) {
                 Text("Zero Slippage Warning")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.orange)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(HawalaTheme.Colors.warning)
                 Text("With very low slippage (< 0.1%), most bridge transactions will fail due to price movement. Consider increasing to at least 0.5%.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
             }
         }
-        .padding()
-        .background(Color.orange.opacity(0.08))
-        .cornerRadius(12)
+        .padding(HawalaTheme.Spacing.lg)
+        .background(HawalaTheme.Colors.warning.opacity(0.08))
+        .cornerRadius(HawalaTheme.Radius.lg)
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                .stroke(HawalaTheme.Colors.warning.opacity(0.25), lineWidth: 1)
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Warning: Zero slippage will cause most bridge transactions to fail")
@@ -1012,72 +1098,80 @@ struct QuoteCard: View {
     let riskLevel: BridgeRiskLevel
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
             HStack {
                 Image(systemName: quote.provider.icon)
-                    .foregroundColor(quote.provider.color)
+                    .font(.system(size: 14))
+                    .foregroundColor(.white.opacity(0.5))
                 Text(quote.provider.displayName)
-                    .fontWeight(.medium)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white)
                 
                 Spacer()
                 
                 Text(label)
-                    .font(.caption)
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.8)
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.green.opacity(0.2))
-                    .foregroundColor(.green)
+                    .padding(.vertical, 3)
+                    .background(HawalaTheme.Colors.success.opacity(0.15))
+                    .foregroundColor(HawalaTheme.Colors.success)
                     .cornerRadius(4)
 
                 Text(riskLevel.title)
-                    .font(.caption)
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(0.5)
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(riskLevel.color.opacity(0.14))
+                    .padding(.vertical, 3)
+                    .background(riskLevel.color.opacity(0.12))
                     .foregroundColor(riskLevel.color)
                     .cornerRadius(4)
             }
             
-            Divider()
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
             
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("You Receive")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.4))
                     Text("\(quote.formattedAmountOut) \(quote.tokenSymbol)")
-                        .font(.headline)
+                        .font(.clashGroteskMedium(size: 16))
+                        .foregroundColor(.white)
                 }
                 
                 Spacer()
                 
                 VStack(alignment: .trailing, spacing: 4) {
                     Text("Time")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.4))
                     Text("~\(quote.estimatedTimeMinutes) min")
-                        .font(.subheadline)
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.7))
                 }
             }
             
             if let totalFee = quote.totalFeeUSD {
                 HStack {
                     Text("Total Fee")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.4))
                     Spacer()
                     Text("$\(String(format: "%.2f", totalFee))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.4))
                 }
             }
         }
-        .padding()
-        .background(isSelected ? Color.blue.opacity(0.1) : Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(12)
+        .padding(HawalaTheme.Spacing.lg)
+        .background(isSelected ? Color.white.opacity(0.08) : HawalaTheme.Colors.backgroundSecondary)
+        .cornerRadius(HawalaTheme.Radius.lg)
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2)
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                .stroke(isSelected ? Color.white.opacity(0.15) : Color.white.opacity(0.06), lineWidth: 1)
         )
     }
 }
@@ -1192,9 +1286,13 @@ struct BridgeTransferCard: View {
                 }
             }
         }
-        .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(12)
+        .padding(HawalaTheme.Spacing.lg)
+        .background(HawalaTheme.Colors.backgroundSecondary)
+        .cornerRadius(HawalaTheme.Radius.lg)
+        .overlay(
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+        )
     }
     
     private var transferProgress: Double {

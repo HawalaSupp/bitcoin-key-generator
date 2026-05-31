@@ -290,6 +290,14 @@ struct SendView: View {
     // Amount validation (ROADMAP-05 E8-E11)
     @State private var amountValidationError: String?
     
+    // USD/crypto toggle for amount input
+    @State private var isAmountInUSD: Bool = false
+    @State private var usdAmountString: String = ""
+    
+    // Contact autocomplete
+    @State private var showContactSuggestions: Bool = false
+    @State private var filteredContacts: [Contact] = []
+    
     // Fee estimate timestamp for expiry warning (ROADMAP-05 E16)
     @State private var feeEstimateTimestamp: Date = Date()
     @State private var showFeeExpiredWarning = false
@@ -304,8 +312,13 @@ struct SendView: View {
     @State private var cardScale: CGFloat = 0.92
     @State private var contentOpacity: Double = 0
     
+    // Two-step send funnel: step 1 = recipient+amount, step 2 = fee selection
+    @State private var sendStep: Int = 1
+    @State private var stepTransition: Bool = false
+    
     // Hover states for bottom buttons
     @State private var reviewHovered: Bool = false
+    @State private var continueHovered: Bool = false
     
     var onSuccess: ((TransactionBroadcastResult) -> Void)?
     var onDismiss: (() -> Void)?
@@ -327,10 +340,11 @@ struct SendView: View {
                 loadingOverlay
             }
         }
-        .frame(width: 480, height: 680)
+        .frame(width: 680, height: sendStep == 1 ? 540 : 620)
+        .animation(.spring(response: 0.45, dampingFraction: 0.88), value: sendStep)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
+                .fill(Color(red: 0.06, green: 0.06, blue: 0.07))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -663,34 +677,82 @@ struct SendView: View {
             // Custom Header
             sendHeader
             
-            // Scrollable Content
+            // Scrollable Content — step-based
             ScrollView(showsIndicators: false) {
-                scrollContent
+                if sendStep == 1 {
+                    stepOneContent
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .leading).combined(with: .opacity),
+                            removal: .move(edge: .leading).combined(with: .opacity)
+                        ))
+                } else {
+                    stepTwoContent
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                            removal: .move(edge: .trailing).combined(with: .opacity)
+                        ))
+                }
             }
             
-            // Bottom Action Button
-            bottomActionBar
+            // Bottom Action Button — changes per step
+            if sendStep == 1 {
+                stepOneContinueBar
+            } else {
+                bottomActionBar
+            }
         }
     }
     
-    private var scrollContent: some View {
-        VStack(spacing: HawalaTheme.Spacing.lg) {
-            // Chain Selector
-            chainSelectorSection
-            
+    // MARK: - Step 1: Recipient + Amount
+    
+    private var stepOneContent: some View {
+        VStack(spacing: 0) {
             // View-Only Warning (for chains that don't support sending)
             if !selectedChain.supportsSending {
                 viewOnlyWarningBanner
+                    .padding(.horizontal, 24)
+                    .padding(.top, 12)
             }
             
-            // Recipient Address
+            // Hero Amount Input — centered, large
+            heroAmountSection
+            
+            // Recipient Address with contact autocomplete
             recipientSection
+                .padding(.horizontal, 24)
             
-            // Recent Recipients (ROADMAP-05 E7)
-            recentRecipientsSection
+            // Amount Validation Error (ROADMAP-05 E8-E11)
+            if let validationError = amountValidationError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.caption)
+                    Text(validationError)
+                        .font(HawalaTheme.Typography.caption)
+                }
+                .foregroundColor(HawalaTheme.Colors.error)
+                .padding(.horizontal, HawalaTheme.Spacing.sm)
+                .padding(.top, 8)
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
             
-            // Amount Input
-            amountSection
+            // Error Message
+            if let error = errorMessage {
+                errorBanner(error)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+            }
+            
+            Spacer(minLength: 12)
+        }
+        .padding(.top, 4)
+    }
+    
+    // MARK: - Step 2: Fee Selection
+    
+    private var stepTwoContent: some View {
+        VStack(spacing: HawalaTheme.Spacing.lg) {
+            // Summary of recipient + amount from step 1
+            sendSummaryCard
             
             // Fee Settings (BTC/LTC/ETH only)
             if selectedChain.isUTXOBased || selectedChain.isEVM {
@@ -722,44 +784,203 @@ struct SendView: View {
                 feeExpiredWarningBanner
             }
             
-            // Amount Validation Error (ROADMAP-05 E8-E11)
-            if let validationError = amountValidationError {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .font(.caption)
-                    Text(validationError)
-                        .font(HawalaTheme.Typography.caption)
-                }
-                .foregroundColor(HawalaTheme.Colors.error)
-                .padding(.horizontal, HawalaTheme.Spacing.sm)
-            }
-            
-            // Error Message
-            if let error = errorMessage {
-                errorBanner(error)
-            }
-            
             // Success Message
             if let txId = successTxId {
                 successBanner(txId)
             }
             
             // Bottom spacer for button
-            Color.clear.frame(height: 100)
+            Color.clear.frame(height: 20)
         }
         .padding(.horizontal, 24)
         .padding(.top, 12)
+    }
+    
+    private var sendSummaryCard: some View {
+        VStack(spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("TO")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.35))
+                        .tracking(1)
+                    Text(truncateAddress(recipientAddress))
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .foregroundColor(.white)
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("AMOUNT")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.35))
+                        .tracking(1)
+                    Text("\(amount) \(chainSymbol)")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                }
+            }
+            
+            // Edit button
+            Button(action: {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.88)) {
+                    sendStep = 1
+                }
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("Edit")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundColor(Color.white.opacity(0.4))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+        )
+        .opacity(stepTransition ? 1 : 0)
+        .offset(y: stepTransition ? 0 : 8)
+        .animation(.spring(response: 0.5, dampingFraction: 0.85).delay(0.05), value: stepTransition)
+    }
+    
+    // MARK: - Step 1 Continue Bar
+    
+    private var stepOneContinueBar: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
+                .padding(.horizontal, 24)
+            
+            Button(action: {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.88)) {
+                    sendStep = 2
+                    stepTransition = false
+                }
+                // Stagger the step 2 content appearance
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
+                        stepTransition = true
+                    }
+                }
+            }) {
+                HStack(spacing: 8) {
+                    Text("Continue")
+                        .font(.system(size: 14, weight: .semibold))
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(canContinueToStep2
+                            ? (continueHovered ? Color.white.opacity(0.15) : Color.white.opacity(0.10))
+                            : Color.white.opacity(0.04))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(canContinueToStep2
+                            ? Color.white.opacity(continueHovered ? 0.15 : 0.08)
+                            : Color.white.opacity(0.05), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(!canContinueToStep2)
+            .opacity(canContinueToStep2 ? 1 : 0.4)
+            .onHover { continueHovered = $0 }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
+        }
+    }
+    
+    /// Whether the user can proceed from step 1 to step 2
+    private var canContinueToStep2: Bool {
+        guard selectedChain.supportsSending else { return false }
+        guard !recipientAddress.isEmpty else { return false }
+        guard !amount.isEmpty else { return false }
+        guard let result = addressValidationResult, result.isValid else { return false }
+        guard Double(amount) ?? 0 > 0 else { return false }
+        guard amountValidationError == nil else { return false }
+        return true
     }
 
     
     // MARK: - Header
     
+    /// Clean crypto name for the title — "Bitcoin", "Ethereum", "Litecoin" etc.
+    private var cryptoName: String {
+        switch selectedChain {
+        case .bitcoinTestnet, .bitcoinMainnet: return "Bitcoin"
+        case .litecoin: return "Litecoin"
+        case .ethereumSepolia, .ethereumMainnet: return "Ethereum"
+        case .polygon: return "Polygon"
+        case .bnb: return "BNB"
+        case .solanaDevnet, .solanaMainnet: return "Solana"
+        case .xrpTestnet, .xrpMainnet: return "XRP"
+        case .monero: return "Monero"
+        case .arbitrum: return "Arbitrum"
+        case .optimism: return "Optimism"
+        case .base: return "Base"
+        case .avalanche: return "Avalanche"
+        case .fantom: return "Fantom"
+        case .gnosis: return "Gnosis"
+        case .scroll: return "Scroll"
+        }
+    }
+    
     private var sendHeader: some View {
         ZStack {
-            // Centered title
-            Text("Send")
-                .font(.clashGroteskMedium(size: 20))
-                .foregroundColor(.white)
+            // Back button (step 2 only) aligned left
+            HStack {
+                if sendStep == 2 {
+                    Button(action: {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.88)) {
+                            sendStep = 1
+                        }
+                    }) {
+                        Circle()
+                            .fill(Color.white.opacity(0.08))
+                            .frame(width: 32, height: 32)
+                            .overlay(
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(Color.white.opacity(0.5))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                }
+                Spacer()
+            }
+            
+            // Centered title with step indicator
+            VStack(spacing: 4) {
+                Text("Send \(cryptoName)")
+                    .font(.clashGroteskMedium(size: 20))
+                    .foregroundColor(.white)
+                
+                // Step dots
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(sendStep == 1 ? Color.white.opacity(0.8) : Color.white.opacity(0.2))
+                        .frame(width: 6, height: 6)
+                    Circle()
+                        .fill(sendStep == 2 ? Color.white.opacity(0.8) : Color.white.opacity(0.2))
+                        .frame(width: 6, height: 6)
+                }
+                .animation(.easeInOut(duration: 0.3), value: sendStep)
+            }
             
             // Close button aligned right
             HStack {
@@ -814,12 +1035,59 @@ struct SendView: View {
         .offset(y: appearAnimation ? 0 : 12)
     }
     
-    // MARK: - Recipient Section
+    // MARK: - Recipient Section (with contact autocomplete)
+    
+    /// Update contact suggestions based on current input
+    private func updateContactSuggestions() {
+        let query = recipientAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else {
+            filteredContacts = []
+            showContactSuggestions = false
+            return
+        }
+        
+        // Only show suggestions if input looks like a name (not an address)
+        let looksLikeAddress = query.hasPrefix("0x") || query.hasPrefix("bc1") || query.hasPrefix("1") || query.hasPrefix("3") || query.hasPrefix("tb1") || query.hasPrefix("ltc1") || query.hasPrefix("r") || query.count > 30
+        
+        if looksLikeAddress {
+            filteredContacts = []
+            showContactSuggestions = false
+            return
+        }
+        
+        let chainId = selectedChain.chainId
+        let matches = ContactsManager.shared.contacts.filter { contact in
+            // Match by name
+            let nameMatch = contact.name.lowercased().contains(query)
+            // Must have an address for the current chain (or compatible chain)
+            let hasChainAddress = contact.addresses.contains { addr in
+                ContactsManager.chainIDsMatch(addr.chainId, chainId)
+            } || ContactsManager.chainIDsMatch(contact.chainId, chainId)
+            return nameMatch && hasChainAddress
+        }
+        
+        filteredContacts = Array(matches.prefix(4))
+        showContactSuggestions = !filteredContacts.isEmpty
+    }
+    
+    /// Select a contact and fill in their address
+    private func selectContact(_ contact: Contact) {
+        let chainId = selectedChain.chainId
+        // Find the best address match for the selected chain
+        if let chainAddr = contact.addresses.first(where: { ContactsManager.chainIDsMatch($0.chainId, chainId) }) {
+            recipientAddress = chainAddr.address
+        } else {
+            recipientAddress = contact.address
+        }
+        showContactSuggestions = false
+        validateAddressAsync()
+    }
     
     private var recipientSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
+            // Header row
             HStack {
-                Text("RECIPIENT")
+                Text("TO")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(Color.white.opacity(0.4))
                     .tracking(1)
@@ -834,85 +1102,149 @@ struct SendView: View {
                 } else if let result = addressValidationResult {
                     HStack(spacing: 4) {
                         Image(systemName: result.isValid ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.system(size: 11))
                         Text(result.isValid ? "Valid" : "Invalid")
                             .font(.system(size: 11, weight: .medium))
                     }
                     .foregroundColor(result.isValid ? HawalaTheme.Colors.success : HawalaTheme.Colors.error)
+                    .transition(.opacity)
                 }
             }
             
             // Address Input Field
-            HStack(spacing: 8) {
-                Image(systemName: "wallet.pass")
-                    .font(.system(size: 14))
-                    .foregroundColor(Color.white.opacity(0.35))
+            HStack(spacing: 10) {
+                Image(systemName: "person.circle")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(Color.white.opacity(0.3))
                 
                 TextField("", text: $recipientAddress)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.white)
                     .placeholder(when: recipientAddress.isEmpty) {
-                        Text("Address or ENS domain")
-                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        Text("Name, address, or ENS domain")
+                            .font(.system(size: 14, weight: .medium))
                             .foregroundColor(Color.white.opacity(0.2))
                     }
                     .disableAutocorrection(true)
                     .accessibilityLabel("Recipient address")
-                    .accessibilityHint("Enter wallet address or ENS domain name")
+                    .accessibilityHint("Enter wallet address, contact name, or ENS domain")
                     .accessibilityIdentifier("send_recipient_address_field")
                     .onChange(of: recipientAddress) { _ in
+                        updateContactSuggestions()
                         validateAddressAsync()
-                        // Trigger gas estimation for all EVM chains (Ethereum, Polygon, BNB)
                         if autoEstimateGas && selectedChain.isEVM {
                             Task { await estimateGasLimit() }
                         }
                     }
                 
+                Spacer()
+                
                 // QR Scan button
                 Button(action: scanQRCode) {
                     Image(systemName: "qrcode.viewfinder")
-                        .font(.system(size: 14))
-                        .foregroundColor(Color.white.opacity(0.5))
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.45))
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(Color.white.opacity(0.05)))
                 }
                 .buttonStyle(.plain)
                 .help("Scan QR code")
                 .accessibilityLabel("Scan QR code")
-                .accessibilityHint("Open camera to scan recipient address from QR code")
                 .accessibilityIdentifier("send_scan_qr_button")
                 
                 // Paste button
                 Button(action: pasteFromClipboard) {
                     Image(systemName: "doc.on.clipboard")
-                        .font(.system(size: 14))
-                        .foregroundColor(Color.white.opacity(0.5))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.45))
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(Color.white.opacity(0.05)))
                 }
                 .buttonStyle(.plain)
                 .help("Paste from clipboard")
                 .accessibilityLabel("Paste address")
-                .accessibilityHint("Paste wallet address from clipboard")
                 .accessibilityIdentifier("send_paste_address_button")
                 
-                // ROADMAP-16 E11: Contact picker button
+                // Contact picker
                 Button(action: { showingContactPicker = true }) {
-                    Image(systemName: "person.crop.circle")
-                        .font(.system(size: 14))
-                        .foregroundColor(Color.white.opacity(0.5))
+                    Image(systemName: "person.crop.circle.badge.plus")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.45))
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(Color.white.opacity(0.05)))
                 }
                 .buttonStyle(.plain)
                 .help("Pick from contacts")
                 .accessibilityLabel("Pick from contacts")
-                .accessibilityHint("Select a recipient from your address book")
                 .accessibilityIdentifier("send_contact_picker_button")
             }
-            .padding(12)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(Color.white.opacity(0.03))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
             )
+            
+            // Contact autocomplete suggestions
+            if showContactSuggestions {
+                VStack(spacing: 0) {
+                    ForEach(filteredContacts) { contact in
+                        Button(action: { selectContact(contact) }) {
+                            HStack(spacing: 10) {
+                                // Avatar
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.white.opacity(0.08))
+                                        .frame(width: 32, height: 32)
+                                    Text(String(contact.name.prefix(1)).uppercased())
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(.white)
+                                }
+                                
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(contact.name)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(.white)
+                                    Text(contact.shortAddress)
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                        .foregroundColor(Color.white.opacity(0.4))
+                                }
+                                
+                                Spacer()
+                                
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundColor(Color.white.opacity(0.25))
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        
+                        if contact.id != filteredContacts.last?.id {
+                            Rectangle()
+                                .fill(Color.white.opacity(0.04))
+                                .frame(height: 1)
+                                .padding(.leading, 56)
+                        }
+                    }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)).combined(with: .scale(scale: 0.98, anchor: .top)))
+            }
             
             // ENS Resolution
             if let ensName = resolvedENSName {
@@ -945,10 +1277,229 @@ struct SendView: View {
         }
         .opacity(appearAnimation ? 1 : 0)
         .offset(y: appearAnimation ? 0 : 12)
+        .animation(.easeOut(duration: 0.4).delay(0.1), value: appearAnimation)
+    }
+    
+    // MARK: - Hero Amount Section (Premium Centered Input)
+    
+    /// USD price for the currently selected chain
+    private var currentUSDPrice: Double {
+        switch selectedChain {
+        case .bitcoinTestnet: return 0
+        case .bitcoinMainnet: return 95000
+        case .litecoin: return 85
+        case .ethereumSepolia: return 0
+        case .ethereumMainnet: return 3200
+        case .polygon: return 0.45
+        case .bnb: return 620
+        case .solanaDevnet: return 0
+        case .solanaMainnet: return 180
+        case .xrpTestnet: return 0
+        case .xrpMainnet: return 2.50
+        case .monero: return 200
+        case .arbitrum, .optimism, .base, .scroll: return 3200
+        case .avalanche: return 35
+        case .fantom: return 0.70
+        case .gnosis: return 1.0
+        }
+    }
+    
+    /// Formatted USD equivalent of the current crypto amount
+    private var usdEquivalent: String {
+        guard let cryptoVal = Double(amount), cryptoVal > 0, currentUSDPrice > 0 else {
+            return "$0.00"
+        }
+        let usd = cryptoVal * currentUSDPrice
+        if usd >= 1000 {
+            return String(format: "$%,.2f", usd)
+        } else if usd >= 0.01 {
+            return String(format: "$%.2f", usd)
+        } else {
+            return String(format: "$%.6f", usd)
+        }
+    }
+    
+    /// Formatted crypto equivalent of the current USD amount
+    private var cryptoEquivalent: String {
+        guard let usdVal = Double(usdAmountString), usdVal > 0, currentUSDPrice > 0 else {
+            return "0 \(chainSymbol)"
+        }
+        let crypto = usdVal / currentUSDPrice
+        if crypto >= 1 {
+            return String(format: "%.4f %@", crypto, chainSymbol)
+        } else {
+            return String(format: "%.8f %@", crypto, chainSymbol)
+        }
+    }
+    
+    /// Sync crypto → USD when typing crypto
+    private func syncUSDFromCrypto() {
+        guard let val = Double(amount), val > 0, currentUSDPrice > 0 else {
+            usdAmountString = ""
+            return
+        }
+        usdAmountString = String(format: "%.2f", val * currentUSDPrice)
+    }
+    
+    /// Sync crypto from USD when typing USD
+    private func syncCryptoFromUSD() {
+        guard let val = Double(usdAmountString), val > 0, currentUSDPrice > 0 else {
+            amount = ""
+            return
+        }
+        let crypto = val / currentUSDPrice
+        if crypto >= 1 {
+            amount = String(format: "%.4f", crypto)
+        } else {
+            amount = String(format: "%.8f", crypto)
+        }
+    }
+    
+    private var heroAmountSection: some View {
+        VStack(spacing: 6) {
+            // Available balance pill
+            if let balance = availableBalanceString {
+                Button(action: fillMaxAmount) {
+                    HStack(spacing: 4) {
+                        Text("Balance: \(balance) \(chainSymbol)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(Color.white.opacity(0.4))
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(Color.white.opacity(0.3))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Color.white.opacity(0.05)))
+                }
+                .buttonStyle(.plain)
+                .help("Tap to use full balance")
+            }
+            
+            Spacer().frame(height: 4)
+            
+            // Primary amount (crypto or USD depending on toggle)
+            if isAmountInUSD {
+                // USD primary input
+                HStack(spacing: 4) {
+                    Text("$")
+                        .font(.clashGroteskMedium(size: 36))
+                        .foregroundColor(usdAmountString.isEmpty ? Color.white.opacity(0.2) : .white)
+                    
+                    TextField("", text: $usdAmountString)
+                        .textFieldStyle(.plain)
+                        .font(.clashGroteskMedium(size: 44))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .placeholder(when: usdAmountString.isEmpty) {
+                            Text("0.00")
+                                .font(.clashGroteskMedium(size: 44))
+                                .foregroundColor(Color.white.opacity(0.15))
+                        }
+                        .fixedSize(horizontal: true, vertical: false)
+                        .onChange(of: usdAmountString) { newValue in
+                            let sanitized = newValue.replacingOccurrences(of: ",", with: ".")
+                            if sanitized != newValue { usdAmountString = sanitized; return }
+                            if isAmountInUSD { syncCryptoFromUSD() }
+                        }
+                        .accessibilityLabel("Amount in USD")
+                        .accessibilityIdentifier("send_usd_amount_field")
+                }
+                .frame(maxWidth: .infinity)
+                
+                // Secondary line: crypto equivalent
+                Text(cryptoEquivalent)
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .foregroundColor(Color.white.opacity(0.4))
+                    .contentTransition(.numericText())
+                    .animation(.easeInOut(duration: 0.15), value: amount)
+            } else {
+                // Crypto primary input
+                HStack(spacing: 6) {
+                    TextField("", text: $amount)
+                        .textFieldStyle(.plain)
+                        .font(.clashGroteskMedium(size: 44))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .placeholder(when: amount.isEmpty) {
+                            Text("0")
+                                .font(.clashGroteskMedium(size: 44))
+                                .foregroundColor(Color.white.opacity(0.15))
+                        }
+                        .fixedSize(horizontal: true, vertical: false)
+                        .onChange(of: amount) { _ in
+                            if !isAmountInUSD { syncUSDFromCrypto() }
+                        }
+                        .accessibilityLabel("Amount to send")
+                        .accessibilityHint("Enter amount in \(chainSymbol)")
+                        .accessibilityIdentifier("send_amount_field")
+                    
+                    Text(chainSymbol)
+                        .font(.clashGroteskMedium(size: 22))
+                        .foregroundColor(Color.white.opacity(0.35))
+                }
+                .frame(maxWidth: .infinity)
+                
+                // Secondary line: USD equivalent
+                if currentUSDPrice > 0 {
+                    Text(usdEquivalent)
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .foregroundColor(Color.white.opacity(0.4))
+                        .contentTransition(.numericText())
+                        .animation(.easeInOut(duration: 0.15), value: amount)
+                }
+            }
+            
+            Spacer().frame(height: 8)
+            
+            // Toggle & MAX row
+            HStack(spacing: 12) {
+                // USD/Crypto toggle
+                if currentUSDPrice > 0 {
+                    Button(action: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                            isAmountInUSD.toggle()
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.arrow.down")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text(isAmountInUSD ? chainSymbol : "USD")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(Color.white.opacity(0.08)))
+                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Switch between \(chainSymbol) and USD")
+                }
+                
+                // MAX button
+                Button(action: fillMaxAmount) {
+                    Text("MAX")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(Color.white.opacity(0.08)))
+                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Send maximum amount")
+                .accessibilityIdentifier("send_max_button")
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 16)
+        .opacity(appearAnimation ? 1 : 0)
+        .offset(y: appearAnimation ? 0 : 12)
         .animation(.easeOut(duration: 0.4).delay(0.05), value: appearAnimation)
     }
     
-    // MARK: - Amount Section
+    // MARK: - Amount Section (Legacy — retained for reference, replaced by heroAmountSection)
     
     private var amountSection: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -3926,10 +4477,10 @@ struct TransactionSuccessView: View {
                     .allowsHitTesting(false)
             }
         }
-        .frame(width: 480, height: 680)
+        .frame(width: 680, height: 680)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
+                .fill(Color(red: 0.06, green: 0.06, blue: 0.07))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)

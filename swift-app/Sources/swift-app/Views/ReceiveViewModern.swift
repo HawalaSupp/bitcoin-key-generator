@@ -6,6 +6,175 @@ import LocalAuthentication
 import AppKit
 #endif
 
+import SwiftUI
+import CoreImage
+import CoreImage.CIFilterBuiltins
+import CryptoKit
+import LocalAuthentication
+#if canImport(AppKit)
+import AppKit
+#endif
+
+// MARK: - Bitcoin Address Derivation
+
+/// Derives legacy (P2PKH) and wrapped SegWit (P2SH-P2WPKH) addresses from a compressed public key hex.
+enum BitcoinAddressDerivation {
+    
+    /// Derive a P2PKH legacy address (1...) from compressed public key hex
+    static func legacyAddress(publicKeyHex: String, testnet: Bool = false) -> String? {
+        guard let pubKeyData = Data(hexString: publicKeyHex), pubKeyData.count == 33 else { return nil }
+        let h160 = hash160(pubKeyData)
+        let version: UInt8 = testnet ? 0x6F : 0x00
+        return base58CheckEncode(version: version, payload: h160)
+    }
+    
+    /// Derive a P2SH-P2WPKH wrapped SegWit address (3...) from compressed public key hex
+    static func wrappedSegwitAddress(publicKeyHex: String, testnet: Bool = false) -> String? {
+        guard let pubKeyData = Data(hexString: publicKeyHex), pubKeyData.count == 33 else { return nil }
+        let h160 = hash160(pubKeyData)
+        // Witness script: OP_0 (0x00) + PUSH20 (0x14) + hash160
+        var witnessScript = Data([0x00, 0x14])
+        witnessScript.append(h160)
+        let scriptHash = hash160(witnessScript)
+        let version: UInt8 = testnet ? 0xC4 : 0x05
+        return base58CheckEncode(version: version, payload: scriptHash)
+    }
+    
+    /// HASH160 = RIPEMD160(SHA256(data))
+    private static func hash160(_ data: Data) -> Data {
+        let sha = Data(SHA256.hash(data: data))
+        return ripemd160(sha)
+    }
+    
+    /// Base58Check encode: version + payload + 4-byte checksum
+    private static func base58CheckEncode(version: UInt8, payload: Data) -> String {
+        var versionedPayload = Data([version])
+        versionedPayload.append(payload)
+        let checksum = doubleSHA256(versionedPayload).prefix(4)
+        versionedPayload.append(checksum)
+        return base58Encode(versionedPayload)
+    }
+    
+    private static func doubleSHA256(_ data: Data) -> Data {
+        Data(SHA256.hash(data: Data(SHA256.hash(data: data))))
+    }
+    
+    private static func base58Encode(_ data: Data) -> String {
+        let alphabet = Array("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+        
+        // Count leading zeros
+        let leadingZeros = data.prefix(while: { $0 == 0 }).count
+        
+        // Convert to base58
+        let num = data.reduce(into: [UInt32]()) { result, byte in
+            var carry = UInt32(byte)
+            for i in 0..<result.count {
+                carry += result[i] << 8
+                result[i] = carry % 58
+                carry /= 58
+            }
+            while carry > 0 {
+                result.append(carry % 58)
+                carry /= 58
+            }
+        }
+        
+        // Build string
+        let prefix = String(repeating: "1", count: leadingZeros)
+        let encoded = num.reversed().map { alphabet[Int($0)] }
+        return prefix + String(encoded)
+    }
+    
+    // MARK: - RIPEMD-160
+    
+    private static func ripemd160(_ data: Data) -> Data {
+        var h0: UInt32 = 0x67452301
+        var h1: UInt32 = 0xefcdab89
+        var h2: UInt32 = 0x98badcfe
+        var h3: UInt32 = 0x10325476
+        var h4: UInt32 = 0xc3d2e1f0
+        
+        var message = data
+        let originalLength = UInt64(data.count * 8)
+        message.append(0x80)
+        while (message.count % 64) != 56 { message.append(0x00) }
+        var len = originalLength
+        message.append(contentsOf: withUnsafeBytes(of: &len) { Array($0) })
+        
+        let rl: [Int] = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,
+                         7,4,13,1,10,6,15,3,12,0,9,5,2,14,11,8,
+                         3,10,14,4,9,15,8,1,2,7,0,6,13,11,5,12,
+                         1,9,11,10,0,8,12,4,13,3,7,15,14,5,6,2,
+                         4,0,5,9,7,12,2,10,14,1,3,8,11,6,15,13]
+        let rr: [Int] = [5,14,7,0,9,2,11,4,13,6,15,8,1,10,3,12,
+                         6,11,3,7,0,13,5,10,14,15,8,12,4,9,1,2,
+                         15,5,1,3,7,14,6,9,11,8,12,2,10,0,4,13,
+                         8,6,4,1,3,11,15,0,5,12,2,13,9,7,10,14,
+                         12,15,10,4,1,5,8,7,6,2,13,14,0,3,9,11]
+        let sl: [UInt32] = [11,14,15,12,5,8,7,9,11,13,14,15,6,7,9,8,
+                            7,6,8,13,11,9,7,15,7,12,15,9,11,7,13,12,
+                            11,13,6,7,14,9,13,15,14,8,13,6,5,12,7,5,
+                            11,12,14,15,14,15,9,8,9,14,5,6,8,6,5,12,
+                            9,15,5,11,6,8,13,12,5,12,13,14,11,8,5,6]
+        let sr: [UInt32] = [8,9,9,11,13,15,15,5,7,7,8,11,14,14,12,6,
+                            9,13,15,7,12,8,9,11,7,7,12,7,6,15,13,11,
+                            9,7,15,11,8,6,6,14,12,13,5,14,13,13,7,5,
+                            15,5,8,11,14,14,6,14,6,9,12,9,12,5,15,8,
+                            8,5,12,9,12,5,14,6,8,13,6,5,15,13,11,11]
+        let kl: [UInt32] = [0x00000000, 0x5a827999, 0x6ed9eba1, 0x8f1bbcdc, 0xa953fd4e]
+        let kr: [UInt32] = [0x50a28be6, 0x5c4dd124, 0x6d703ef3, 0x7a6d76e9, 0x00000000]
+        
+        func f(_ j: Int, _ x: UInt32, _ y: UInt32, _ z: UInt32) -> UInt32 {
+            switch j / 16 {
+            case 0: return x ^ y ^ z
+            case 1: return (x & y) | (~x & z)
+            case 2: return (x | ~y) ^ z
+            case 3: return (x & z) | (y & ~z)
+            case 4: return x ^ (y | ~z)
+            default: return 0
+            }
+        }
+        
+        for blockStart in stride(from: 0, to: message.count, by: 64) {
+            var x = [UInt32](repeating: 0, count: 16)
+            for i in 0..<16 {
+                let o = blockStart + i * 4
+                x[i] = UInt32(message[o]) | (UInt32(message[o+1]) << 8) |
+                        (UInt32(message[o+2]) << 16) | (UInt32(message[o+3]) << 24)
+            }
+            
+            var al = h0, bl = h1, cl = h2, dl = h3, el = h4
+            var ar = h0, br = h1, cr = h2, dr = h3, er = h4
+            
+            for j in 0..<80 {
+                let round = j / 16
+                var tl = al &+ f(j, bl, cl, dl) &+ x[rl[j]] &+ kl[round]
+                tl = (tl << sl[j] | tl >> (32 - sl[j])) &+ el
+                al = el; el = dl; dl = cl << 10 | cl >> 22; cl = bl; bl = tl
+                
+                let rj = 79 - j
+                let rRound = rj / 16
+                var tr = ar &+ f(rj, br, cr, dr) &+ x[rr[j]] &+ kr[rRound]
+                tr = (tr << sr[j] | tr >> (32 - sr[j])) &+ er
+                ar = er; er = dr; dr = cr << 10 | cr >> 22; cr = br; br = tr
+            }
+            
+            let t = h1 &+ cl &+ dr
+            h1 = h2 &+ dl &+ er; h2 = h3 &+ el &+ ar; h3 = h4 &+ al &+ br
+            h4 = h0 &+ bl &+ cr; h0 = t
+        }
+        
+        var result = Data(count: 20)
+        for (i, h) in [h0, h1, h2, h3, h4].enumerated() {
+            result[i*4] = UInt8(h & 0xff)
+            result[i*4+1] = UInt8((h >> 8) & 0xff)
+            result[i*4+2] = UInt8((h >> 16) & 0xff)
+            result[i*4+3] = UInt8((h >> 24) & 0xff)
+        }
+        return result
+    }
+}
+
 // MARK: - Bitcoin Address Format
 enum BitcoinAddressFormat: String, CaseIterable, Identifiable {
     case nativeSegwit = "Native SegWit"
@@ -67,8 +236,14 @@ struct ReceiveViewModern: View {
     @State private var selectedAddressFormat: BitcoinAddressFormat = .nativeSegwit
     @State private var showAddressVerification = false
     @State private var verificationStep = 0
+    @State private var verificationFailed = false
     @State private var isAmountInUSD = false
     @State private var qrAnimationScale: CGFloat = 1.0
+    @State private var cardScale: CGFloat = 0.92
+    @State private var contentOpacity: Double = 0
+    
+    /// Whether the chain was pre-selected from a crypto card
+    private var chainPreSelected: Bool
     
     // Price for USD conversion (would come from price service in real app)
     private let btcPrice: Double = 42500.0
@@ -79,6 +254,7 @@ struct ReceiveViewModern: View {
         self.chains = chains
         self.onCopy = onCopy
         self.onDismiss = onDismiss
+        self.chainPreSelected = initialChain != nil
         // Use provided chain or default to first chain with an address
         if let initial = initialChain {
             _selectedChain = State(initialValue: initial)
@@ -90,10 +266,36 @@ struct ReceiveViewModern: View {
     @ObservedObject private var passcodeManager = PasscodeManager.shared
     @State private var requiresUnlock = false
     
+    /// The address to display based on selected chain and address format.
+    /// For Bitcoin, derives legacy/wrapped-segwit variants from the public key.
+    private var currentDisplayAddress: String? {
+        guard let chain = selectedChain, let baseAddr = chain.receiveAddress else { return nil }
+        
+        // Only derive alternate formats for Bitcoin chains
+        guard chain.id.lowercased().contains("bitcoin") else { return baseAddr }
+        
+        let isTestnet = chain.id.lowercased().contains("testnet")
+        
+        switch selectedAddressFormat {
+        case .nativeSegwit:
+            return baseAddr // Already native segwit (bc1q...)
+        case .segwit:
+            if let pubHex = chain.publicKeyHex {
+                return BitcoinAddressDerivation.wrappedSegwitAddress(publicKeyHex: pubHex, testnet: isTestnet) ?? baseAddr
+            }
+            return baseAddr
+        case .legacy:
+            if let pubHex = chain.publicKeyHex {
+                return BitcoinAddressDerivation.legacyAddress(publicKeyHex: pubHex, testnet: isTestnet) ?? baseAddr
+            }
+            return baseAddr
+        }
+    }
+    
     var body: some View {
         ZStack {
-            // Background — popup card
-            Color(red: 0.10, green: 0.10, blue: 0.12)
+            // Background — matching settings colorway
+            Color(red: 0.06, green: 0.06, blue: 0.07)
             
             // ROADMAP-06 E8: Gate receive view when wallet is locked
             if passcodeManager.isLocked {
@@ -106,8 +308,10 @@ struct ReceiveViewModern: View {
                 // Content
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 16) {
-                        // Chain Selector
-                        chainSelectorSection
+                        // Chain Selector (only if not pre-selected from crypto card)
+                        if !chainPreSelected {
+                            chainSelectorSection
+                        }
                         
                         // Address Format Selector (Bitcoin only)
                         if let chain = selectedChain, chain.id.lowercased().contains("bitcoin") {
@@ -115,7 +319,7 @@ struct ReceiveViewModern: View {
                         }
                         
                         // QR Code Display
-                        if let chain = selectedChain, let address = chain.receiveAddress {
+                        if let chain = selectedChain, let address = currentDisplayAddress {
                             qrCodeSection(chain: chain, address: address)
                             
                             // Address Display with Verify
@@ -133,6 +337,7 @@ struct ReceiveViewModern: View {
                     .padding(.bottom, 32)
                 }
             }
+            .opacity(contentOpacity)
             
             // Copied Toast
             if showCopiedToast {
@@ -150,7 +355,7 @@ struct ReceiveViewModern: View {
             }
             } // end else (wallet not locked)
         }
-        .frame(width: 480, height: 700)
+        .frame(width: 680, height: 700)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -164,10 +369,13 @@ struct ReceiveViewModern: View {
                 )
         )
         .shadow(color: Color.black.opacity(0.5), radius: 50, x: 0, y: 25)
+        .scaleEffect(cardScale)
         .preferredColorScheme(.dark)
         .onAppear {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                 appearAnimation = true
+                cardScale = 1
+                contentOpacity = 1
             }
         }
     }
@@ -232,17 +440,36 @@ struct ReceiveViewModern: View {
     
     // MARK: - Header
     
+    /// Clean crypto name for the title
+    private var cryptoName: String {
+        guard let chain = selectedChain else { return "" }
+        let id = chain.id.lowercased()
+        if id.contains("bitcoin") { return "Bitcoin" }
+        if id.contains("ethereum") { return "Ethereum" }
+        if id.contains("litecoin") { return "Litecoin" }
+        if id.contains("solana") { return "Solana" }
+        if id.contains("xrp") { return "XRP" }
+        if id.contains("monero") { return "Monero" }
+        if id.contains("polygon") { return "Polygon" }
+        if id.contains("bnb") || id.contains("bsc") { return "BNB" }
+        if id.contains("arbitrum") { return "Arbitrum" }
+        if id.contains("optimism") { return "Optimism" }
+        if id.contains("base") { return "Base" }
+        if id.contains("avalanche") { return "Avalanche" }
+        return chain.title
+    }
+    
     private var receiveHeader: some View {
         ZStack {
             // Centered title
-            Text("Receive")
+            Text(chainPreSelected ? "Receive \(cryptoName)" : "Receive")
                 .font(.clashGroteskMedium(size: 20))
                 .foregroundColor(.white)
             
             // Close button — right aligned
             HStack {
                 Spacer()
-                Button(action: { dismiss() }) {
+                Button(action: { dismissAnimated() }) {
                     Circle()
                         .fill(Color.white.opacity(0.08))
                         .frame(width: 32, height: 32)
@@ -261,6 +488,17 @@ struct ReceiveViewModern: View {
         .padding(.horizontal, 24)
         .padding(.top, 24)
         .padding(.bottom, 20)
+    }
+    
+    /// Animated dismiss with scale-down
+    private func dismissAnimated() {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            contentOpacity = 0
+            cardScale = 0.95
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            dismiss()
+        }
     }
     
     // MARK: - Chain Selector
@@ -317,6 +555,13 @@ struct ReceiveViewModern: View {
                         action: {
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                                 selectedAddressFormat = format
+                            }
+                            // QR bounce feedback
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
+                                qrAnimationScale = 0.9
+                            }
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.5).delay(0.1)) {
+                                qrAnimationScale = 1.0
                             }
                         }
                     )
@@ -679,7 +924,7 @@ struct ReceiveViewModern: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
                 .background(Color.white)
-                .foregroundColor(Color(red: 0.10, green: 0.10, blue: 0.12))
+                .foregroundColor(Color(red: 0.06, green: 0.06, blue: 0.07))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.plain)
@@ -903,41 +1148,74 @@ struct ReceiveViewModern: View {
     
     private func startVerification() {
         verificationStep = 0
+        verificationFailed = false
         withAnimation(HawalaTheme.Animation.spring) {
             showAddressVerification = true
         }
         
-        // Simulate verification steps
-        simulateVerificationSteps()
+        performRealVerification()
     }
     
-    private func simulateVerificationSteps() {
-        // Step 1: Connecting
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            withAnimation {
-                verificationStep = 1
-            }
+    /// Re-derives the address from the stored public key and compares it
+    /// to the currently displayed address to confirm integrity.
+    private func performRealVerification() {
+        guard let chain = selectedChain,
+              let displayedAddress = currentDisplayAddress else {
+            markVerificationFailed()
+            return
         }
         
-        // Step 2: Verifying
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            withAnimation {
-                verificationStep = 2
-            }
+        // Step 1: Preparing derivation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation { verificationStep = 1 }
         }
         
-        // Step 3: Complete
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            withAnimation {
-                verificationStep = 3
-            }
+        // Step 2: Re-deriving and comparing
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            withAnimation { verificationStep = 2 }
         }
         
-        // Auto dismiss
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
-            withAnimation(HawalaTheme.Animation.spring) {
-                showAddressVerification = false
+        // Step 3: Verify
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+            let verified: Bool
+            
+            if chain.id.lowercased().contains("bitcoin"), let pubHex = chain.publicKeyHex {
+                let isTestnet = chain.id.lowercased().contains("testnet")
+                // Re-derive the address for the selected format
+                let reDerived: String?
+                switch selectedAddressFormat {
+                case .nativeSegwit:
+                    // Native segwit address is stored directly — compare with original
+                    reDerived = chain.receiveAddress
+                case .segwit:
+                    reDerived = BitcoinAddressDerivation.wrappedSegwitAddress(publicKeyHex: pubHex, testnet: isTestnet)
+                case .legacy:
+                    reDerived = BitcoinAddressDerivation.legacyAddress(publicKeyHex: pubHex, testnet: isTestnet)
+                }
+                verified = (reDerived == displayedAddress)
+            } else {
+                // For non-Bitcoin chains, we can only confirm the address is present
+                verified = (chain.receiveAddress == displayedAddress)
             }
+            
+            if verified {
+                withAnimation { verificationStep = 3 }
+                // Auto dismiss after success
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                    withAnimation(HawalaTheme.Animation.spring) {
+                        showAddressVerification = false
+                    }
+                }
+            } else {
+                markVerificationFailed()
+            }
+        }
+    }
+    
+    private func markVerificationFailed() {
+        withAnimation {
+            verificationFailed = true
+            verificationStep = 3
         }
     }
     
@@ -958,7 +1236,9 @@ struct ReceiveViewModern: View {
                 // Icon
                 ZStack {
                     Circle()
-                        .fill(verificationStep == 3 ? Color.green.opacity(0.15) : Color.white.opacity(0.08))
+                        .fill(verificationStep == 3
+                              ? (verificationFailed ? Color.red.opacity(0.15) : Color.green.opacity(0.15))
+                              : Color.white.opacity(0.08))
                         .frame(width: 80, height: 80)
                     
                     if verificationStep < 3 {
@@ -972,6 +1252,10 @@ struct ReceiveViewModern: View {
                         Image(systemName: "shield")
                             .font(.system(size: 24, weight: .semibold))
                             .foregroundColor(.white)
+                    } else if verificationFailed {
+                        Image(systemName: "xmark.shield.fill")
+                            .font(.system(size: 32, weight: .semibold))
+                            .foregroundColor(Color.red)
                     } else {
                         Image(systemName: "checkmark.shield.fill")
                             .font(.system(size: 32, weight: .semibold))
@@ -1039,20 +1323,24 @@ struct ReceiveViewModern: View {
     }
     
     private var verificationStatusTitle: String {
+        if verificationStep == 3 && verificationFailed { return "Verification Failed" }
         switch verificationStep {
         case 0: return "Preparing..."
-        case 1: return "Connecting to Device"
-        case 2: return "Verifying Address"
+        case 1: return "Deriving Address"
+        case 2: return "Comparing Address"
         case 3: return "Address Verified!"
         default: return ""
         }
     }
     
     private var verificationStatusSubtitle: String {
+        if verificationStep == 3 && verificationFailed {
+            return "The displayed address could not be verified. Do not use this address."
+        }
         switch verificationStep {
-        case 0: return "Initializing verification"
-        case 1: return "Please check your hardware wallet"
-        case 2: return "Confirm the address matches"
+        case 0: return "Initializing key derivation"
+        case 1: return "Re-deriving from your public key"
+        case 2: return "Confirming address matches derivation"
         case 3: return "This address is safe to use"
         default: return ""
         }

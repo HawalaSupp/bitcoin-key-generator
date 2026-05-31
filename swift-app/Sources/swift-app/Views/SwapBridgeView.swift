@@ -19,6 +19,7 @@ struct SwapBridgeView: View {
     }
     
     @State private var selectedTab: Tab = .swap
+    @State private var hoveringTab: Tab?
     
     /// Optional wallet keys for executing swaps/bridges
     var keys: AllKeys?
@@ -29,6 +30,7 @@ struct SwapBridgeView: View {
             tabBar
             
             Divider()
+                .background(Color.white.opacity(0.06))
             
             // Content
             switch selectedTab {
@@ -38,39 +40,45 @@ struct SwapBridgeView: View {
                 BridgeView(keys: keys)
             }
         }
+        .background(HawalaTheme.Colors.background)
         .navigationTitle(selectedTab.rawValue)
     }
     
     private var tabBar: some View {
         HStack(spacing: 0) {
             ForEach(Tab.allCases) { tab in
+                let isActive = selectedTab == tab
+                let isHovering = hoveringTab == tab
+                
                 Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(HawalaTheme.Animation.spring) {
                         selectedTab = tab
                     }
                 }) {
-                    VStack(spacing: 6) {
-                        HStack(spacing: 6) {
+                    VStack(spacing: 0) {
+                        HStack(spacing: 8) {
                             Image(systemName: tab.icon)
-                                .font(.system(size: 14, weight: .medium))
+                                .font(.system(size: 13, weight: .medium))
                             Text(tab.rawValue)
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.clashGroteskMedium(size: 14))
                         }
-                        .foregroundColor(selectedTab == tab ? .white : .secondary)
-                        .padding(.vertical, 10)
+                        .foregroundColor(isActive ? .white : (isHovering ? .white.opacity(0.6) : .white.opacity(0.35)))
+                        .padding(.vertical, 14)
                         .frame(maxWidth: .infinity)
                         
                         // Active indicator
-                        Rectangle()
-                            .fill(selectedTab == tab ? Color.blue : Color.clear)
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(isActive ? Color.white : Color.clear)
                             .frame(height: 2)
                     }
                 }
                 .buttonStyle(.plain)
+                .onHover { h in hoveringTab = h ? tab : nil }
+                .animation(HawalaTheme.Animation.fast, value: isHovering)
             }
         }
-        .padding(.horizontal)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.horizontal, HawalaTheme.Spacing.lg)
+        .background(HawalaTheme.Colors.background)
     }
 }
 

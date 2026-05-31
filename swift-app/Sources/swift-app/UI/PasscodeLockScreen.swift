@@ -432,7 +432,7 @@ struct PasscodeSetupScreen: View {
                             .font(.clashGroteskMedium(size: 28))
                             .foregroundColor(.white)
                         
-                        Text(step == .create ? "Choose a 4-6 digit passcode" : "Enter your passcode again")
+                        Text(step == .create ? "Choose a 6-digit passcode" : "Enter your passcode again")
                             .font(.system(size: 14, weight: .medium, design: .rounded))
                             .foregroundColor(Color.white.opacity(0.5))
                     }
@@ -553,10 +553,12 @@ struct PasscodeSetupScreen: View {
         if step == .create {
             passcode += digit
             
-            // Move to confirm when we have at least 4 digits
-            if passcode.count >= 4 {
+            // Only advance to confirm at exactly maxDigits (6)
+            if passcode.count == maxDigits {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    step = .confirm
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        step = .confirm
+                    }
                 }
             }
         } else {

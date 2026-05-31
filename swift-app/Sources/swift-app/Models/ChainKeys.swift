@@ -11,6 +11,7 @@ struct ChainInfo: Identifiable, Hashable {
     let accentColor: Color
     let details: [KeyDetail]
     let receiveAddress: String?
+    var publicKeyHex: String? = nil
 }
 
 struct KeyDetail: Identifiable, Hashable {

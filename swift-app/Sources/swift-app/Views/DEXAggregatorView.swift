@@ -62,9 +62,14 @@ struct DEXAggregatorView: View {
     
     @StateObject private var honeypotDetector = HoneypotDetector.shared
     
+    @State private var hoveringChain: String?
+    @State private var hoveringGetQuotes = false
+    @State private var hoveringQuoteRow: UUID?
+    @State private var hoveringSwapDirection = false
+    
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
+            VStack(spacing: HawalaTheme.Spacing.xl) {
                 headerSection
                 chainSelector
                 swapInputSection
@@ -93,8 +98,9 @@ struct DEXAggregatorView: View {
                 
                 actionButtons
             }
-            .padding()
+            .padding(HawalaTheme.Spacing.xl)
         }
+        .background(HawalaTheme.Colors.background)
         .navigationTitle("DEX Aggregator")
         .onChange(of: fromToken) { newToken in
             // ROADMAP-08 E9: Check token for honeypot when selected
@@ -130,49 +136,48 @@ struct DEXAggregatorView: View {
     // MARK: - Header
     
     private var headerSection: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: HawalaTheme.Spacing.md) {
             // Beta warning banner
-            HStack {
+            HStack(spacing: HawalaTheme.Spacing.sm) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                    .font(.system(size: 12))
+                    .foregroundColor(HawalaTheme.Colors.warning)
                 Text("Preview Feature")
-                    .fontWeight(.semibold)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(HawalaTheme.Colors.warning)
                 Spacer()
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color.orange.opacity(0.15))
-            .cornerRadius(8)
+            .padding(.horizontal, HawalaTheme.Spacing.md)
+            .padding(.vertical, HawalaTheme.Spacing.sm)
+            .background(HawalaTheme.Colors.warning.opacity(0.08))
+            .cornerRadius(HawalaTheme.Radius.sm)
+            .overlay(
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm)
+                    .stroke(HawalaTheme.Colors.warning.opacity(0.2), lineWidth: 1)
+            )
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Warning: Preview Feature. DEX aggregation is in preview and only shows live quotes when the routing backend is available.")
             
             Text("DEX aggregation is in preview. Hawala now requires live routing responses and will show no quotes when the quote backend or provider configuration is unavailable.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 8)
-            
-            Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
-                .font(.system(size: 48))
-                .foregroundStyle(.blue)
-                .accessibilityHidden(true)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.35))
+                .padding(.bottom, HawalaTheme.Spacing.sm)
             
             Text("Compare prices across DEX providers")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 13))
+                .foregroundColor(.white.opacity(0.5))
         }
     }
     
     // MARK: - Chain Selector
     
     private var chainSelector: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Network")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
+            HawalaOverlaySectionHeader(icon: "network", title: "Network")
             
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
+                HStack(spacing: HawalaTheme.Spacing.sm) {
                     ForEach(DEXAggregatorService.SupportedChain.allCases.filter { chain in
-                        // Only show chains with DEX support
                         service.getProviders(for: chain).count > 0
                     }) { chain in
                         chainButton(chain)
@@ -183,38 +188,52 @@ struct DEXAggregatorView: View {
     }
     
     private func chainButton(_ chain: DEXAggregatorService.SupportedChain) -> some View {
-        Button {
-            selectedChain = chain
-            service.clearCache()
-        } label: {
-            VStack(spacing: 4) {
-                Image(systemName: chain.icon)
-                    .font(.title2)
-                Text(chain.displayName)
-                    .font(.caption)
+        let isSelected = selectedChain == chain
+        let isHover = hoveringChain == chain.rawValue
+        let bgColor: Color = isSelected ? Color.white.opacity(0.10) : (isHover ? Color.white.opacity(0.06) : Color.white.opacity(0.03))
+        let borderColor: Color = isSelected ? Color.white.opacity(0.15) : Color.white.opacity(0.06)
+        
+        return Button {
+            withAnimation(HawalaTheme.Animation.fast) {
+                selectedChain = chain
+                service.clearCache()
             }
-            .frame(width: 70, height: 60)
-            .background(selectedChain == chain ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
-            .cornerRadius(12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(selectedChain == chain ? Color.blue : Color.clear, lineWidth: 2)
-            )
-            .accessibilityLabel("\(chain.displayName) network")
-            .accessibilityHint(selectedChain == chain ? "Currently selected" : "Tap to select \(chain.displayName)")
-            .accessibilityIdentifier("swap_chain_\(chain.rawValue)")
+        } label: {
+            chainButtonLabel(chain: chain, isSelected: isSelected)
+                .frame(width: 72, height: 62)
+                .background(bgColor)
+                .cornerRadius(HawalaTheme.Radius.md)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
+                        .stroke(borderColor, lineWidth: 1)
+                )
         }
         .buttonStyle(.plain)
+        .onHover { h in hoveringChain = h ? chain.rawValue : nil }
+        .animation(HawalaTheme.Animation.fast, value: isHover)
+        .accessibilityLabel("\(chain.displayName) network")
+        .accessibilityHint(isSelected ? "Currently selected" : "Tap to select \(chain.displayName)")
+        .accessibilityIdentifier("swap_chain_\(chain.rawValue)")
+    }
+    
+    private func chainButtonLabel(chain: DEXAggregatorService.SupportedChain, isSelected: Bool) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: chain.icon)
+                .font(.system(size: 18))
+                .foregroundColor(isSelected ? .white : .white.opacity(0.5))
+            Text(chain.displayName)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(isSelected ? .white : .white.opacity(0.4))
+        }
     }
     
     // MARK: - Swap Input
     
     private var swapInputSection: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: HawalaTheme.Spacing.lg) {
             // From Token
-            VStack(alignment: .leading, spacing: 8) {
-                Text("From")
-                    .font(.headline)
+            VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
+                HawalaOverlaySectionHeader(icon: "arrow.down.circle", title: "From")
                 
                 HStack {
                     Menu {
@@ -224,21 +243,29 @@ struct DEXAggregatorView: View {
                             }
                         }
                     } label: {
-                        HStack {
+                        HStack(spacing: 6) {
                             Text(getTokenSymbol(fromToken))
-                                .fontWeight(.medium)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white)
                             Image(systemName: "chevron.down")
-                                .font(.caption)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.3))
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(8)
+                        .padding(.horizontal, HawalaTheme.Spacing.md)
+                        .padding(.vertical, HawalaTheme.Spacing.sm)
+                        .background(Color.white.opacity(0.06))
+                        .cornerRadius(HawalaTheme.Radius.sm)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm)
+                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        )
                     }
+                    .buttonStyle(.plain)
                     
                     TextField("0.0", text: $amount)
                         .textFieldStyle(.plain)
-                        .font(.title2)
+                        .font(.clashGroteskMedium(size: 28))
+                        .foregroundColor(.white)
                         .multilineTextAlignment(.trailing)
                         #if os(iOS)
                         .keyboardType(.decimalPad)
@@ -247,27 +274,40 @@ struct DEXAggregatorView: View {
                         .accessibilityHint("Enter amount of tokens to swap")
                         .accessibilityIdentifier("swap_amount_input")
                 }
-                .padding()
-                .background(Color.gray.opacity(0.05))
-                .cornerRadius(12)
+                .padding(HawalaTheme.Spacing.lg)
+                .background(HawalaTheme.Colors.backgroundSecondary)
+                .cornerRadius(HawalaTheme.Radius.lg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                )
             }
             
             // Swap direction button
             Button {
                 swap(&fromToken, &toToken)
             } label: {
-                Image(systemName: "arrow.up.arrow.down.circle.fill")
-                    .font(.title)
-                    .foregroundStyle(.blue)
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(hoveringSwapDirection ? .white : .white.opacity(0.4))
+                    .frame(width: 36, height: 36)
+                    .background(hoveringSwapDirection ? Color.white.opacity(0.10) : Color.white.opacity(0.06))
+                    .clipShape(Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    )
             }
+            .buttonStyle(.plain)
+            .onHover { h in hoveringSwapDirection = h }
+            .animation(HawalaTheme.Animation.fast, value: hoveringSwapDirection)
             .accessibilityLabel("Swap token direction")
             .accessibilityHint("Swap from and to tokens")
             .accessibilityIdentifier("swap_direction_button")
             
             // To Token
-            VStack(alignment: .leading, spacing: 8) {
-                Text("To")
-                    .font(.headline)
+            VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
+                HawalaOverlaySectionHeader(icon: "arrow.up.circle", title: "To")
                 
                 HStack {
                     Menu {
@@ -277,33 +317,44 @@ struct DEXAggregatorView: View {
                             }
                         }
                     } label: {
-                        HStack {
+                        HStack(spacing: 6) {
                             Text(getTokenSymbol(toToken))
-                                .fontWeight(.medium)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white)
                             Image(systemName: "chevron.down")
-                                .font(.caption)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.3))
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(8)
+                        .padding(.horizontal, HawalaTheme.Spacing.md)
+                        .padding(.vertical, HawalaTheme.Spacing.sm)
+                        .background(Color.white.opacity(0.06))
+                        .cornerRadius(HawalaTheme.Radius.sm)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm)
+                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        )
                     }
+                    .buttonStyle(.plain)
                     
                     if let best = service.currentQuotes?.bestQuote {
                         Text(best.formattedToAmount)
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
+                            .font(.clashGroteskMedium(size: 28))
+                            .foregroundColor(HawalaTheme.Colors.success)
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     } else {
                         Text("0.0")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
+                            .font(.clashGroteskMedium(size: 28))
+                            .foregroundColor(.white.opacity(0.15))
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                 }
-                .padding()
-                .background(Color.gray.opacity(0.05))
-                .cornerRadius(12)
+                .padding(HawalaTheme.Spacing.lg)
+                .background(HawalaTheme.Colors.backgroundSecondary)
+                .cornerRadius(HawalaTheme.Radius.lg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                )
             }
         }
     }
@@ -316,37 +367,40 @@ struct DEXAggregatorView: View {
     
     private var slippageSection: some View {
         DisclosureGroup("Slippage: \(String(format: "%.1f", slippage))%", isExpanded: $showSlippageSettings) {
-            VStack(spacing: 12) {
+            VStack(spacing: HawalaTheme.Spacing.md) {
                 HStack {
                     ForEach([0.1, 0.5, 1.0, 3.0], id: \.self) { value in
                         Button {
                             slippage = value
                         } label: {
                             Text("\(String(format: "%.1f", value))%")
-                                .font(.caption)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(slippage == value ? Color.blue : Color.gray.opacity(0.1))
-                                .foregroundColor(slippage == value ? .white : .primary)
-                                .cornerRadius(8)
+                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                .padding(.horizontal, HawalaTheme.Spacing.md)
+                                .padding(.vertical, HawalaTheme.Spacing.sm)
+                                .background(slippage == value ? Color.white.opacity(0.12) : Color.white.opacity(0.04))
+                                .foregroundColor(slippage == value ? .white : .white.opacity(0.5))
+                                .cornerRadius(HawalaTheme.Radius.sm)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm)
+                                        .stroke(slippage == value ? Color.white.opacity(0.15) : Color.white.opacity(0.06), lineWidth: 1)
+                                )
                         }
                         .buttonStyle(.plain)
                     }
                 }
                 
-                // ROADMAP-07: Extended slippage range up to 50% for exotic pairs
                 Slider(value: $slippage, in: 0.1...50.0, step: 0.1)
                     .help("Higher slippage increases success rate but may result in a worse price")
                 
                 HStack {
                     Text("Custom: \(String(format: "%.1f", slippage))%")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.4))
                     Spacer()
                     if slippage > 5.0 {
                         Text("\u{26a0}\u{fe0f} High slippage")
-                            .font(.caption)
-                            .foregroundColor(.orange)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(HawalaTheme.Colors.warning)
                     }
                 }
                 
@@ -354,22 +408,31 @@ struct DEXAggregatorView: View {
                 if slippage < 0.1 {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
+                            .font(.system(size: 12))
+                            .foregroundColor(HawalaTheme.Colors.warning)
                         Text("Very low slippage will cause most swaps to fail. Consider at least 0.5%.")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
+                            .font(.system(size: 11))
+                            .foregroundColor(HawalaTheme.Colors.warning)
                     }
-                    .padding(8)
-                    .background(Color.orange.opacity(0.1))
-                    .cornerRadius(8)
+                    .padding(HawalaTheme.Spacing.sm)
+                    .background(HawalaTheme.Colors.warning.opacity(0.08))
+                    .cornerRadius(HawalaTheme.Radius.sm)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm)
+                            .stroke(HawalaTheme.Colors.warning.opacity(0.2), lineWidth: 1)
+                    )
                 }
             }
             .padding(.top, 8)
         }
         .help("Maximum price impact you're willing to accept on this swap")
-        .padding()
-        .background(Color.gray.opacity(0.05))
-        .cornerRadius(12)
+        .padding(HawalaTheme.Spacing.lg)
+        .background(HawalaTheme.Colors.backgroundSecondary)
+        .cornerRadius(HawalaTheme.Radius.lg)
+        .overlay(
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+        )
     }
     
     // MARK: - Transfer Tax Warning (ROADMAP-07 E11)
@@ -379,7 +442,6 @@ struct DEXAggregatorView: View {
         let chainId = selectedChain.rawValue
         let fromTax = TransferTaxDetector.detectTax(address: fromToken, chainId: chainId)
         let toTax = TransferTaxDetector.detectTax(address: toToken, chainId: chainId)
-        // Also check by symbol as fallback
         let fromSymbol = getTokenSymbol(fromToken)
         let fromTaxBySymbol = fromTax == nil ? TransferTaxDetector.detectTaxBySymbol(fromSymbol) : nil
         let toSymbol = getTokenSymbol(toToken)
@@ -389,33 +451,33 @@ struct DEXAggregatorView: View {
         let detectedTo = toTax ?? toTaxBySymbol
         
         if let tax = detectedFrom ?? detectedTo {
-            HStack(alignment: .top, spacing: 10) {
+            HStack(alignment: .top, spacing: HawalaTheme.Spacing.md) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-                    .font(.title3)
+                    .font(.system(size: 14))
+                    .foregroundColor(HawalaTheme.Colors.error)
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Transfer Tax Detected")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.red)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(HawalaTheme.Colors.error)
                     
                     Text(TransferTaxDetector.warningMessage(for: tax))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.5))
                     
                     if detectedFrom != nil && detectedTo != nil {
                         Text("Both tokens have transfer taxes — expect significant slippage.")
-                            .font(.caption)
-                            .foregroundStyle(.red.opacity(0.8))
+                            .font(.system(size: 11))
+                            .foregroundColor(HawalaTheme.Colors.error.opacity(0.8))
                     }
                 }
             }
-            .padding()
-            .background(Color.red.opacity(0.08))
-            .cornerRadius(12)
+            .padding(HawalaTheme.Spacing.lg)
+            .background(HawalaTheme.Colors.error.opacity(0.08))
+            .cornerRadius(HawalaTheme.Radius.lg)
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.red.opacity(0.3), lineWidth: 1)
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                    .stroke(HawalaTheme.Colors.error.opacity(0.25), lineWidth: 1)
             )
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Warning: \(TransferTaxDetector.warningMessage(for: tax))")
@@ -436,46 +498,45 @@ struct DEXAggregatorView: View {
                           (fromResult?.riskLevel == .high ? fromResult : nil)))
         
         if let result = riskyResult, result.riskLevel >= .medium {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
+                HStack(alignment: .top, spacing: HawalaTheme.Spacing.md) {
                     Image(systemName: result.riskLevel >= .high ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
-                        .foregroundStyle(result.riskLevel >= .high ? .red : .orange)
-                        .font(.title3)
+                        .font(.system(size: 14))
+                        .foregroundColor(result.riskLevel >= .high ? HawalaTheme.Colors.error : HawalaTheme.Colors.warning)
                     
                     VStack(alignment: .leading, spacing: 4) {
                         Text(result.riskLevel >= .high ? "Honeypot Risk Detected" : "Token Risk Warning")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(result.riskLevel >= .high ? .red : .orange)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(result.riskLevel >= .high ? HawalaTheme.Colors.error : HawalaTheme.Colors.warning)
                         
                         if !result.warningMessage.isEmpty {
                             Text(result.warningMessage)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(.system(size: 11))
+                                .foregroundColor(.white.opacity(0.5))
                         }
                         
-                        // Show specific warnings
                         ForEach(result.warnings.prefix(3), id: \.self) { warning in
                             HStack(spacing: 4) {
                                 Circle()
-                                    .fill(Color.red.opacity(0.6))
+                                    .fill(HawalaTheme.Colors.error.opacity(0.6))
                                     .frame(width: 4, height: 4)
                                 Text(warning)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.white.opacity(0.4))
                             }
                         }
                         
                         if result.sellTax > 0 || result.buyTax > 0 {
-                            HStack(spacing: 12) {
+                            HStack(spacing: HawalaTheme.Spacing.md) {
                                 if result.buyTax > 0 {
                                     Text("Buy tax: \(String(format: "%.1f", result.buyTax))%")
-                                        .font(.caption2.weight(.medium))
-                                        .foregroundStyle(.orange)
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundColor(HawalaTheme.Colors.warning)
                                 }
                                 if result.sellTax > 0 {
                                     Text("Sell tax: \(String(format: "%.1f", result.sellTax))%")
-                                        .font(.caption2.weight(.medium))
-                                        .foregroundStyle(.red)
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundColor(HawalaTheme.Colors.error)
                                 }
                             }
                             .padding(.top, 2)
@@ -483,22 +544,22 @@ struct DEXAggregatorView: View {
                     }
                 }
             }
-            .padding()
-            .background(result.riskLevel >= .high ? Color.red.opacity(0.08) : Color.orange.opacity(0.08))
-            .cornerRadius(12)
+            .padding(HawalaTheme.Spacing.lg)
+            .background((result.riskLevel >= .high ? HawalaTheme.Colors.error : HawalaTheme.Colors.warning).opacity(0.08))
+            .cornerRadius(HawalaTheme.Radius.lg)
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(result.riskLevel >= .high ? Color.red.opacity(0.3) : Color.orange.opacity(0.3), lineWidth: 1)
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                    .stroke((result.riskLevel >= .high ? HawalaTheme.Colors.error : HawalaTheme.Colors.warning).opacity(0.25), lineWidth: 1)
             )
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Warning: \(result.warningMessage)")
         } else if honeypotDetector.isChecking {
             HStack(spacing: 8) {
                 ProgressView()
-                    .scaleEffect(0.8)
+                    .scaleEffect(0.7)
                 Text("Checking token security...")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
             }
             .padding(.vertical, 4)
         }
@@ -507,26 +568,29 @@ struct DEXAggregatorView: View {
     // MARK: - Loading
     
     private var loadingSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: HawalaTheme.Spacing.md) {
             ProgressView()
-                .scaleEffect(1.2)
+                .scaleEffect(0.9)
             Text("Fetching quotes from providers...")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 13))
+                .foregroundColor(.white.opacity(0.4))
         }
         .frame(maxWidth: .infinity)
-        .padding()
-        .background(Color.gray.opacity(0.05))
-        .cornerRadius(12)
+        .padding(HawalaTheme.Spacing.xl)
+        .background(HawalaTheme.Colors.backgroundSecondary)
+        .cornerRadius(HawalaTheme.Radius.lg)
+        .overlay(
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+        )
     }
     
     // MARK: - Quotes
     
     private func quotesSection(_ quotes: DEXAggregatorService.AggregatedQuotes) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
             HStack {
-                Text("Available Quotes (\(quotes.quotes.count))")
-                    .font(.headline)
+                HawalaOverlaySectionHeader(icon: "list.bullet.rectangle", title: "Quotes (\(quotes.quotes.count))")
                 
                 Spacer()
                 
@@ -534,26 +598,27 @@ struct DEXAggregatorView: View {
                 if quoteTimeRemaining > 0 {
                     HStack(spacing: 4) {
                         Image(systemName: "clock")
-                            .font(.caption)
+                            .font(.system(size: 10))
                         Text(formatDEXCountdown(quoteTimeRemaining))
-                            .font(.caption.monospacedDigit())
+                            .font(.system(size: 11, design: .monospaced))
                     }
-                    .foregroundColor(quoteTimeRemaining < 60 ? .red : .secondary)
+                    .foregroundColor(quoteTimeRemaining < 60 ? HawalaTheme.Colors.error : .white.opacity(0.4))
                 } else if quoteTimeRemaining <= 0 && !service.isLoading {
                     HStack(spacing: 4) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundColor(.orange)
+                            .font(.system(size: 10))
                         Text("Expired")
-                            .font(.caption)
-                            .foregroundColor(.orange)
+                            .font(.system(size: 11))
                     }
+                    .foregroundColor(HawalaTheme.Colors.warning)
                 }
                 
                 Button("Compare All") {
                     showQuoteComparison = true
                 }
-                .font(.caption)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.5))
+                .buttonStyle(.plain)
             }
             
             ForEach(quotes.sortedByOutput.prefix(3)) { quote in
@@ -565,68 +630,75 @@ struct DEXAggregatorView: View {
                     showQuoteComparison = true
                 } label: {
                     Text("See \(quotes.quotes.count - 3) more quotes...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.35))
                 }
+                .buttonStyle(.plain)
             }
         }
-        .padding()
-        .background(Color.gray.opacity(0.05))
-        .cornerRadius(12)
     }
     
     private func quoteRow(_ quote: DEXAggregatorService.SwapQuote, isBest: Bool) -> some View {
-        Button {
+        let isSelected = selectedQuote?.id == quote.id
+        let isHovering = hoveringQuoteRow == quote.id
+        
+        return Button {
             selectedQuote = quote
         } label: {
             HStack {
                 Image(systemName: quote.provider.icon)
-                    .foregroundStyle(quote.provider.color)
+                    .font(.system(size: 16))
+                    .foregroundColor(.white.opacity(0.5))
+                    .frame(width: 36, height: 36)
+                    .background(Color.white.opacity(0.04))
+                    .clipShape(RoundedRectangle(cornerRadius: HawalaTheme.Radius.sm, style: .continuous))
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack {
+                    HStack(spacing: HawalaTheme.Spacing.sm) {
                         Text(quote.provider.displayName)
-                            .fontWeight(.medium)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white)
                         if isBest {
                             Text("BEST")
-                                .font(.caption2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.green)
-                                .foregroundColor(.white)
+                                .font(.system(size: 9, weight: .bold))
+                                .tracking(0.8)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(HawalaTheme.Colors.success.opacity(0.15))
+                                .foregroundColor(HawalaTheme.Colors.success)
                                 .cornerRadius(4)
                         }
 
                         Text(quote.riskLabel)
-                            .font(.caption2)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(quote.riskColor.opacity(0.16))
+                            .font(.system(size: 9, weight: .bold))
+                            .tracking(0.5)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(quote.riskColor.opacity(0.12))
                             .foregroundColor(quote.riskColor)
                             .cornerRadius(4)
                     }
 
                     Text(quote.provenanceSummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.35))
 
                     Text("Min receive: \(quote.formattedMinimumReceive)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.35))
                     
                     if let impact = quote.priceImpact {
-                        // ROADMAP-07 E6: Color-coded price impact thresholds
                         let absImpact = abs(impact)
-                        let impactColor: Color = absImpact > 5.0 ? .red : (absImpact > 2.0 ? .orange : .secondary)
+                        let impactColor: Color = absImpact > 5.0 ? HawalaTheme.Colors.error : (absImpact > 2.0 ? HawalaTheme.Colors.warning : .white.opacity(0.4))
                         HStack(spacing: 4) {
                             if absImpact > 2.0 {
                                 Image(systemName: absImpact > 5.0 ? "exclamationmark.triangle.fill" : "exclamationmark.circle.fill")
-                                    .font(.caption2)
+                                    .font(.system(size: 9))
                             }
                             Text("Impact: \(String(format: "%.2f", impact))%")
-                                .font(.caption)
+                                .font(.system(size: 11))
                         }
-                        .foregroundStyle(impactColor)
+                        .foregroundColor(impactColor)
                         .fontWeight(absImpact > 5.0 ? .bold : .regular)
                     }
                 }
@@ -635,113 +707,125 @@ struct DEXAggregatorView: View {
                 
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(quote.formattedToAmount)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(isBest ? .green : .primary)
+                        .font(.clashGroteskMedium(size: 15))
+                        .foregroundColor(isBest ? HawalaTheme.Colors.success : .white)
                     
                     Text(quote.routeCountSummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.35))
 
                     if let gas = quote.gasCostUSD {
                         Text("Gas: $\(String(format: "%.2f", gas))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.35))
                     }
                 }
             }
-            .padding()
-            .background(selectedQuote?.id == quote.id ? Color.blue.opacity(0.1) : Color.gray.opacity(0.05))
-            .cornerRadius(8)
+            .padding(HawalaTheme.Spacing.lg)
+            .background(isSelected ? Color.white.opacity(0.08) : (isHovering ? Color.white.opacity(0.04) : HawalaTheme.Colors.backgroundSecondary))
+            .cornerRadius(HawalaTheme.Radius.lg)
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(selectedQuote?.id == quote.id ? Color.blue : Color.clear, lineWidth: 1)
+                RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                    .stroke(isSelected ? Color.white.opacity(0.15) : Color.white.opacity(0.06), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
+        .onHover { h in hoveringQuoteRow = h ? quote.id : nil }
+        .animation(HawalaTheme.Animation.fast, value: isHovering)
     }
     
     // MARK: - Error
     
     private func errorSection(_ error: String) -> some View {
-        HStack {
+        HStack(spacing: HawalaTheme.Spacing.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+                .font(.system(size: 12))
+                .foregroundColor(HawalaTheme.Colors.error)
             Text(error)
-                .font(.caption)
-                .foregroundStyle(.red)
+                .font(.system(size: 12))
+                .foregroundColor(HawalaTheme.Colors.error)
         }
-        .padding()
-        .frame(maxWidth: .infinity)
-        .background(Color.red.opacity(0.1))
-        .cornerRadius(8)
+        .padding(HawalaTheme.Spacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(HawalaTheme.Colors.error.opacity(0.08))
+        .cornerRadius(HawalaTheme.Radius.md)
+        .overlay(
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
+                .stroke(HawalaTheme.Colors.error.opacity(0.2), lineWidth: 1)
+        )
     }
 
     private func approvalSection(for quote: DEXAggregatorService.SwapQuote) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: HawalaTheme.Spacing.md) {
             HStack {
-                Text("Approval Review")
-                    .font(.headline)
+                HawalaOverlaySectionHeader(icon: "checkmark.shield", title: "Approval Review")
 
                 Spacer()
 
                 if approvalCompletedForQuoteID == quote.id {
-                    Text("Approved")
-                        .font(.caption)
+                    Text("APPROVED")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(0.8)
                         .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.green.opacity(0.15))
-                        .foregroundColor(.green)
-                        .cornerRadius(6)
+                        .padding(.vertical, 3)
+                        .background(HawalaTheme.Colors.success.opacity(0.15))
+                        .foregroundColor(HawalaTheme.Colors.success)
+                        .cornerRadius(4)
                 }
             }
 
             if isCheckingApproval {
                 HStack(spacing: 8) {
                     ProgressView()
-                        .scaleEffect(0.8)
+                        .scaleEffect(0.7)
                     Text("Checking approval requirements...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.4))
                 }
             } else if let approvalStatus {
                 if approvalStatus.needsApproval && approvalCompletedForQuoteID != quote.id {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
                         approvalRow(label: "Spender", value: shortAddress(approvalStatus.spender))
                         approvalRow(label: "Approval Type", value: "Exact amount")
                         approvalRow(label: "Approval Amount", value: formatQuoteAmount(quote.fromAmount, decimals: quote.fromTokenDecimals, symbol: quote.fromTokenSymbol))
                         approvalRow(label: "Current Allowance", value: "Live allowance lookup pending")
 
                         Text("Hawala assumes an exact ERC-20 approval is required before this swap until live allowance reads are integrated for this flow.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.35))
                     }
                 } else {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: HawalaTheme.Spacing.sm) {
                         approvalRow(label: "Approval Status", value: "Ready to swap")
                         Text("This route can proceed without a separate token approval, or the approval was already completed in this session.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.35))
                     }
                 }
             } else {
                 Text("Select a quote to review token approval requirements.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.35))
             }
         }
-        .padding()
-        .background(Color.gray.opacity(0.05))
-        .cornerRadius(12)
+        .padding(HawalaTheme.Spacing.lg)
+        .background(HawalaTheme.Colors.backgroundSecondary)
+        .cornerRadius(HawalaTheme.Radius.lg)
+        .overlay(
+            RoundedRectangle(cornerRadius: HawalaTheme.Radius.lg)
+                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+        )
     }
 
     private func approvalRow(label: String, value: String) -> some View {
         HStack(alignment: .top) {
             Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.4))
             Spacer()
             Text(value)
-                .font(.caption.monospaced())
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.white.opacity(0.7))
                 .multilineTextAlignment(.trailing)
         }
     }
@@ -749,23 +833,32 @@ struct DEXAggregatorView: View {
     // MARK: - Actions
     
     private var actionButtons: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: HawalaTheme.Spacing.md) {
             Button {
                 Task {
                     await fetchQuotes()
                 }
             } label: {
-                HStack {
+                HStack(spacing: HawalaTheme.Spacing.sm) {
                     Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12, weight: .semibold))
                     Text("Get Live Quotes")
+                        .font(.system(size: 13, weight: .semibold))
                 }
                 .frame(maxWidth: .infinity)
-                .padding()
-                .background(canGetQuotes ? Color.blue : Color.gray)
-                .foregroundColor(.white)
-                .cornerRadius(12)
+                .padding(.vertical, 14)
+                .background(canGetQuotes ? (hoveringGetQuotes ? Color.white.opacity(0.18) : Color.white.opacity(0.12)) : Color.white.opacity(0.04))
+                .foregroundColor(canGetQuotes ? .white : .white.opacity(0.3))
+                .cornerRadius(HawalaTheme.Radius.md)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
+                        .stroke(Color.white.opacity(canGetQuotes ? 0.1 : 0.04), lineWidth: 1)
+                )
             }
+            .buttonStyle(.plain)
             .disabled(!canGetQuotes || service.isLoading)
+            .onHover { h in hoveringGetQuotes = h }
+            .animation(HawalaTheme.Animation.fast, value: hoveringGetQuotes)
             
             if let quote = selectedQuote, requiresApproval(for: quote) {
                 Button {
@@ -773,21 +866,29 @@ struct DEXAggregatorView: View {
                         await executeApprovalIfNeeded(for: quote)
                     }
                 } label: {
-                    HStack {
+                    HStack(spacing: HawalaTheme.Spacing.sm) {
                         if isExecutingApproval || isCheckingApproval {
                             ProgressView()
-                                .tint(.white)
+                                .scaleEffect(0.7)
+                                .frame(width: 16, height: 16)
                         } else {
                             Image(systemName: "checkmark.shield")
+                                .font(.system(size: 12, weight: .semibold))
                         }
                         Text(isExecutingApproval ? "Approving..." : (isCheckingApproval ? "Checking Approval..." : "Approve Token First"))
+                            .font(.system(size: 13, weight: .semibold))
                     }
                     .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.orange)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
+                    .padding(.vertical, 14)
+                    .background(HawalaTheme.Colors.warning.opacity(0.15))
+                    .foregroundColor(HawalaTheme.Colors.warning)
+                    .cornerRadius(HawalaTheme.Radius.md)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
+                            .stroke(HawalaTheme.Colors.warning.opacity(0.25), lineWidth: 1)
+                    )
                 }
+                .buttonStyle(.plain)
                 .disabled(isExecutingApproval || isCheckingApproval)
             }
 
@@ -797,21 +898,29 @@ struct DEXAggregatorView: View {
                         await executeSwap()
                     }
                 } label: {
-                    HStack {
+                    HStack(spacing: HawalaTheme.Spacing.sm) {
                         if isExecutingSwap {
                             ProgressView()
-                                .tint(.white)
+                                .scaleEffect(0.7)
+                                .frame(width: 16, height: 16)
                         } else {
                             Image(systemName: "arrow.right.arrow.left")
+                                .font(.system(size: 12, weight: .semibold))
                         }
                         Text(isExecutingSwap ? "Executing..." : "Execute Swap")
+                            .font(.system(size: 13, weight: .semibold))
                     }
                     .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
+                    .padding(.vertical, 14)
+                    .background(HawalaTheme.Colors.success.opacity(0.15))
+                    .foregroundColor(HawalaTheme.Colors.success)
+                    .cornerRadius(HawalaTheme.Radius.md)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: HawalaTheme.Radius.md)
+                            .stroke(HawalaTheme.Colors.success.opacity(0.25), lineWidth: 1)
+                    )
                 }
+                .buttonStyle(.plain)
                 .disabled(isExecutingSwap || isCheckingApproval || isExecutingApproval || !canExecuteSelectedQuote)
             }
         }

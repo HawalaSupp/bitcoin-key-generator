@@ -42,7 +42,8 @@ extension AllKeys {
                 iconName: "bitcoinsign.circle.fill",
                 accentColor: Color.orange,
                 details: bitcoinDetails,
-                receiveAddress: bitcoin.address
+                receiveAddress: bitcoin.address,
+                publicKeyHex: bitcoin.publicCompressedHex
             ),
             ChainInfo(
                 id: "bitcoin-testnet",
@@ -51,7 +52,8 @@ extension AllKeys {
                 iconName: "bitcoinsign.circle",
                 accentColor: Color.orange.opacity(0.7),
                 details: bitcoinTestnetDetails,
-                receiveAddress: bitcoinTestnet.address
+                receiveAddress: bitcoinTestnet.address,
+                publicKeyHex: bitcoinTestnet.publicCompressedHex
             ),
             ChainInfo(
                 id: "litecoin",

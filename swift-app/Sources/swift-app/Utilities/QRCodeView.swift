@@ -53,12 +53,30 @@ struct QRCodeView: View {
                                 .fill(.white)
                                 .frame(width: logoSize + 6, height: logoSize + 6)
                             
-                            Image("HawalaLogo", bundle: .module)
-                                .resizable()
-                                .interpolation(.high)
-                                .scaledToFit()
-                                .frame(width: logoSize, height: logoSize)
-                                .clipShape(Circle())
+                            // Load logo explicitly from bundle URL (SwiftPM .copy() resources
+                            // are not registered as named images)
+                            if let url = Bundle.module.url(forResource: "HawalaLogo", withExtension: "png") {
+                                #if canImport(AppKit)
+                                if let nsImg = NSImage(contentsOf: url) {
+                                    Image(nsImage: nsImg)
+                                        .resizable()
+                                        .interpolation(.high)
+                                        .scaledToFit()
+                                        .frame(width: logoSize, height: logoSize)
+                                        .clipShape(Circle())
+                                }
+                                #elseif canImport(UIKit)
+                                if let data = try? Data(contentsOf: url),
+                                   let uiImg = UIImage(data: data) {
+                                    Image(uiImage: uiImg)
+                                        .resizable()
+                                        .interpolation(.high)
+                                        .scaledToFit()
+                                        .frame(width: logoSize, height: logoSize)
+                                        .clipShape(Circle())
+                                }
+                                #endif
+                            }
                         }
                     }
                 }
