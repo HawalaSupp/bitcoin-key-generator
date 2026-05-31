@@ -2,11 +2,20 @@ name: Wallet Validation
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, mvvm-refactor-phase-1 ]
+    paths:
+      - 'rust-app/**'
+      - 'scripts/**'
+      - '.github/workflows/wallet-validation.yml'
   pull_request:
+    branches: [ main, mvvm-refactor-phase-1 ]
+    paths:
+      - 'rust-app/**'
+      - 'scripts/**'
+      - '.github/workflows/wallet-validation.yml'
 
 jobs:
-  wallet-validator:
+  rust-build-test:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -34,6 +43,30 @@ jobs:
       - name: Run Rust tests
         run: cargo test --manifest-path rust-app/Cargo.toml
 
+      - name: Run Clippy
+        run: cargo clippy --manifest-path rust-app/Cargo.toml --all-targets
+
+  wallet-validator:
+    runs-on: ubuntu-latest
+    needs: rust-build-test
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust-app/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-app/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
       - name: Generate JSON key material
         run: cargo run --manifest-path rust-app/Cargo.toml --bin rust-app -- --json > key_material.json
 
@@ -45,3 +78,19 @@ jobs:
         with:
           name: wallet-key-material
           path: key_material.json
+
+  security-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: Audit Rust dependencies
+        continue-on-error: true
+        run: cargo audit --file rust-app/Cargo.lock

@@ -18,7 +18,7 @@ struct ContentViewSnapshotTests {
             return
         }
         let hash = try SnapshotRenderer.hash(for: ContentView(), size: CGSize(width: 800, height: 600), colorScheme: .light)
-    #expect(hash == "d7f5adcdec82129ec29aab46876fc3e1cb9a1aa79c768d3086f5a49e9cd50072", "Update expected hash when intentional UI changes occur.")
+    #expect(hash == "28f66527fcb4024c11e9e55092ba6b28639db4be75e28bdc3092dea9748070f3", "Update expected hash when intentional UI changes occur.")
     }
 }
 

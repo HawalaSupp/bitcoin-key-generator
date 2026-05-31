@@ -427,6 +427,55 @@ struct DuressChangePasscodeSheet: View {
     }
 }
 
+// MARK: - Audit Log and Setup Compatibility Views
+
+struct DuressAuditLogView: View {
+    @ObservedObject private var duressManager = DuressWalletManager.shared
+
+    var body: some View {
+        let logs = duressManager.getDuressActivationLogs() ?? []
+
+        HawalaSheetShell(title: "Security Audit", width: 420, height: 480) {
+            if logs.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "checkmark.shield")
+                        .font(.system(size: 36, weight: .thin))
+                        .foregroundColor(.white.opacity(0.45))
+                    Text("No duress events recorded")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.75))
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(logs) { log in
+                        HStack(spacing: 10) {
+                            Image(systemName: "shield.lefthalf.filled")
+                                .foregroundColor(.white.opacity(0.45))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(log.formattedDate)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.75))
+                                Text(log.deviceInfo)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.white.opacity(0.4))
+                            }
+                            Spacer()
+                        }
+                        .hawalaSectionCard()
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct DuressSetupView: View {
+    var body: some View {
+        DuressSetupSheet(onComplete: {})
+    }
+}
+
 // MARK: - Preview
 
 #if false // Disabled #Preview for command-line builds

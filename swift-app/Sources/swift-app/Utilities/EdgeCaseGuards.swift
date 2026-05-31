@@ -213,7 +213,7 @@ enum EdgeCaseGuards {
         let combined = (name + " " + description).lowercased()
         let spamPatterns = [
             "airdrop", "free mint", "claim your", "visit http",
-            "click here", "congratulations", "you won", "reward",
+            "click here", "congratulations", "you won", "free reward",
             ".xyz", ".ru", "t.co/", "bit.ly/"
         ]
         return spamPatterns.contains { combined.contains($0) }

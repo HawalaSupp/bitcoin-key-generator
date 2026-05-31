@@ -53,10 +53,10 @@ struct ContentView: View {
     @State private var historyFilterDateRange: TransactionDateRange = .all
     @State private var pendingTransactions: [PendingTransactionManager.PendingTransaction] = []
     @State private var pendingTxRefreshTask: Task<Void, Never>?
+    @State private var walletSearchText: String = ""
     // Debug: Show FPS performance overlay in DEBUG builds
     #if DEBUG
     @State private var showPerformanceOverlay = false  // Disabled for screenshot
-    @State private var walletSearchText: String = ""
     #endif
     private let moneroBalancePlaceholder = "View-only · Open Monero GUI wallet for full access"
 

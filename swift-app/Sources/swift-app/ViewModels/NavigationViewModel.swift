@@ -73,6 +73,7 @@ final class NavigationViewModel: ObservableObject {
     // MARK: - ROADMAP-23: Duress Mode State
     @Published var isDuressActive = false
     @Published var showDuressSetupSheet = false
+    @Published var showAuditLogSheet = false
     
     // MARK: - Send Flow Context
     @Published var sendChainContext: ChainInfo?
@@ -180,6 +181,7 @@ final class NavigationViewModel: ObservableObject {
         walletToDelete = nil
         showHardwareWalletSetupSheet = false
         showDuressSetupSheet = false
+        showAuditLogSheet = false
         sendChainContext = nil
         pendingSendChain = nil
         receiveChainContext = nil

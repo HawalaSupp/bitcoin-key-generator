@@ -757,7 +757,7 @@ struct WalletConnectSigningServiceTests {
         }
     }
     
-    @Test("Transaction signing rejects with userRejected")
+    @Test("Transaction signing requires send flow")
     @MainActor
     func transactionRejects() async throws {
         let service = WalletConnectSigningService.shared
@@ -774,7 +774,7 @@ struct WalletConnectSigningServiceTests {
             let _ = try await service.handleSign(request, keys: makeTestKeys())
             Issue.record("Transaction signing should throw")
         } catch let error as WCError {
-            #expect(error == .userRejected, "Transaction signing should reject")
+            #expect(error == .requestRequiresSendFlow, "Transaction signing must route through the reviewed send flow")
         }
     }
     
@@ -902,7 +902,7 @@ struct WalletConnectModelTests {
     
     @Test("WCError has descriptions for all cases")
     func errorDescriptions() {
-        let errors: [WCError] = [.invalidURI, .invalidRelayURL, .connectionFailed, .sessionNotFound, .noAccountsProvided, .requestTimeout, .userRejected]
+        let errors: [WCError] = [.invalidURI, .invalidRelayURL, .connectionFailed, .sessionNotFound, .noAccountsProvided, .requestTimeout, .userRejected, .requestRequiresSendFlow]
         
         for error in errors {
             #expect(error.errorDescription != nil, "WCError.\(error) should have a description")

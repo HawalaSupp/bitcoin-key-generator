@@ -199,24 +199,24 @@ struct ImportFromHistoryTests {
         // Record a send to a unique address via the singleton
         let addr = "unsaved_\(UUID().uuidString)"
         let addrLower = addr.lowercased()
-        AddressIntelligenceManager.shared.recordSend(to: addr)
+        AddressIntelligenceManager.shared.recordSend(to: addr, chainId: "bitcoin")
         
         // The address should be in recent recipients now (lowercased by recordSend)
         let recents = AddressIntelligenceManager.shared.getRecentRecipients(limit: 50)
-        let inRecents = recents.contains { $0.address == addrLower }
+        let inRecents = recents.contains { $0.address.lowercased() == addrLower }
         #expect(inRecents, "Address should appear in recent recipients after recordSend")
         
         // If it's in recents and not in contacts, unsavedRecentAddresses should include it
         if inRecents {
             let unsaved = mgr.unsavedRecentAddresses()
-            let found = unsaved.contains { $0.address == addrLower }
+            let found = unsaved.contains { $0.address.lowercased() == addrLower }
             #expect(found)
             
             // Now add as contact — should no longer appear (hasContact is case-insensitive)
             let contact = Contact(name: "Saved", address: addr, chainId: "bitcoin")
             mgr.addContact(contact)
             let unsaved2 = mgr.unsavedRecentAddresses()
-            let found2 = unsaved2.contains { $0.address == addrLower }
+            let found2 = unsaved2.contains { $0.address.lowercased() == addrLower }
             #expect(!found2)
             
             // Cleanup
@@ -297,7 +297,7 @@ struct ContactPickerSheetTests {
         let _ = ContactPickerSheet(
             chain: "bitcoin",
             contacts: contacts,
-            onSelect: { _ in },
+            onSelect: { _, _ in },
             onCancel: { }
         )
     }
@@ -317,6 +317,7 @@ struct ReviewContactIntegrationTests {
             amount: 0.001,
             recipientAddress: "bc1qsomeaddr",
             recipientDisplayName: nil,
+            destinationTag: nil,
             feeRate: 5.0,
             feeRateUnit: "sat/vB",
             fee: 0.00001,

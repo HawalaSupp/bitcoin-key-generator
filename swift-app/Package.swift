@@ -38,7 +38,16 @@ let package = Package(
                 .product(name: "GRDB", package: "GRDB.swift"),
                 "RustBridge"
             ],
-            exclude: ["APIKeys.swift.template"],
+            exclude: [
+                "APIKeys.swift.template",
+                "UI/ExportView.swift.bak",
+                "UI/NodeManagementView.swift.bak",
+                "UI/TokensOverlay.swift.bak",
+                "Views/AddressManagementView.swift.bak",
+                "Views/ScheduledTransactionsView.swift.bak",
+                "Views/SecurityPoliciesView.swift.bak",
+                "Views/StealthAddressView.swift.bak"
+            ],
             resources: [
                 .copy("Resources/HawalaLogo.png"),
                 .copy("Resources/ClashGrotesk-Bold.otf")

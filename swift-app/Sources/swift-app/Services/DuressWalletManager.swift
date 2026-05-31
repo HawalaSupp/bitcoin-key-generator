@@ -594,3 +594,56 @@ enum DuressError: Error, LocalizedError {
         }
     }
 }
+
+// MARK: - Legacy Duress Manager Compatibility
+
+enum DuressManager {
+    enum WalletMode: String, Codable {
+        case real
+        case decoy
+    }
+
+    enum DuressError: Error, LocalizedError {
+        case decoyNotConfigured
+        case invalidPasscode
+        case keychainError(Int32)
+        case seedGenerationFailed
+        case userCancelled
+
+        var errorDescription: String? {
+            switch self {
+            case .decoyNotConfigured:
+                return "Decoy wallet is not configured"
+            case .invalidPasscode:
+                return "Invalid passcode"
+            case .keychainError(let status):
+                return "Keychain error: \(status)"
+            case .seedGenerationFailed:
+                return "Failed to generate seed phrase"
+            case .userCancelled:
+                return "User cancelled duress setup"
+            }
+        }
+    }
+
+    @MainActor
+    static var shared: DuressWalletManager {
+        DuressWalletManager.shared
+    }
+}
+
+extension DuressWalletManager {
+    var currentMode: DuressManager.WalletMode {
+        isInDuressMode ? .decoy : .real
+    }
+
+    func authenticate(passcode: String, realPasscodeHash: String?) -> DuressManager.WalletMode {
+        if isDuressPin(passcode) {
+            activateDuressMode()
+            return .decoy
+        }
+
+        deactivateDuressMode()
+        return .real
+    }
+}
