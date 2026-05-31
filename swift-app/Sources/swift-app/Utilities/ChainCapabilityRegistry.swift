@@ -6,6 +6,18 @@ enum ChainSupportTier: String {
     case deferred
 }
 
+enum ChainFeature: Sendable {
+    case send
+    case receive
+    case historySync
+    case swap
+    case bridge
+    case stake
+    case walletConnect
+    case alerts
+    case customRPC
+}
+
 struct ChainCapability: Sendable {
     let chainId: String
     let displayName: String
@@ -22,17 +34,31 @@ struct ChainCapability: Sendable {
 }
 
 enum ChainCapabilityRegistry {
+    /// Internal/test and deferred chains stay hidden in normal builds. Engineers can
+    /// inspect broader chain coverage by launching a DEBUG build with
+    /// HAWALA_DEVELOPMENT_FEATURES=1.
+    static var developmentFeaturesEnabled: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["HAWALA_DEVELOPMENT_FEATURES"] == "1"
+        #else
+        false
+        #endif
+    }
+
     private static let orderedCapabilities: [ChainCapability] = [
         .init(chainId: "bitcoin", displayName: "Bitcoin", supportTier: .launch, supportsSend: true, supportsReceive: true, supportsHistorySync: true, supportsSwap: false, supportsBridge: false, supportsStake: false, supportsWalletConnect: false, supportsAlerts: true, supportsCustomRPC: false),
         .init(chainId: "bitcoin-testnet", displayName: "Bitcoin Testnet", supportTier: .internalTest, supportsSend: true, supportsReceive: true, supportsHistorySync: true, supportsSwap: false, supportsBridge: false, supportsStake: false, supportsWalletConnect: false, supportsAlerts: false, supportsCustomRPC: false),
         .init(chainId: "litecoin", displayName: "Litecoin", supportTier: .launch, supportsSend: true, supportsReceive: true, supportsHistorySync: true, supportsSwap: false, supportsBridge: false, supportsStake: false, supportsWalletConnect: false, supportsAlerts: true, supportsCustomRPC: false),
-        .init(chainId: "ethereum", displayName: "Ethereum", supportTier: .launch, supportsSend: true, supportsReceive: true, supportsHistorySync: true, supportsSwap: true, supportsBridge: true, supportsStake: true, supportsWalletConnect: true, supportsAlerts: true, supportsCustomRPC: true),
+        .init(chainId: "ethereum", displayName: "Ethereum", supportTier: .launch, supportsSend: true, supportsReceive: true, supportsHistorySync: true, supportsSwap: false, supportsBridge: false, supportsStake: false, supportsWalletConnect: true, supportsAlerts: true, supportsCustomRPC: true),
         .init(chainId: "ethereum-sepolia", displayName: "Sepolia", supportTier: .internalTest, supportsSend: true, supportsReceive: true, supportsHistorySync: true, supportsSwap: false, supportsBridge: false, supportsStake: false, supportsWalletConnect: false, supportsAlerts: false, supportsCustomRPC: true),
         .init(chainId: "bnb", displayName: "BNB", supportTier: .internalTest, supportsSend: true, supportsReceive: true, supportsHistorySync: false, supportsSwap: true, supportsBridge: true, supportsStake: false, supportsWalletConnect: true, supportsAlerts: false, supportsCustomRPC: true),
-        .init(chainId: "solana", displayName: "Solana", supportTier: .launch, supportsSend: true, supportsReceive: true, supportsHistorySync: true, supportsSwap: true, supportsBridge: true, supportsStake: true, supportsWalletConnect: true, supportsAlerts: true, supportsCustomRPC: false),
+        .init(chainId: "solana", displayName: "Solana", supportTier: .launch, supportsSend: true, supportsReceive: true, supportsHistorySync: true, supportsSwap: false, supportsBridge: false, supportsStake: false, supportsWalletConnect: false, supportsAlerts: true, supportsCustomRPC: false),
         .init(chainId: "polygon", displayName: "Polygon", supportTier: .internalTest, supportsSend: true, supportsReceive: true, supportsHistorySync: false, supportsSwap: true, supportsBridge: true, supportsStake: false, supportsWalletConnect: true, supportsAlerts: true, supportsCustomRPC: true),
         .init(chainId: "xrp", displayName: "XRP", supportTier: .launch, supportsSend: true, supportsReceive: true, supportsHistorySync: true, supportsSwap: false, supportsBridge: false, supportsStake: false, supportsWalletConnect: false, supportsAlerts: true, supportsCustomRPC: false),
         .init(chainId: "xrp-testnet", displayName: "XRP Testnet", supportTier: .internalTest, supportsSend: true, supportsReceive: true, supportsHistorySync: false, supportsSwap: false, supportsBridge: false, supportsStake: false, supportsWalletConnect: false, supportsAlerts: false, supportsCustomRPC: false),
+        .init(chainId: "usdt-erc20", displayName: "Tether USD", supportTier: .launch, supportsSend: true, supportsReceive: true, supportsHistorySync: true, supportsSwap: false, supportsBridge: false, supportsStake: false, supportsWalletConnect: false, supportsAlerts: true, supportsCustomRPC: false),
+        .init(chainId: "usdc-erc20", displayName: "USD Coin", supportTier: .launch, supportsSend: true, supportsReceive: true, supportsHistorySync: true, supportsSwap: false, supportsBridge: false, supportsStake: false, supportsWalletConnect: false, supportsAlerts: true, supportsCustomRPC: false),
+        .init(chainId: "dai-erc20", displayName: "Dai", supportTier: .launch, supportsSend: true, supportsReceive: true, supportsHistorySync: true, supportsSwap: false, supportsBridge: false, supportsStake: false, supportsWalletConnect: false, supportsAlerts: true, supportsCustomRPC: false),
         .init(chainId: "arbitrum", displayName: "Arbitrum", supportTier: .internalTest, supportsSend: true, supportsReceive: true, supportsHistorySync: false, supportsSwap: true, supportsBridge: true, supportsStake: false, supportsWalletConnect: true, supportsAlerts: true, supportsCustomRPC: true),
         .init(chainId: "optimism", displayName: "Optimism", supportTier: .internalTest, supportsSend: true, supportsReceive: true, supportsHistorySync: false, supportsSwap: true, supportsBridge: true, supportsStake: false, supportsWalletConnect: true, supportsAlerts: false, supportsCustomRPC: true),
         .init(chainId: "base", displayName: "Base", supportTier: .internalTest, supportsSend: true, supportsReceive: true, supportsHistorySync: false, supportsSwap: true, supportsBridge: true, supportsStake: false, supportsWalletConnect: true, supportsAlerts: false, supportsCustomRPC: true),
@@ -45,28 +71,74 @@ enum ChainCapabilityRegistry {
 
     private static let capabilitiesByChainId = Dictionary(uniqueKeysWithValues: orderedCapabilities.map { ($0.chainId, $0) })
 
+    static var launchChainIDs: [String] {
+        orderedCapabilities.filter { $0.supportTier == .launch }.map(\.chainId)
+    }
+
     static var customRPCChainNames: [String] {
-        orderedCapabilities.filter(\.supportsCustomRPC).map(\.displayName)
+        orderedCapabilities
+            .filter { isVisible($0.chainId) && $0.supportsCustomRPC }
+            .map(\.displayName)
     }
 
     static var syncSupportedChainIDs: [String] {
-        orderedCapabilities.filter(\.supportsHistorySync).map(\.chainId)
+        orderedCapabilities
+            .filter { isVisible($0.chainId) && $0.supportsHistorySync }
+            .map(\.chainId)
     }
 
     static func capability(for chainId: String) -> ChainCapability? {
         capabilitiesByChainId[chainId.lowercased()]
     }
 
+    static func isVisible(_ chainId: String) -> Bool {
+        guard let capability = capability(for: chainId) else { return false }
+        switch capability.supportTier {
+        case .launch:
+            return true
+        case .internalTest, .deferred:
+            return developmentFeaturesEnabled
+        }
+    }
+
+    static func visibleChains(from chains: [ChainInfo]) -> [ChainInfo] {
+        chains.filter { isVisible($0.id) }
+    }
+
+    static func hasVisibleSupport(for feature: ChainFeature) -> Bool {
+        orderedCapabilities.contains { capability in
+            supports(feature, chainId: capability.chainId)
+        }
+    }
+
+    static func supports(_ feature: ChainFeature, chainId: String) -> Bool {
+        guard isVisible(chainId), let capability = capability(for: chainId) else { return false }
+        switch feature {
+        case .send: return capability.supportsSend
+        case .receive: return capability.supportsReceive
+        case .historySync: return capability.supportsHistorySync
+        case .swap: return capability.supportsSwap
+        case .bridge: return capability.supportsBridge
+        case .stake: return capability.supportsStake
+        case .walletConnect: return capability.supportsWalletConnect
+        case .alerts: return capability.supportsAlerts
+        case .customRPC: return capability.supportsCustomRPC
+        }
+    }
+
     static func supportsSend(_ chainId: String) -> Bool {
-        if chainId.lowercased().contains("erc20") { return true }
-        return capability(for: chainId)?.supportsSend ?? false
+        supports(.send, chainId: chainId)
     }
 
     static func supportsHistorySync(_ chainId: String) -> Bool {
-        capability(for: chainId)?.supportsHistorySync ?? false
+        supports(.historySync, chainId: chainId)
     }
 
     static func supportsCustomRPC(displayName: String) -> Bool {
-        orderedCapabilities.contains { $0.displayName == displayName && $0.supportsCustomRPC }
+        orderedCapabilities.contains { capability in
+            capability.displayName == displayName &&
+            isVisible(capability.chainId) &&
+            capability.supportsCustomRPC
+        }
     }
 }

@@ -175,6 +175,18 @@ struct ContentView: View {
         case swap      = "Swap"
 
         var id: String { rawValue }
+        static var visibleCases: [SidebarItem] {
+            allCases.filter { item in
+                switch item {
+                case .swap:
+                    return ChainCapabilityRegistry.hasVisibleSupport(for: .swap) ||
+                        ChainCapabilityRegistry.hasVisibleSupport(for: .bridge)
+                default:
+                    return true
+                }
+            }
+        }
+
         var icon: String {
             switch self {
             case .portfolio: return "chart.pie.fill"
@@ -241,7 +253,7 @@ struct ContentView: View {
                 
                 // Custom themed navigation items
                 VStack(spacing: 4) {
-                    ForEach(SidebarItem.allCases) { item in
+                    ForEach(SidebarItem.visibleCases) { item in
                         SidebarNavButton(
                             label: item.rawValue,
                             icon: item.icon,

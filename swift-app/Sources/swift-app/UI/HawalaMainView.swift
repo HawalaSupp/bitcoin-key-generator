@@ -214,6 +214,18 @@ struct HawalaMainView: View {
         case discover = "Discover"
         case buySell = "Buy & Sell"
         case swap = "Swap"
+
+        static var visibleCases: [NavigationTab] {
+            allCases.filter { tab in
+                switch tab {
+                case .swap:
+                    return ChainCapabilityRegistry.hasVisibleSupport(for: .swap) ||
+                        ChainCapabilityRegistry.hasVisibleSupport(for: .bridge)
+                default:
+                    return true
+                }
+            }
+        }
         
         var icon: String {
             switch self {
@@ -1027,7 +1039,7 @@ struct HawalaMainView: View {
             
             // Navigation tabs (Portfolio, Discover)
             HStack(spacing: 4) {
-                ForEach(NavigationTab.allCases.filter { $0 != .activity }, id: \.self) { tab in
+                ForEach(NavigationTab.visibleCases.filter { $0 != .activity }, id: \.self) { tab in
                     liquidGlassTab(tab)
                 }
             }
@@ -2066,19 +2078,22 @@ struct HawalaMainView: View {
                     }
                     .padding(.horizontal, HawalaTheme.Spacing.xl)
                     
-                    // Wide swap & bridge card
-                    DiscoverBentoCard(
-                        icon: "arrow.triangle.2.circlepath",
-                        title: "Swap & Bridge",
-                        description: "Swap tokens and bridge assets across chains instantly",
-                        color: .purple,
-                        size: .wide
-                    ) {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                            showSwapBridgeOverlay = true
+                    if ChainCapabilityRegistry.hasVisibleSupport(for: .swap) ||
+                        ChainCapabilityRegistry.hasVisibleSupport(for: .bridge) {
+                        // Wide swap & bridge card
+                        DiscoverBentoCard(
+                            icon: "arrow.triangle.2.circlepath",
+                            title: "Swap & Bridge",
+                            description: "Swap tokens and bridge assets across chains instantly",
+                            color: .purple,
+                            size: .wide
+                        ) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                showSwapBridgeOverlay = true
+                            }
                         }
+                        .padding(.horizontal, HawalaTheme.Spacing.xl)
                     }
-                    .padding(.horizontal, HawalaTheme.Spacing.xl)
                 }
                 
                 // ── Account Abstraction ──

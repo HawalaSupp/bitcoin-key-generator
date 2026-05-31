@@ -1,14 +1,39 @@
-# Hawala - Multi-Chain Cryptocurrency Wallet
+# Hawala - Security-First Multi-Chain Cryptocurrency Wallet
 
-A comprehensive multi-chain cryptocurrency wallet with Rust backend and SwiftUI macOS/iOS interface. Supports 40+ blockchains with cutting-edge features including ERC-4337 account abstraction, hardware wallet integration, and cross-chain bridging.
+Hawala is a pre-production, security-first cryptocurrency wallet with a Rust backend and native SwiftUI macOS interface. The codebase contains broad multi-chain and cutting-edge wallet work, but public product claims must follow the code-owned capability registry and production readiness gates in `docs/HAWALA_PRODUCTION_READY_MASTER_ROADMAP.md`.
+
+Current public launch candidates are intentionally conservative: Bitcoin, Litecoin, Ethereum, Solana, XRP, and selected Ethereum ERC-20 token flows. Additional chains and advanced features remain internal until they are real-provider backed, tested end to end, recoverable, observable, and security-reviewed.
 
 ## Overview
 
-Hawala combines Rust cryptographic primitives with a native SwiftUI front-end to provide a secure, feature-rich wallet experience. The Rust backend handles all cryptographic operations, transaction signing, and blockchain communication, while the Swift layer provides an elegant GUI.
+Hawala combines Rust cryptographic primitives with a native SwiftUI front-end to provide a secure wallet experience. The Rust backend handles cryptographic operations, transaction signing, chain logic, and FFI-facing wallet services, while the Swift layer provides onboarding, portfolio, transaction, security, backup, and settings workflows.
+
+This repository is being moved toward a production discipline where incomplete features are hidden from normal builds instead of being marketed early.
 
 ## Features
 
-### Supported Blockchains (40+)
+### Chain Scope
+
+Production visibility is governed by `swift-app/Sources/swift-app/Utilities/ChainCapabilityRegistry.swift`.
+
+**Launch candidates:**
+- Bitcoin
+- Litecoin
+- Ethereum
+- Solana
+- XRP
+- Selected Ethereum ERC-20 token cards
+
+**Internal or deferred until gated:**
+- EVM L2s and alternate L1s
+- Cosmos/IBC flows
+- Swaps and bridges
+- Staking
+- Hardware wallet signing
+- Lightning and Ordinals
+- ERC-4337, EIP-7702, passkeys, and other advanced account features
+
+### Broader Implemented / Experimental Chain Work
 
 **Major Chains:**
 - Bitcoin (BTC) - SegWit, Taproot, RBF

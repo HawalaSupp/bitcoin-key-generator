@@ -210,7 +210,7 @@ extension AllKeys {
         // MARK: - Extended Chain Support (16 new chains)
         cards.append(contentsOf: extendedChains)
 
-        return cards
+        return ChainCapabilityRegistry.visibleChains(from: cards)
     }
     
     // MARK: - Wallet Core Chains
