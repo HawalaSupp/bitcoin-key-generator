@@ -1,0 +1,46 @@
+[advisories]
+db-urls = ["https://github.com/rustsec/advisory-db"]
+ignore = [
+  # Solana SDK transitively depends on ed25519-dalek 1.x / curve25519-dalek 3.x.
+  # Launch use is documented in docs/SECURITY_BASELINE_PHASE_2.md and must be
+  # removed or re-accepted before public beta.
+  "RUSTSEC-2022-0093",
+  "RUSTSEC-2024-0344",
+  # sharks has no patched release. Shamir recovery is non-launch/internal until
+  # replaced or externally reviewed.
+  "RUSTSEC-2024-0398",
+  # Transitive sha3/keccak yanked warning remains until upstream exposes a
+  # patched compatible release path.
+  { crate = "keccak@0.1.5", reason = "Transitive warning only; tracked in Phase 2 security baseline." },
+]
+
+[licenses]
+confidence-threshold = 0.8
+allow = [
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "MITNFA",
+  "MPL-2.0",
+  "OpenSSL",
+  "Unicode-3.0",
+  "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[licenses.private]
+ignore = true

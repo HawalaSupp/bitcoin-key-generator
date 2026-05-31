@@ -9,6 +9,8 @@ This directory contains documentation for the Hawala multi-chain cryptocurrency 
 - [HAWALA_MARKETING_AND_LAUNCH_PLAN.md](HAWALA_MARKETING_AND_LAUNCH_PLAN.md) - Launch, marketing, support, and trust roadmap
 - [HAWALA_LAUNCH_CAPABILITY_MATRIX.md](HAWALA_LAUNCH_CAPABILITY_MATRIX.md) - Launch/internal/deferred chain capability guidance
 - [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md) - Build, CI, signing, notarization, and release runbook
+- [SECURITY_BASELINE_PHASE_2.md](SECURITY_BASELINE_PHASE_2.md) - Closed beta security gates and RustSec risk ledger
+- [KEY_LIFECYCLE.md](KEY_LIFECYCLE.md) - Key, seed, backup, signing, and diagnostics lifecycle
 
 ### Core Documentation
 - [rust.md](rust.md) - Rust backend architecture, FFI design, and cryptographic primitives

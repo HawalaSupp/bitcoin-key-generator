@@ -134,31 +134,31 @@ cargo run --manifest-path rust-app/Cargo.toml --bin rust-app
 
 ```
 === Bitcoin (P2WPKH) ===
-Private key (hex): 199de1c9e4e8f956b9e86cee3db535b454c4cde23e8383df593822a5e1a49343
-Private key (WIF): Kx5WKxAJzhcLURwRmGWnJd5ZULtxH5H6wgBrydn6c8hpMtaKgVcw
+Private key (hex): <redacted>
+Private key (WIF): <redacted>
 Public key (compressed hex): 02f8946397c7a300f9fca1b330fbe8245b9689807b9d1304e15b5c57aa1d115fee
 Bech32 address (P2WPKH): bc1qjvkdhpem3jn4mkgkw33dyn4pkvjtgwn0fkdcp0
 
 === Litecoin (P2WPKH) ===
-Private key (hex): a9019e155008668cbdd2ce55a5897974db124e4093c70238a77313777391cb71
-Private key (WIF): T8iW9Y1D14CWXt2GKguKUeuD9rjXNA5A9ryVoSf6P6cA7jTuD3CH
+Private key (hex): <redacted>
+Private key (WIF): <redacted>
 Public key (compressed hex): 03e0d2111bb267f90fb97a36ba18498ac02eaac27f283cd7d5bc362c47c6164205
 Bech32 address (P2WPKH): ltc1qaxk6ufcra7zqtwjr4pr735qyqpt7ze0qsdhl2l
 
 === Monero ===
-Private spend key (hex): f95df22597a1a57e53f01ebcc99e3bf960bf385a6336275fe00f3f0586dd120f
-Private view key (hex): 9a60e85975eee493d02bb9a4510140b10e8b3034173e46fa04a8ddb780408c09
+Private spend key (hex): <redacted>
+Private view key (hex): <redacted>
 Public spend key (hex): 11965f4aa9f70a25b8f03c63866cce6022efa2a776821315d1506c0ed4c30146
 Public view key (hex): 0ca8ea93d2382fd5eae436efa73d2be3a0f06142929b13cd3cf5b803709cb64c
 Primary address: 2qQ58Yj8DehbXa6giABS3n4GGXpWPEfWo1J86KCb31yN8u7WRekjknh8EVSY8pxo1v4HDiaYg1pWeXYZGGvh8JeG11d8
 
 === Solana ===
-Private seed (hex): 4d183c5feead109bbca0b8b9cfd2daa6ebe35d6fda3e52aba7913a2ef1ea196a
-Private key (base58): 2YQAfkg5CKzRfosHwyyawSSWjSvZDXXmoHUixchJswAZB5ycqTcRwWRCWu9Q3Dt83gBoNzSkTCS6QFrY1dTtenU
+Private seed (hex): <redacted>
+Private key (base58): <redacted>
 Public key / address (base58): 69nuU4m1QEb9VtERKxqty2ZShWK83wzocUn1BbCrCFpA
 
 === Ethereum ===
-Private key (hex): e1d53f00d25ea0557b353829a85bb256973ea5d89c7b49f5346c27b49abfddaa
+Private key (hex): <redacted>
 Public key (uncompressed hex): 6fbfdce9eea7d83511bd133c456bb10952e371bf34c13db3ded45c95bef5a0e6b4ed7164c56bdb
 Checksummed address: 0x7160a854BA41D4F3099C6a366bA0201f7756E719
 ```

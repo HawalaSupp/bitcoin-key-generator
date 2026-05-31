@@ -14,4 +14,7 @@ swift test --package-path "$ROOT_DIR/swift-app"
 echo "Checking production guardrails..."
 "$ROOT_DIR/scripts/check_production_guards.sh"
 
+echo "Running security audit..."
+"$ROOT_DIR/scripts/security_audit.sh"
+
 echo "Tests finished successfully."

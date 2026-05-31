@@ -83,9 +83,13 @@ enum EdgeCaseGuards {
     
     private static let recentSendsKey = "hawala.recentSends"
     private static let recentSendWindowSeconds: TimeInterval = 120 // 2 minutes
+    private static let recentSendsLock = NSLock()
     
     /// Record a send to the given address on the given chain.
     static func recordSend(to address: String, chain: String) {
+        recentSendsLock.lock()
+        defer { recentSendsLock.unlock() }
+
         var recents = loadRecentSends()
         recents.append(RecentSend(address: address, chain: chain, timestamp: Date().timeIntervalSince1970))
         // Keep only last 20
@@ -96,6 +100,9 @@ enum EdgeCaseGuards {
     /// Check if a send to this address+chain was recently made.
     /// Returns true if a duplicate is detected within the time window.
     static func isDuplicateSend(to address: String, chain: String) -> Bool {
+        recentSendsLock.lock()
+        defer { recentSendsLock.unlock() }
+
         let recents = loadRecentSends()
         let cutoff = Date().timeIntervalSince1970 - recentSendWindowSeconds
         return recents.contains { $0.address == address && $0.chain == chain && $0.timestamp > cutoff }
@@ -115,6 +122,7 @@ enum EdgeCaseGuards {
     private static func saveRecentSends(_ sends: [RecentSend]) {
         if let data = try? JSONEncoder().encode(sends) {
             UserDefaults.standard.set(data, forKey: recentSendsKey)
+            UserDefaults.standard.synchronize()
         }
     }
     
